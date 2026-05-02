@@ -1,5 +1,6 @@
 package com.ylcloud.mapper;
 
+import com.ylcloud.VO.UserLoginVO;
 import com.ylcloud.entity.User;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
