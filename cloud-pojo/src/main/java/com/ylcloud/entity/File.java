@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 public class File {
     private Long fileId;
 
-    private Long fileUuid;
+    private String fileUuid;
 
     private boolean isDir;
 

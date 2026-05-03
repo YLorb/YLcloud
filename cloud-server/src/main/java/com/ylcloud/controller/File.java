@@ -3,11 +3,9 @@ package com.ylcloud.controller;
 import com.ylcloud.Result;
 import com.ylcloud.VO.FileVO;
 import com.ylcloud.service.FileService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
@@ -24,5 +22,10 @@ public class File {
     @PostMapping("/upload")
     public Result<FileVO> upload(@RequestParam("file") MultipartFile file) {
         return Result.success(fileService.upload(file));
+    }
+
+    @GetMapping("/download/{fileUuid}")
+    public void download(@PathVariable String fileUuid, HttpServletResponse response) {
+        fileService.downloadFile(fileUuid,response);
     }
 }

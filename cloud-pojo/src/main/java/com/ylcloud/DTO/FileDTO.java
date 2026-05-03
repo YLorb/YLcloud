@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 public class FileDTO {
     private Long fileId;
 
-    private Long fileUuid;
+    private String fileUuid;
 
     private boolean isDir;
 
@@ -27,6 +27,8 @@ public class FileDTO {
     private String md5;
 
     private String hash;
+
+    private Integer status;
 
     private LocalDateTime createTime;
 
