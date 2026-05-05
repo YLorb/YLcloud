@@ -4,7 +4,13 @@ server:
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    //url: jdbc:mysql://localhost:3306/ylcloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
     url: jdbc:mysql://115.190.248.192:3306/ylcloud?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
     username: ylcloud
     password: Ne7eSAPJ42HNTTsv
+
+ylcloud:
+  minio:
+    endpoint: http://222.186.34.64:9000
+    accessKey: NxKYwB6wpZee35VZfGIZ
+    secretKey: 0mOvIMQpBK0HzQNHG46uJ2StzliNwJjZaA5Zhfyh
+    bucket-name: localbucket1

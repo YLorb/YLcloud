@@ -2,18 +2,24 @@ package com.ylcloud.controller;
 
 import com.ylcloud.Result;
 import com.ylcloud.VO.FileVO;
+import com.ylcloud.context.BaseContext;
 import com.ylcloud.service.FileService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.internal.concurrent.TaskRunner;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 @RestController
 @Slf4j
-@RequestMapping("/file")
+@RequestMapping("/api/file")
 public class File {
 
-    private final FileService fileService;
+    @Autowired
+    private FileService fileService;
 
     public File(FileService fileService) {
         this.fileService = fileService;
@@ -27,5 +33,17 @@ public class File {
     @GetMapping("/download/{fileUuid}")
     public void download(@PathVariable String fileUuid, HttpServletResponse response) {
         fileService.downloadFile(fileUuid,response);
+    }
+
+    @GetMapping("/list")
+    public Result<List<FileVO>> listFiles() {
+        Long userId = BaseContext.getCurrentId();
+        List<FileVO> files = fileService.listFiles(userId);
+        return Result.success(files);
+    }
+
+    @GetMapping("/bucket")
+    public Result<Boolean> bucket_exists() {
+        return Result.success(fileService.bucketExists());
     }
 }

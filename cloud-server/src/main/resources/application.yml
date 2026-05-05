@@ -10,3 +10,10 @@ spring:
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
+
+ylcloud:
+  minio:
+    endpoint: ${ylcloud.minio.endpoint}
+    accessKey: ${ylcloud.minio.accessKey}
+    secretKey: ${ylcloud.minio.secretKey}
+    bucket-name: ${ylcloud.minio.bucket-name}

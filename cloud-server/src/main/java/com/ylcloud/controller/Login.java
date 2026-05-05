@@ -6,13 +6,14 @@ import com.ylcloud.VO.UserLoginVO;
 import com.ylcloud.service.LoginService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.ibatis.annotations.Param;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@RequestMapping("/api")
 @Slf4j
 public class Login {
 
@@ -28,6 +29,7 @@ public class Login {
     public Result<UserLoginVO> login(@RequestBody @Valid UserLoginDTO userLoginDTO) {
         log.info("用户尝试登录：{}", userLoginDTO); // TODO:密码变更为加密存储
         UserLoginVO user = loginService.login(userLoginDTO);
+        log.info("result:用户id：{}，token内部id：{}",user.getId(),user.getToken());
         return Result.success(user);
     }
 }

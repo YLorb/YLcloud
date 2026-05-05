@@ -8,6 +8,7 @@ import io.minio.messages.Item;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.IOUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,10 +27,13 @@ public class MinioclientUtil {
     private MinioClient minioClient;
     private final String DEFAULT_BUCKET = "localbucket1";
 
-    public MinioclientUtil() {
+    public MinioclientUtil(
+            @Value("${ylcloud.minio.endpoint}") String endpoint,
+            @Value("${ylcloud.minio.accessKey}") String accessKey,
+            @Value("${ylcloud.minio.secretKey}") String secretKey ) {
         minioClient = MinioClient.builder()
-                .endpoint("http://222.186.34.64:9000")
-                .credentials("minioadmin","minioadmin")
+                .endpoint(endpoint)
+                .credentials(accessKey,secretKey)
                 .build();
     }
 

@@ -9,11 +9,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 @Component // 告诉spring在应用启动是需要在application context中创建这个类的一个实例。用于标识与自动注册组件类
 @RequiredArgsConstructor // @RequiredArgsConstructor:自动生成包含必须参数的构造函数
 // implements：表示对接口的实现 entends: 表示对父类的继承
+@RequestMapping("/api")
 @Slf4j
 public class JwtTokenInterceptor implements HandlerInterceptor {
 
@@ -72,7 +74,8 @@ public class JwtTokenInterceptor implements HandlerInterceptor {
             request.setAttribute("userId",userId);
             BaseContext.setCurrentId(userId);
             request.setAttribute("username",claims.getSubject());
-            log.info("用户信息已存入请求属性，用户名:{}",claims.getSubject());
+            log.info("parsed username={}, userId={}", claims.getSubject(), userId);
+            log.info("用户信息已存入请求属性，用户名:{}，用户id:{}",claims.getSubject(),userId);
         } catch (Exception e) {
             log.warn("令牌解析失败：{}",e.getMessage());
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
