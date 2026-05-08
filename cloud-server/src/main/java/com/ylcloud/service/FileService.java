@@ -170,4 +170,31 @@ public class FileService {
         }
         return true;
     }
+
+    /**
+     * 重命名文件
+     * @param fileUuid
+     * @param newName
+     */
+    public FileVO renameFile(String fileUuid, String newName) {
+        FileVO fileVO = new FileVO();
+        File file = fileInfoMapper.getByFileUuid(fileUuid);
+        Long userId = BaseContext.getCurrentId();
+        if(newName == null || newName.trim().isEmpty()) {
+            throw new RuntimeException("文件名不能为空");
+        }
+        if(file == null) {
+            log.error("文件不存在{}",fileUuid);
+            throw new RuntimeException("没有该文件，重命名失败");
+        }
+        if(userId.equals(file.getUserId()) || file.getStatus() == StatusConstant.DISABLE) {
+            log.error("文件所属错误/文件不可用:{}",fileUuid);
+            throw new RuntimeException("文件不可用，重命名失败");
+        }
+        int rows = fileInfoMapper.updateName(fileUuid,newName,BaseContext.getCurrentId(),LocalDateTime.now());
+        if(rows == 0) {throw new RuntimeException("文件重命名失败");}
+
+        file = fileInfoMapper.getByFileUuid(fileUuid);
+        return toFileVO(file);
+    }
 }

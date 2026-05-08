@@ -3,11 +3,10 @@ package com.ylcloud.mapper;
 import com.ylcloud.DTO.FileDTO;
 import com.ylcloud.VO.FileVO;
 import com.ylcloud.entity.File;
-import org.apache.ibatis.annotations.Insert;
-import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.*;
 
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 
 @Mapper
@@ -29,4 +28,12 @@ public interface FileInfoMapper {
             "values " +
             "(#{fileUuid},#{isDir},#{userId},#{parentId},#{name},#{type},#{size},#{path},#{md5},#{hash},#{status},#{createTime},#{updateTime})")
     void insertFileInfo(FileDTO fileDTO);
+
+    @Update("update file_info " +
+            "set name = #{newName}," +
+            "updatetime = #{updateTime}" +
+            "where file_uuid = #{fileUuid}" +
+            "and user_id = #{userId}" +
+            "and status = 1")
+    int updateName(String fileUuid, String newName, Long userId, LocalDateTime updateTime);
 }
