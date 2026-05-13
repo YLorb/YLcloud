@@ -15,6 +15,7 @@ import java.util.List;
 @RestController
 @Slf4j
 @RequestMapping("/api/file")
+//@RequestMapping("/api/files)
 public class File {
 
     @Autowired
@@ -25,8 +26,9 @@ public class File {
     }
 
     @PostMapping("/upload")
-    public Result<FileVO> upload(@RequestParam("file") MultipartFile file) {
-        return Result.success(fileService.upload(file));
+    public Result<FileVO> upload(@RequestParam("file") MultipartFile file,
+                                 @RequestParam(value = "parentId",defaultValue = "0") Long parentId) {
+        return Result.success(fileService.upload(file,parentId));
     }
 
     @GetMapping("/download/{fileUuid}")
@@ -35,23 +37,22 @@ public class File {
     }
 
     @PutMapping("/rename/{fileUuid}")
-    public Result rename(@PathVariable String fileUuid, @RequestParam String new_name) {
+    public Result<FileVO> rename(@PathVariable String fileUuid, @RequestParam String new_name) {
         return Result.success(fileService.renameFile(fileUuid,new_name));
     }
 
-
-
-    /*@PutMapping("/delete/{fileUuid}")
+    @DeleteMapping("/{fileUuid}")
     public Result<Boolean> delete(@PathVariable String fileUuid) {
         return Result.success(fileService.deleteFile(fileUuid));
-    }*/
-
-    //@PostMapping("makefile/{is_Dir}")
-    /*
-    public Result<FileVO> makefile(@PathVariable Integer is_Dir) {
-        return Result.success(fileService.makefile(is_Dir));
     }
-     */
+
+    @PostMapping("/{is_Dir}")
+    public Result<FileVO> makefile(@PathVariable boolean is_Dir,
+                                   @RequestParam("ParentId") Long parentId,
+                                   @RequestParam("Name") String name,
+                                   @RequestParam("type") String type) {
+        return Result.success(fileService.makefile(is_Dir,parentId,name,type));
+    }
 
     @GetMapping("/list")
     public Result<List<FileVO>> listFiles() {

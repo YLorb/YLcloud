@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.URLEncoder;
@@ -151,6 +152,19 @@ public class MinioclientUtil {
                 .filename(fileDTO.getName())
                 .build());
 
+    }
+
+    /**
+     * 创建空对象
+     */
+    //TODO:需要理解这里的代码
+    public void putEmptyObject(String objectName) throws Exception {
+        minioClient.putObject(PutObjectArgs.builder()
+                .bucket(DEFAULT_BUCKET)
+                .object(objectName)
+                .stream(new ByteArrayInputStream(new byte[0]),0,-1)
+                .contentType("application/octet-stream")
+                .build());
     }
 
     /**
