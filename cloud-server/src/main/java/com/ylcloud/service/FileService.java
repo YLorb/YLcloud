@@ -1,11 +1,13 @@
 package com.ylcloud.service;
 
 import com.ylcloud.DTO.FileDTO;
+import com.ylcloud.DTO.UserFileDTO;
 import com.ylcloud.VO.FileVO;
 import com.ylcloud.constant.NameConstant;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.context.BaseContext;
 import com.ylcloud.entity.File;
+import com.ylcloud.entity.User;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.utils.HashUtil;
 import com.ylcloud.utils.Md5Util;
@@ -20,7 +22,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Queue;
 
 @Service
 @Slf4j
@@ -43,28 +48,81 @@ public class FileService {
         return fileVO;
     }
 
-    private String getFileType(String fileName) {
-        if (fileName == null) {
-            return "";
-        }
-        int index = fileName.lastIndexOf('.');
-        if (index == -1 || index == fileName.length() - 1) {
-            return "";
-        }
-        return fileName.substring(index + 1);
+    private boolean file_Status(String fileUuid) {
+        return fileInfoMapper.getFileStatus(fileUuid);
     }
 
-    private String getPath(String fileUuid,Long userId) {
-        Long father = null;
-        File file_now = fileInfoMapper.getByFileUuid(fileUuid,userId);
-        String path = file_now.getName();
+    private File File_Info(String fileUuid,Long userId) {
+        File file = fileInfoMapper.getFileInfo(fileUuid,userId);
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
+        file.setUpdateTime(userFileDTO.getUpdatetime());
+        file.setPath(userFileDTO.getPath());
+        file.setName(userFileDTO.getFileName());
+        file.setParentId(userFileDTO.getParentId());
+        file.setUserId(userId);
+        return file;
+    }
+
+    private String getFileType(String name) {
+        return name.substring(name.lastIndexOf("."));
+    }
+
+    /**
+     * 从数据库中获取对应文件，返回文件类型
+     * @param fileUuid
+     * @param userId
+     * @return
+     */
+
+    private String getFileType(String fileUuid,Long userId) {
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
+        if(userFileDTO == null) {
+            log.warn("getFileType 正在调取一个不属于用户的文件");
+            throw new RuntimeException("获取文件类型失败！");
+        }
+        File file = fileInfoMapper.getFileByFileUuid(fileUuid,userId);
+        return file.getType();
+    }
+
+    /**
+     * 从名字中获取文件类型（文件后缀）
+     * @param fileName
+     * @return
+     */
+
+    private String setFileType(String fileName) {
+        String suffix = fileName.substring(fileName.lastIndexOf("."));
+        if(suffix == null) suffix = ".txt";
+        return suffix;
+    }
+
+    /**
+     * 获取文件路径
+     * 通过不断询问父亲的名字实现。
+     * @param fileId
+     * @param userId
+     * @return
+     */
+    private String getPath(Long fileId,Long userId) {
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileId(fileId,userId);
+        if(userFileDTO == null) {
+            log.warn("文件不存在！路径错误！{},{}",fileId,userId);
+            throw new RuntimeException("获取路径失败");
+        }
+        if(userFileDTO.getParentId() == 0L || userFileDTO.getParentId() == fileId) {
+            return "/";
+        }
+        return userFileDTO.getPath() + userFileDTO.getFileName() + "/";
+        /*UserFileDTO file_now = fileInfoMapper.getFileByFileId(fileId,userId);
+        if(file_now != null) {
+            return file_now.getPath();
+        }
         if(file_now.getParentId() == 0L) {
             return "/";
         }
-        father = normalizeParentId(file_now.getParentId(),userId);
-        //File file_father = fileInfoMapper.getByFileUuid();
-        path = getPath(String.valueOf(father),userId) + path;
-        return path;
+        Long father = normalizeParentId(file_now.getParentId(),userId);
+        String path = ""; // TODO：逻辑未闭环，需要立即重构所有的逻辑。
+        path = getPath(father,userId) + path;*/
     }
 
     /**
@@ -76,27 +134,25 @@ public class FileService {
 
     private Long normalizeParentId(Long parentId, Long userId) {
         if (parentId == null || parentId == 0L) {
-            File root = fileInfoMapper.getRootDirByUserId(userId);
+            UserFileDTO root = fileInfoMapper.getRootDirByUserId(userId);
             if (root != null) {
-                return root.getFileId();
+                return root.getId();
             }
 
             LocalDateTime now = LocalDateTime.now();
-            root = File.builder()
+            root = UserFileDTO.builder()
                     .fileUuid(UuidUtil.randomUuid())
-                    .dir(true)
+                    .Dir(1)
                     .userId(userId)
                     .parentId(0L)
-                    .name("/")
-                    .type("dir")
-                    .size(0L)
+                    .fileName("/")
                     .path("/")
                     .status(1)
-                    .createTime(now)
-                    .updateTime(now)
+                    .createtime(now)
+                    .updatetime(now)
                     .build();
-            fileInfoMapper.insertFileInfo(root);
-            return root.getFileId();
+            fileInfoMapper.insertFile_User(root);
+            return root.getId();
         }
 
         if (!fileInfoMapper.ParentIdExist(parentId, userId)) {
@@ -122,10 +178,11 @@ public class FileService {
      */
     public FileVO upload(MultipartFile uploadFile,Long parentId) {
         FileDTO fileDTO = new FileDTO();
+        Long userId = BaseContext.getCurrentId();
         if (uploadFile == null || uploadFile.isEmpty()) {
+            log.warn("用户正在尝试上传一个空文件");
             throw new RuntimeException("上传文件不能为空");
         }
-        Long userId = BaseContext.getCurrentId();
         parentId = normalizeParentId(parentId, userId);
 
 
@@ -140,27 +197,49 @@ public class FileService {
 
         log.info("文件名：{}，MD5：{}，hash：{}", uploadFile.getOriginalFilename(), md5, hash);
 
-        File existingFile = fileInfoMapper.getByHash(hash,parentId,userId);
+        File existingFile = fileInfoMapper.getFileByHash(hash,parentId,userId);
         if (existingFile != null && existingFile.getParentId().equals(parentId)) {
             log.info("文件已存在，返回已有文件信息");
             return toFileVO(existingFile);
         }
         String fileUuid = UuidUtil.randomUuid();
+        File exist = fileInfoMapper.getFileByHash(hash);
         File file = File.builder()
-                .userId(userId)
                 .name(uploadFile.getOriginalFilename())
+                .fileUuid(fileUuid)
+                .dir(false)
                 .type(getFileType(uploadFile.getOriginalFilename()))
                 .size(uploadFile.getSize())
-                .fileUuid(fileUuid)
                 .hash(hash)
                 .md5(md5)
-                .dir(false)
-                .parentId(parentId)
                 .status(1)
                 .createTime(LocalDateTime.now())
                 .updateTime(LocalDateTime.now())
                 .build();
+        UserFileDTO file_user = UserFileDTO.builder()
+                .userId(userId)
+                .parentId(parentId)
+                .fileUuid(fileUuid)
+                .fileName(uploadFile.getOriginalFilename())
+                .status(1)
+                .Dir(0)
+                .path(null)
+                .createtime(file.getCreateTime())
+                .updatetime(file.getUpdateTime()).build();
         log.info("文件{}基本信息设置完成，现在开始上传",uploadFile.getName());
+
+        if(exist != null) {
+            file_user.setFileUuid(existingFile.getFileUuid());
+            file_user.setDir(exist.getDir()?1:0);
+            file_user.setPath(getPath(parentId,userId) + "/" + uploadFile.getOriginalFilename());
+            file_user.setStatus(1);
+            try {
+                fileInfoMapper.insertFile_User(file_user);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return toFileVO(File_Info(file_user.getFileUuid(), userId));
+        }
 
         try {
             minioclientUtil.putObject(uploadFile,file.getFileUuid());
@@ -168,9 +247,11 @@ public class FileService {
            log.error("uuid编号{}文件上传失败，原因：{}",file.getFileUuid(),e.getMessage());
            throw new RuntimeException(e);
         }
+        file_user.setPath(getPath(file_user.getParentId(),userId) + file_user.getFileName());
+        fileInfoMapper.insertFileInfo(file);
+        fileInfoMapper.insertFile_User(file_user);
         log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
         log.info("文件信息已补全");
-        fileInfoMapper.insertFileInfo(file);
         return toFileVO(file);
     }
 
@@ -182,19 +263,28 @@ public class FileService {
      */
     public void downloadFile(String fileUuid, HttpServletResponse response) {
         Long userId = BaseContext.getCurrentId();
-        File file = fileInfoMapper.getByFileUuid(fileUuid,userId);
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
 
-        if(file == null || file.getStatus().equals(StatusConstant.DISABLE)) {
-            throw new RuntimeException("文件不存在或不可用");
-        }
-
-        if(!file.getUserId().equals(BaseContext.getCurrentId())) {
-            log.warn("编号为{}的用户试图通过伪造 uuid 套取文件",BaseContext.getCurrentId());
+        if(userFileDTO == null) {
+            log.warn("未找到相关文件{},{}",fileUuid,userId);
             throw new RuntimeException("文件不存在");
         }
 
+        if(!userFileDTO.getUserId().equals(userId)) {
+            log.warn("编号为{}的用户试图通过伪造 uuid 套取文件",userId);
+            throw new RuntimeException("文件不存在");
+        }
+
+        if(!file_Status(fileUuid)) {
+            log.warn("文件{}处于锁定状态",fileUuid);
+            throw new RuntimeException("文件不可用");
+        }
+
+
+        // TODO:需要考虑舍弃 FileDTO?
+        File files = fileInfoMapper.getFileByFileUuid(fileUuid,userId);
         FileDTO fileDTO = new FileDTO();
-        BeanUtils.copyProperties(file,fileDTO);
+        BeanUtils.copyProperties(files,fileDTO);
 
         try {
             minioclientUtil.getObject(fileDTO,response);
@@ -207,22 +297,18 @@ public class FileService {
 
     /**
      * 展示文件
-     * @param userId
-     * @return
-     */
-    /*public List<FileVO> listFiles(Long userId) {
-        return fileInfoMapper.listFileByUserId(userId);
-    }*/
-
-    /**
-     * 展示文件
      * @param parentId
      * @param userId
      * @return
      */
-    public List<FileVO> listFiles(Long userId,Long parentId) {
+    public List<FileVO> listFiles(Long parentId,Long userId) {
         parentId = normalizeParentId(parentId, userId);
-        return fileInfoMapper.listFileVOByparentId(parentId,userId);
+        List<UserFileDTO> list = fileInfoMapper.getUserFileList(parentId,userId);
+        List<FileVO> files = new ArrayList<>();
+        list.forEach(fileiter -> {
+            files.add( toFileVO( File_Info(fileiter.getFileUuid(),userId) ));
+        });
+        return files;
     }
 
     /**
@@ -246,56 +332,62 @@ public class FileService {
      */
     public FileVO renameFile(String fileUuid, String newName) {
         Long userId = BaseContext.getCurrentId();
-        FileVO fileVO = new FileVO();
-        File file = fileInfoMapper.getByFileUuid(fileUuid,userId);
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
         if(newName == null || newName.trim().isEmpty()) {
             throw new RuntimeException("文件名不能为空");
         }
-        if(file == null) {
+        if(userFileDTO == null) {
             log.warn("文件不存在{}",fileUuid);
             throw new RuntimeException("重命名失败");
         }
-        if(file.getStatus() == StatusConstant.DISABLE) {
+        if(userFileDTO.getStatus() == StatusConstant.DISABLE) {
             log.warn("文件{}不可用:",fileUuid);
             throw new RuntimeException("重命名失败");
         }
-        if(!userId.equals(file.getUserId())) {
+        if(!userId.equals(userFileDTO.getUserId())) { // 理论上这样的问题不会存在？
             log.warn("文件{}所属错误",fileUuid);
             throw new RuntimeException("重命名失败");
         }
 
-        List<File> files = fileInfoMapper.listFileByparentId(file.getParentId(),file.getUserId());
-        for(File fileiter:files) {
-            if(fileiter.getName().equals(newName) && fileiter.getDir() == file.getDir() /*&& fileiter.getType.equals(file.getType())*/) {
+        List<UserFileDTO> files = fileInfoMapper.listFileByparentId(userFileDTO.getParentId(),userFileDTO.getUserId());
+        for(UserFileDTO fileiter:files) {
+            if(fileiter.getFileName().equals(newName) && fileiter.getDir() == userFileDTO.getDir() /*&& fileiter.getType.equals(file.getType())*/) {
                 log.warn("同目录下存在同名文件"); // TODO:后期可能需要添加类型检查
                 throw new RuntimeException("存在同名文件,重命名失败");
             }
         }
 
-        int rows = fileInfoMapper.updateName(fileUuid,newName,BaseContext.getCurrentId(),LocalDateTime.now());
+        int rows = fileInfoMapper.updateName(fileUuid,newName,userId,LocalDateTime.now());
         if(rows == 0) {throw new RuntimeException("重命名失败");}
 
-        file = fileInfoMapper.getByFileUuid(fileUuid,userId);
-        return toFileVO(file);
+        return toFileVO(File_Info(fileUuid,userId));
+        //return toFileVO(userFileDTO);
     }
 
     //public void deleteFolder(Long folderId)
-    public boolean deleteFile(File file) {
+    /*可能需要给file_info添加一个计数器，记录有多少文件引用了这个桶的文件，没有文件引用时删除桶内文件*/
+    public boolean deleteFile(UserFileDTO userFileDTO) {
         Long userId = BaseContext.getCurrentId();
+        File file = fileInfoMapper.getFileByFileUuid(userFileDTO.getFileUuid(),userId);
         //先删除文件再删除元数据
         try {
-            minioclientUtil.removeObject(file);
+            //minioclientUtil.removeObject(file);
+            int rows = fileInfoMapper.deleteByfileUuid(userFileDTO.getFileUuid(), userId);
+            if(rows == 0) {
+                log.warn("删除文件{}失败！:",file.getFileUuid());
+                throw new RuntimeException("删除失败！原因：数据库信息未删除");
+            }
         } catch (Exception e) {
             log.warn("删除文件{}失败！:",file.getFileUuid());
             throw new RuntimeException("删除失败！原因：" + e.getMessage());
         }
 
-        int rows = fileInfoMapper.deleteByfileUuid(file.getFileUuid(),userId);
+        /*int rows = fileInfoMapper.deleteByfileUuid(userFileDTO.getFileUuid(),userId);
         if(rows == 0) {
-            log.warn("删除文件{}的文件元数据失败！",file.getFileUuid());
+            log.warn("删除文件{}的文件元数据失败！",userFileDTO.getFileUuid());
             throw new RuntimeException("删除失败");
-        }
-        log.info("删除文件{}的文件元数据成功！",file.getFileUuid());
+        }*/
+        log.info("删除文件{}的文件元数据成功！",userFileDTO.getFileUuid());
         return StatusConstant.SUCCESS;
     }
 
@@ -307,27 +399,27 @@ public class FileService {
 
     public boolean deleteFiles(String fileUuid) {
         Long userId = BaseContext.getCurrentId();
-        File file = fileInfoMapper.getByFileUuid(fileUuid,userId);
-        if(file == null) {
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
+        if(userFileDTO == null) {
             log.warn("文件{}不存在",fileUuid);
             throw new RuntimeException("删除失败");
         }
-        if(file.getStatus() == 0 || !userId.equals(file.getUserId())) {
+        if(!userId.equals(userFileDTO.getUserId()) || userFileDTO.getStatus() == 0) {
             log.warn("文件{}不可用",fileUuid);
             throw new RuntimeException("删除失败");
         }
-        if(file.getDir()) {
-            file.setParentId(-1L);
+        if(userFileDTO.getDir() == 1) {
+            userFileDTO.setParentId(-1L);
             try {
                 batchDelete(fileUuid);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
-            fileInfoMapper.deleteByfileUuid(file.getFileUuid(),userId);
+            fileInfoMapper.deleteByfileUuid(userFileDTO.getFileUuid(),userId);
             return StatusConstant.SUCCESS;
         }
         else {
-            deleteFile(file);
+            deleteFile(userFileDTO);
         }
         //TODO：将待删除的文件放入一个待删除的队列（亦或是加入一个检查事件），定时扫描，异步处理。
         //TODO: 没有递归处理文件夹
@@ -339,7 +431,7 @@ public class FileService {
      * @param deleteList
      * @return
      */
-    public Boolean deletelot(List<File> deleteList) {
+    public Boolean deletelot(List<UserFileDTO> deleteList) {
         Long userId = BaseContext.getCurrentId();
         deleteList.forEach(file -> {
             if(!file.getUserId().equals(userId)) {
@@ -348,7 +440,7 @@ public class FileService {
             }
         });
         deleteList.forEach(file -> {
-            if(file.getDir()) {
+            if(file.getDir() == 1) {
                 batchDelete(file.getFileUuid());
             }
             else {
@@ -364,14 +456,15 @@ public class FileService {
      */
     private void batchDelete(String fileUuid) {
         Long userId = BaseContext.getCurrentId();
-        File file = fileInfoMapper.getByFileUuid(fileUuid,userId);
-        if(!file.getDir()) {
-            deleteFile(file);
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
+        if(userFileDTO.getDir() == 0) {
+            deleteFile(userFileDTO);
             return ;
         }
-        List<File> files = fileInfoMapper.listFileByparentId(file.getFileId(),file.getUserId());
+
+        List<UserFileDTO> files = fileInfoMapper.listFileByparentId(userFileDTO.getId(),userFileDTO.getUserId());
         files.forEach(fileiter -> {
-            if(fileiter.getDir()) {
+            if(fileiter.getDir() == 1) {
                 batchDelete(fileiter.getFileUuid());
                 fileInfoMapper.deleteByfileUuid(fileiter.getFileUuid(),userId);
             }
@@ -387,7 +480,7 @@ public class FileService {
      * @param name
      * @return
      */
-    public FileVO makefile(boolean isDir,Long parentId,String name,String type) {
+    public FileVO makefile(int isDir,Long parentId,String name,String type) {
         Long userId = BaseContext.getCurrentId();
         if(name == null || name.length() == 0) {
             log.warn("文件名不合法:{}",name);
@@ -395,9 +488,9 @@ public class FileService {
         }
         parentId = normalizeParentId(parentId, userId);
 
-        List<File> files = fileInfoMapper.listFileByparentId(parentId,userId);
+        List<UserFileDTO> files = fileInfoMapper.listFileByparentId(parentId,userId);
         files.forEach(fileiter -> {
-            if(fileiter.getName().equals(name) && fileiter.getDir() == isDir) {
+            if(fileiter.getFileName().equals(name) && (int)fileiter.getDir() == (int)isDir) {
                 log.warn("同目录下有重名文件");
                 throw new RuntimeException("存在同名文件,请重试");
             }
@@ -419,8 +512,21 @@ public class FileService {
                 .status(1)
                 .createTime(LocalDateTime.now())
                 .updateTime(LocalDateTime.now()).build();
-        if(!isDir) {
+
+        UserFileDTO userFileDTO = UserFileDTO.builder()
+                .fileUuid(file.getFileUuid())
+                .userId(userId)
+                .fileName(name)
+                .status(1)
+                .parentId(parentId)
+                .path(getPath(parentId,userId) + file.getName())
+                .createtime(file.getCreateTime())
+                .updatetime(file.getUpdateTime())
+                .build();
+
+        if(isDir == 0) {
             file.setDir(false);
+            userFileDTO.setDir(0);
             try {
                 minioclientUtil.putEmptyObject(file.getFileUuid());
             } catch (Exception e) {
@@ -428,8 +534,16 @@ public class FileService {
                 throw new RuntimeException("新建文件失败");
             }
         }
-        else file.setDir(true);
+        else {
+            file.setDir(true); userFileDTO.setDir(1);
+        }
+
         int rows = fileInfoMapper.insertFileInfo(file);
+        if(rows == 0) {
+            log.warn("新建文件失败");
+            throw new RuntimeException("新建文件失败！");
+        }
+        rows = fileInfoMapper.insertFile_User(userFileDTO);
         if(rows == 0) {
             log.warn("新建文件失败");
             throw new RuntimeException("新建文件失败！");
@@ -451,26 +565,46 @@ public class FileService {
         注意在此之前需要审查各项数据是否合法
          */
         Long userId = BaseContext.getCurrentId();
-        File files = fileInfoMapper.getByFileId(sourceplace,userId);
-        File filet = fileInfoMapper.getByFileId(targetplace,userId);
+        UserFileDTO files = fileInfoMapper.getByFileId(sourceplace,userId);
+        UserFileDTO filet = fileInfoMapper.getByFileId(targetplace,userId);
         if(files == null || filet == null) {
             log.warn("文件归属错误!");
             throw new RuntimeException("移动失败!");
         }
-        if(!filet.getDir()) {
+        if(filet.getDir() == 0) {
             log.warn("目标位置不属于文件夹");
             throw new RuntimeException("移动失败");
         }
-        // 设置源文件的父节点为目标位置的父节点
-        files.setParentId(filet.getFileId());
 
-        int rows = fileInfoMapper.updateParent(files.getFileId(),filet.getFileId(),LocalDateTime.now());
-        if(rows == 0) {
-            log.warn("数据库修改失败!");
-            throw new RuntimeException("移动失败!");
+        if(files.getDir() == 0) {
+            // 设置源文件的父节点为目标位置的父节点
+            files.setParentId( normalizeParentId( filet.getParentId(),filet.getUserId() ) );
+
+            int rows = fileInfoMapper.updateParent(files.getId(),filet.getId(),LocalDateTime.now());
+            if(rows == 0) {
+                log.warn("数据库修改失败!");
+                throw new RuntimeException("移动失败!");
+            }
+
+            log.info("文件移动成功!");
+            return true;
         }
-
-        log.info("文件移动成功!");
+        else {
+            files.setParentId( normalizeParentId( filet.getParentId(),filet.getUserId() ) );
+            fileInfoMapper.updateParent(files.getFileUuid(),files.getParentId(),userId);
+            Queue<UserFileDTO> queue = new LinkedList<>();
+            queue.offer(fileInfoMapper.getByFileUuid(files.getFileUuid(),files.getUserId()));
+            while(!queue.isEmpty()) {
+                UserFileDTO userFileDTO = queue.poll();
+                if(userFileDTO.getDir() == 0) continue;
+                List<UserFileDTO> list = fileInfoMapper.listFileByparentId(userFileDTO.getId(),userId);
+                list.forEach(iter -> {
+                    queue.offer(iter);
+                });
+                userFileDTO.setPath(getPath(userFileDTO.getId(),userId));
+                fileInfoMapper.updatePath(userFileDTO.getFileUuid(),userFileDTO.getPath(),userId);
+            }
+        }
         return true;
     }
 }

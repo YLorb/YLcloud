@@ -48,7 +48,7 @@ public class File {
     }
 
     @PostMapping("/{is_Dir}")
-    public Result<FileVO> makefile(@PathVariable boolean is_Dir,
+    public Result<FileVO> makefile(@PathVariable int is_Dir,
                                    @RequestParam("ParentId") Long parentId,
                                    @RequestParam("Name") String name,
                                    @RequestParam("type") String type) {
@@ -58,7 +58,7 @@ public class File {
     @GetMapping("/list")
     public Result<List<FileVO>> listFiles(@RequestParam(value = "parentId",defaultValue = "0") Long parentId) {
         Long userId = BaseContext.getCurrentId();
-        List<FileVO> files = fileService.listFiles(userId,parentId);
+        List<FileVO> files = fileService.listFiles(parentId,userId);
         return Result.success(files);
     }
 
