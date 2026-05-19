@@ -1,6 +1,8 @@
 package com.ylcloud.service;
 
 import com.ylcloud.DTO.UserRegisterDTO;
+import com.ylcloud.context.BaseContext;
+import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.SignMapper;
 import com.ylcloud.entity.User;
 import com.ylcloud.constant.StatusConstant;
@@ -15,6 +17,9 @@ public class SignService {
 
     private final SignMapper signMapper;
 
+    @Autowired
+    private FileService fileService;
+
     public SignService(SignMapper signMapper) {
         this.signMapper = signMapper;
     }
@@ -26,5 +31,7 @@ public class SignService {
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         signMapper.insert(user);
+        user.setRootID(fileService.getRootId(user.getId()));
+        signMapper.updateAll(user.getRootID(),user.getId());
     }
 }

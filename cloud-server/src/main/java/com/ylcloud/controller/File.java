@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.lang.annotation.Target;
 import java.util.List;
 
 @RestController
@@ -43,7 +44,7 @@ public class File {
 
     @DeleteMapping("/{fileUuid}")
     public Result<Boolean> delete(@PathVariable String fileUuid) {
-        return Result.success(fileService.deleteFile(fileUuid));
+        return Result.success(fileService.deleteFiles(fileUuid));
     }
 
     @PostMapping("/{is_Dir}")
@@ -55,14 +56,19 @@ public class File {
     }
 
     @GetMapping("/list")
-    public Result<List<FileVO>> listFiles() {
+    public Result<List<FileVO>> listFiles(@RequestParam(value = "parentId",defaultValue = "0") Long parentId) {
         Long userId = BaseContext.getCurrentId();
-        List<FileVO> files = fileService.listFiles(userId);
+        List<FileVO> files = fileService.listFiles(userId,parentId);
         return Result.success(files);
     }
 
     @GetMapping("/bucket")
     public Result<Boolean> bucket_exists() {
         return Result.success(fileService.bucketExists());
+    }
+
+    @PutMapping("/move")
+    public Result<Boolean> movefiles(@RequestParam Long sourceplace, @RequestParam Long targetplace) {
+        return Result.success(fileService.movefiles(sourceplace,targetplace));
     }
 }

@@ -15,6 +15,8 @@ public class User {
 
     private String nickname;
 
+    private Long rootID;
+
     private String email;
 
     private String avatar;
