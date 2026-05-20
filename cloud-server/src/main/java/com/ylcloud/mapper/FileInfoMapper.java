@@ -27,6 +27,16 @@ public interface FileInfoMapper {
             "and status = 1")
     UserFileDTO getByFileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
 
+
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
+            "where file_uuid = #{fileUuid} " +
+            "and user_id = #{userId} " +
+            "and parent_id = #{parentId} " +
+            "and status = 1")
+    UserFileDTO getByFileUuid(@Param("fileUuid") String fileUuid, @Param("parentId") Long parentId,@Param("userId") Long userId);
+
     @Select("select file_id as fileId, file_uuid as fileUuid, is_dir as dir, " +
             "name, type, size, md5, hash, status, " +
             "createtime as createTime, updatetime as updateTime " +
@@ -61,7 +71,11 @@ public interface FileInfoMapper {
                        @Param("parentId") Long parentId,
                        @Param("userId") Long userId);
 
-    @Select("select * from file_info where hash = #{hash}")
+    // TODO(Codex): replace select * with explicit aliases for stable File field mapping.
+    @Select("select * from file_info " +
+            "where hash = #{hash} " +
+            "and status = 1 " +
+            "limit 1")
     File getFileByHash(@Param("hash") String hash);
 
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
@@ -116,9 +130,9 @@ public interface FileInfoMapper {
                                          @Param("userId") Long userId);
 
     @Options(useGeneratedKeys = true, keyProperty = "fileId", keyColumn = "file_id")
-    @Insert("insert into file_info(file_uuid, is_dir, name, type, size, md5, hash, status, createtime, updatetime) " +
+    @Insert("insert into file_info(file_uuid, is_dir, name, type, size, md5, hash, status, count, createtime, updatetime) " +
             "values " +
-            "(#{fileUuid}, #{dir}, #{name}, #{type}, #{size}, #{md5}, #{hash}, #{status}, #{createTime}, #{updateTime})")
+            "(#{fileUuid}, #{dir}, #{name}, #{type}, #{size}, #{md5}, #{hash}, #{status}, #{count}, #{createTime}, #{updateTime})")
     int insertFileInfo(File file);
 
     @Update("update user_file " +
@@ -134,8 +148,14 @@ public interface FileInfoMapper {
 
     @Delete("delete from user_file " +
             "where file_uuid = #{fileUuid} " +
+            "and user_id = #{userId} " +
+            "and parent_id = #{parentId}")
+    int deleteByfileUuid(@Param("fileUuid") String fileUuid,@Param("parentId") Long parentId,@Param("userId") Long userId);
+
+    @Delete("delete from user_file " +
+            "where ID = #{id} " +
             "and user_id = #{userId}")
-    int deleteByfileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
+    int deleteByFileId(@Param("id")Long id,@Param("userId") Long userId);
 
     @Select("select fi.file_id as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.user_id as userId, uf.parent_id as parentId, uf.file_name as name, " +
@@ -183,7 +203,7 @@ public interface FileInfoMapper {
 
     @Delete("delete from file_info " +
             "where file_uuid = #{fileUuid}")
-    int delete_fileinfo_ByfileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
+    int delete_fileinfo_ByfileUuid(@Param("fileUuid") String fileUuid);
 
     @Select("select count(1) > 0 " +
             "from file_info " +
@@ -193,11 +213,25 @@ public interface FileInfoMapper {
 
     @Update("update user_file " +
             "set path = #{path} " +
-            "where file_uuid = #{fileUuid} and user_id = #{userId}")
-    void updatePath(@Param("fileUuid") String fileUuid,@Param("path") String path,@Param("userId") Long userId);
+            "where ID = #{id} " +
+            "and file_uuid = #{fileUuid} " +
+            "and user_id = #{userId}")
+    void updatePath(@Param("id")Long id,@Param("fileUuid") String fileUuid,@Param("path") String path,@Param("userId") Long userId);
 
     @Update("update user_file " +
             "set parent_id = #{parentId} " +
-            "where file_uuid = #{fileUuid} and user_id = #{userId}")
-    void updateParent(@Param("fileUuid") String fileUuid,@Param("parentId") Long parentId,@Param("userId") Long userId);
+            "where ID = #{id} " +
+            "and file_uuid = #{fileUuid} " +
+            "and user_id = #{userId}")
+    void updateParent(@Param("id") Long id,@Param("fileUuid") String fileUuid,@Param("parentId") Long parentId,@Param("userId") Long userId);
+
+    @Update("update file_info " +
+            "set count = count + #{count} " +
+            "where file_uuid = #{fileUuid}")
+    void updateFileCount(@Param("fileUuid") String fileUuid,
+                         @Param("count") Integer count);
+
+    @Select("select count from file_info " +
+            "where file_uuid = #{fileUuid}")
+    int getFileCount(@Param("fileUuid") String fileUuid);
 }

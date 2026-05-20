@@ -22,11 +22,13 @@ public class File {
 
     private Long parentId;
 
+    private Long size;
+
+    private Integer count;
+
     private String name;
 
     private String type;
-
-    private Long size;
 
     private String path;
 

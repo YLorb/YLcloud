@@ -10,7 +10,7 @@ public class FileDTO {
 
     private String fileUuid;
 
-    private boolean isDir;
+    private boolean Dir;
 
     private Long userId;
 

@@ -33,18 +33,18 @@ public class File {
     }
 
     @GetMapping("/download/{fileUuid}")
-    public void download(@PathVariable String fileUuid, HttpServletResponse response) {
-        fileService.downloadFile(fileUuid,response);
+    public void download(@PathVariable String fileUuid, @RequestParam Long parentId, HttpServletResponse response) {
+        fileService.downloadFile(fileUuid,parentId,response);
     }
 
     @PutMapping("/rename/{fileUuid}")
-    public Result<FileVO> rename(@PathVariable String fileUuid, @RequestParam String new_name) {
-        return Result.success(fileService.renameFile(fileUuid,new_name));
+    public Result<FileVO> rename(@PathVariable String fileUuid,@PathVariable Long parentId, @RequestParam String new_name) {
+        return Result.success(fileService.renameFile(fileUuid,parentId,new_name));
     }
 
     @DeleteMapping("/{fileUuid}")
-    public Result<Boolean> delete(@PathVariable String fileUuid) {
-        return Result.success(fileService.deleteFiles(fileUuid));
+    public Result<Boolean> delete(@PathVariable String fileUuid,@PathVariable Long parentId) {
+        return Result.success(fileService.deleteFiles(fileUuid,parentId));
     }
 
     @PostMapping("/{is_Dir}")
