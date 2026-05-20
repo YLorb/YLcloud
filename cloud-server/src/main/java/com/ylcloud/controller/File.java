@@ -71,4 +71,10 @@ public class File {
     public Result<Boolean> movefiles(@RequestParam Long sourceplace, @RequestParam Long targetplace) {
         return Result.success(fileService.movefiles(sourceplace,targetplace));
     }
+
+    @PutMapping("/copy")
+    public Result<Boolean> copyfiles(@RequestParam Long sourceplace, @RequestParam Long targetplace) {
+        return Result.success(fileService.copyfiles(sourceplace,targetplace));
+    }
+
 }

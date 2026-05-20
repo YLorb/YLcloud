@@ -674,4 +674,99 @@ public class FileService {
         }
         return true;
     }
+
+    /**
+     * 复制文件
+     * @param sourceplace
+     * @param targetplace
+     * @return
+     */
+    public Boolean copyfiles(Long sourceplace, Long targetplace) {
+        Long userId = BaseContext.getCurrentId();
+        UserFileDTO files = fileInfoMapper.getByFileId(sourceplace,userId);
+        UserFileDTO filet = fileInfoMapper.getByFileId(targetplace,userId);
+        if(files == null || filet == null) {
+            log.warn("文件归属错误!");
+            throw new RuntimeException("复制失败!");
+        }
+        if(files.getStatus() == 0 || filet.getStatus() == 0) {
+            log.warn("文件状态错误!");
+            throw new RuntimeException("复制失败!");
+        }
+        if(filet.getDir() == 0) {
+            log.warn("目标位置不属于文件夹");
+            throw new RuntimeException("复制失败");
+        }
+
+        checkCopyName(files,filet.getId(),userId);
+        if(files.getDir() == 1 && isChildDir(files.getId(),filet.getId(),userId)) {
+            log.warn("不能复制目录到自身或子目录");
+            throw new RuntimeException("复制失败!");
+        }
+
+        copyFileTree(files,filet.getId(),userId);
+        return true;
+    }
+
+    private void checkCopyName(UserFileDTO source, Long targetParentId, Long userId) {
+        List<UserFileDTO> files = fileInfoMapper.listFileByparentId(targetParentId,userId);
+        files.forEach(fileiter -> {
+            if(fileiter.getFileName().equals(source.getFileName()) && fileiter.getDir() == source.getDir()) {
+                log.warn("目标目录下存在同名文件");
+                throw new RuntimeException("复制失败!");
+            }
+        });
+    }
+
+    private boolean isChildDir(Long sourceId, Long targetId, Long userId) {
+        Long currentId = targetId;
+        while(currentId != null && currentId != 0L) {
+            if(currentId.equals(sourceId)) {
+                return true;
+            }
+            UserFileDTO current = fileInfoMapper.getByFileId(currentId,userId);
+            if(current == null || current.getParentId() == null || current.getParentId().equals(currentId)) {
+                return false;
+            }
+            currentId = current.getParentId();
+        }
+        return false;
+    }
+
+    private UserFileDTO copyFileTree(UserFileDTO source, Long targetParentId, Long userId) {
+        LocalDateTime now = LocalDateTime.now();
+        UserFileDTO copied = UserFileDTO.builder()
+                .fileUuid(source.getDir() == 1 ? UuidUtil.randomUuid() : source.getFileUuid())
+                .userId(userId)
+                .fileName(source.getFileName())
+                .status(1)
+                .Dir(source.getDir())
+                .parentId(targetParentId)
+                .path(null)
+                .createtime(now)
+                .updatetime(now)
+                .build();
+
+        int rows = fileInfoMapper.insertFile_User(copied);
+        if(rows == 0) {
+            log.warn("数据库修改失败!");
+            throw new RuntimeException("复制失败!");
+        }
+        copied.setPath(getPath(copied.getId(),userId));
+        fileInfoMapper.updatePath(copied.getId(),copied.getFileUuid(),copied.getPath(),userId);
+
+        if(source.getDir() == 0) {
+            fileInfoMapper.updateFileCount(source.getFileUuid(),1);
+            log.info("文件复制成功!");
+            return copied;
+        }
+
+        List<UserFileDTO> children = fileInfoMapper.listFileByparentId(source.getId(),userId);
+        children.forEach(child -> {
+            checkCopyName(child,copied.getId(),userId);
+            copyFileTree(child,copied.getId(),userId);
+        });
+        log.info("目录复制成功!");
+        return copied;
+    }
 }
