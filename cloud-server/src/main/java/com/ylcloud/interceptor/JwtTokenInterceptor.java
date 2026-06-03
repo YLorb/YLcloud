@@ -22,6 +22,12 @@ public class JwtTokenInterceptor implements HandlerInterceptor {
     @Autowired
     private JwtUtil jwtUtil;
 
+    private void writeUnauthorized(HttpServletResponse response, String message) throws Exception {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"code\":401,\"message\":\"" + message + "\",\"data\":null}");
+    }
+
     /**
      * 在控制器方法执行前进行拦截
      * true 表示放行，false 表示拦截
@@ -45,8 +51,7 @@ public class JwtTokenInterceptor implements HandlerInterceptor {
         log.info("获取令牌：{}",token);
         if(token == null || token.isEmpty()) {
             log.warn("令牌为空，用户未登录，返回401(未授权)");
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("请先登录");
+            writeUnauthorized(response, "请先登录");
             return false;
         }
 
@@ -78,8 +83,7 @@ public class JwtTokenInterceptor implements HandlerInterceptor {
             log.info("用户信息已存入请求属性，用户名:{}，用户id:{}",claims.getSubject(),userId);
         } catch (Exception e) {
             log.warn("令牌解析失败：{}",e.getMessage());
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("令牌无效或已过期");
+            writeUnauthorized(response, "登录已过期，请重新登录");
             return false;
         }
         log.info("令牌信息校验通过，放行");

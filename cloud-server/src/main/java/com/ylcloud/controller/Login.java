@@ -20,14 +20,15 @@ public class Login {
     @Autowired
     private LoginService loginService;
 
-    /*public Login(LoginService loginService) {
-        this.loginService = loginService;
-    }*/
-
+    /**
+     * 用户登录并返回登录态信息。
+     *
+     * @param userLoginDTO 登录参数
+     * @return 登录用户信息和令牌
+     */
     @PostMapping("/login")
-    //@Valid：告诉程序此处需要校验（校验器是自己写的，在DTO中通过注解实现了）
     public Result<UserLoginVO> login(@RequestBody @Valid UserLoginDTO userLoginDTO) {
-        log.info("用户尝试登录：{}", userLoginDTO); // TODO:密码变更为加密存储
+        log.info("用户尝试登录：{}", userLoginDTO);
         UserLoginVO user = loginService.login(userLoginDTO);
         log.info("result:用户id：{}，token内部id：{}",user.getId(),user.getToken());
         return Result.success(user);

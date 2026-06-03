@@ -22,6 +22,14 @@ public interface FileInfoMapper {
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
+            "where ID = #{fileId} " +
+            "and user_id = #{userId} " +
+            "and status in (1, 2)")
+    UserFileDTO getByFileIdActiveOrRecycle(@Param("fileId") Long fileId, @Param("userId") Long userId);
+
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
             "where file_uuid = #{fileUuid} " +
             "and user_id = #{userId} " +
             "and status = 1")
@@ -37,7 +45,30 @@ public interface FileInfoMapper {
             "and status = 1")
     UserFileDTO getByFileUuid(@Param("fileUuid") String fileUuid, @Param("parentId") Long parentId,@Param("userId") Long userId);
 
-    @Select("select file_id as fileId, file_uuid as fileUuid, is_dir as dir, " +
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
+            "where ID = #{fileId} " +
+            "and status = 1")
+    UserFileDTO getByFileIdAny(@Param("fileId") Long fileId);
+
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
+            "where ID = #{fileId} " +
+            "and status in (1, 2)")
+    UserFileDTO getByFileIdAnyActiveOrRecycle(@Param("fileId") Long fileId);
+
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
+            "where file_uuid = #{fileUuid} " +
+            "and parent_id = #{parentId} " +
+            "and status = 1 " +
+            "limit 1")
+    UserFileDTO getByFileUuidAny(@Param("fileUuid") String fileUuid, @Param("parentId") Long parentId);
+
+    @Select("select file_id as fileId, file_uuid as fileUuid, " +
             "name, type, size, md5, hash, status, " +
             "createtime as createTime, updatetime as updateTime " +
             "from file_info " +
@@ -46,7 +77,7 @@ public interface FileInfoMapper {
             "limit 1")
     File getFileInfo(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
 
-    @Select("select file_id as fileId, file_uuid as fileUuid, is_dir as dir, " +
+    @Select("select file_id as fileId, file_uuid as fileUuid, " +
             "name, type, size, md5, hash, status, " +
             "createtime as createTime, updatetime as updateTime " +
             "from file_info " +
@@ -129,10 +160,55 @@ public interface FileInfoMapper {
     List<UserFileDTO> listFileByparentId(@Param("parentId") Long parentId,
                                          @Param("userId") Long userId);
 
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
+            "where parent_id = #{parentId} " +
+            "and status = 1 " +
+            "order by is_dir desc, updatetime desc")
+    List<UserFileDTO> listFileByparentIdAny(@Param("parentId") Long parentId);
+
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
+            "where user_id = #{userId} " +
+            "and parent_id = #{parentId} " +
+            "and status in (1, 2) " +
+            "order by is_dir desc, updatetime desc")
+    List<UserFileDTO> listFileByparentIdActiveOrRecycle(@Param("parentId") Long parentId,
+                                                        @Param("userId") Long userId);
+
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
+            "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file " +
+            "where parent_id = #{parentId} " +
+            "and status in (1, 2) " +
+            "order by is_dir desc, updatetime desc")
+    List<UserFileDTO> listFileByparentIdAnyActiveOrRecycle(@Param("parentId") Long parentId);
+
+    @Select("select uf.ID as id, uf.file_name as fileName, uf.file_uuid as fileUuid, uf.is_dir as dir, " +
+            "uf.status, uf.user_id as userId, uf.parent_id as parentId, uf.path, uf.createtime, uf.updatetime " +
+            "from user_file uf " +
+            "left join user_file parent on parent.ID = uf.parent_id " +
+            "where uf.user_id = #{userId} " +
+            "and uf.status = 2 " +
+            "and (parent.ID is null or parent.status <> 2) " +
+            "order by uf.updatetime desc")
+    List<UserFileDTO> listRecycleRootByUserId(@Param("userId") Long userId);
+
+    @Select("select uf.ID as id, uf.file_name as fileName, uf.file_uuid as fileUuid, uf.is_dir as dir, " +
+            "uf.status, uf.user_id as userId, uf.parent_id as parentId, uf.path, uf.createtime, uf.updatetime " +
+            "from user_file uf " +
+            "left join user_file parent on parent.ID = uf.parent_id " +
+            "where uf.status = 2 " +
+            "and (parent.ID is null or parent.status <> 2) " +
+            "order by uf.updatetime desc")
+    List<UserFileDTO> listRecycleRootAny();
+
     @Options(useGeneratedKeys = true, keyProperty = "fileId", keyColumn = "file_id")
-    @Insert("insert into file_info(file_uuid, is_dir, name, type, size, md5, hash, status, count, createtime, updatetime) " +
+    @Insert("insert into file_info(file_uuid, name, type, size, md5, hash, status, count, createtime, updatetime) " +
             "values " +
-            "(#{fileUuid}, #{dir}, #{name}, #{type}, #{size}, #{md5}, #{hash}, #{status}, #{count}, #{createTime}, #{updateTime})")
+            "(#{fileUuid}, #{name}, #{type}, #{size}, #{md5}, #{hash}, #{status}, #{count}, #{createTime}, #{updateTime})")
     int insertFileInfo(File file);
 
     @Update("update user_file " +
@@ -146,6 +222,23 @@ public interface FileInfoMapper {
                    @Param("userId") Long userId,
                    @Param("updateTime") LocalDateTime updateTime);
 
+    @Update("update user_file " +
+            "set file_name = #{newName}, " +
+            "updatetime = #{updateTime} " +
+            "where ID = #{id} " +
+            "and status = 1")
+    int updateNameById(@Param("id") Long id,
+                       @Param("newName") String newName,
+                       @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update user_file " +
+            "set status = #{status}, " +
+            "updatetime = #{updateTime} " +
+            "where ID = #{id}")
+    int updateStatusById(@Param("id") Long id,
+                         @Param("status") Integer status,
+                         @Param("updateTime") LocalDateTime updateTime);
+
     @Delete("delete from user_file " +
             "where file_uuid = #{fileUuid} " +
             "and user_id = #{userId} " +
@@ -156,6 +249,10 @@ public interface FileInfoMapper {
             "where ID = #{id} " +
             "and user_id = #{userId}")
     int deleteByFileId(@Param("id")Long id,@Param("userId") Long userId);
+
+    @Delete("delete from user_file " +
+            "where ID = #{id}")
+    int deleteByFileIdAny(@Param("id")Long id);
 
     @Select("select fi.file_id as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.user_id as userId, uf.parent_id as parentId, uf.file_name as name, " +
@@ -179,6 +276,13 @@ public interface FileInfoMapper {
             "and is_dir = 1 " +
             "and status = 1")
     boolean ParentIdExist(@Param("parentId") Long parentId, @Param("userId") Long userId);
+
+    @Select("select count(1) > 0 " +
+            "from user_file " +
+            "where ID = #{parentId} " +
+            "and is_dir = 1 " +
+            "and status = 1")
+    boolean ParentIdExistAny(@Param("parentId") Long parentId);
 
     @Update("update user_file " +
             "set parent_id = #{newParentId}, " +

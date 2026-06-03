@@ -142,6 +142,37 @@ public class MinioclientUtil {
     }
 
     /**
+     * 获取 MinIO 对象输入流。
+     *
+     * @param fileUuid 文件唯一标识，也是 MinIO 对象名
+     * @return MinIO 对象输入流
+     * @throws Exception MinIO 读取失败时抛出异常
+     */
+    public InputStream getObjectStream(String fileUuid) throws Exception {
+        return minioClient.getObject(GetObjectArgs.builder()
+                .bucket(DEFAULT_BUCKET)
+                .object(fileUuid)
+                .build());
+    }
+
+    /**
+     * 以 inline 方式输出 MinIO 对象，用于浏览器预览。
+     *
+     * @param fileUuid 文件唯一标识，也是 MinIO 对象名
+     * @param fileName 文件展示名
+     * @param contentType HTTP 内容类型
+     * @param response HTTP 响应对象
+     * @throws Exception MinIO 读取或响应写出失败时抛出异常
+     */
+    public void previewObject(String fileUuid, String fileName, String contentType, HttpServletResponse response) throws Exception {
+        InputStream inputStream = getObjectStream(fileUuid);
+        response.setContentType(contentType);
+        response.setHeader("Content-Disposition","inline; filename=" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
+        IOUtils.copy(inputStream,response.getOutputStream());
+        inputStream.close();
+    }
+
+    /**
      * 下载桶内对象到本地
      */
 

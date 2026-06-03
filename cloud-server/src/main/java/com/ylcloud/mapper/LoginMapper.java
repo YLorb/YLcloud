@@ -15,6 +15,13 @@ public interface LoginMapper {
      * @param username
      * @return
      */
-    @Select("select * from users where username = #{username}")
+    @Select("select user_id as id, username, password, nickname, root_id as rootID, email, avatar, status, role, " +
+            "create_time as createTime, update_time as updateTime " +
+            "from users where username = #{username}")
     User getByUsername(String username);
+
+    @Select("select user_id as id, username, password, nickname, root_id as rootID, email, avatar, status, role, " +
+            "create_time as createTime, update_time as updateTime " +
+            "from users where user_id = #{userId}")
+    User getById(@Param("userId") Long userId);
 }

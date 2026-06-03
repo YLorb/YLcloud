@@ -5,25 +5,18 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-public class User {
-
+public class FileShare {
     private Long id;
 
-    private String username;
+    private String shareCode;
 
-    private String password;
+    private Long userFileId;
 
-    private String nickname;
+    private String fileUuid;
 
-    private Long rootID;
-
-    private String email;
-
-    private String avatar;
+    private Long ownerId;
 
     private Integer status;
-
-    private String role;
 
     private LocalDateTime createTime;
 
