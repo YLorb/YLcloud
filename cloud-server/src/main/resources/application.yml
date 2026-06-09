@@ -6,12 +6,18 @@ spring:
     name: ylcloud
   profiles:
     active: dev
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 25MB
 
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  upload:
+    max-file-size: 2147483648
   minio:
     endpoint: ${ylcloud.minio.endpoint}
     accessKey: ${ylcloud.minio.accessKey}

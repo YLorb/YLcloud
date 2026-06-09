@@ -302,6 +302,12 @@ public class FileService {
         return normalizeParentId(null,userId);
     }
 
+    /**
+     * 上传文件
+     * @param uploadFile 文件上传
+     * @param parentId 父节点
+     * @return 返回VO视图
+     */
     public FileVO upload(MultipartFile uploadFile,Long parentId) {
         Long userId = BaseContext.getCurrentId();
         if (uploadFile == null || uploadFile.isEmpty()) {

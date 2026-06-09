@@ -9,6 +9,8 @@ spring:
     password: Ne7eSAPJ42HNTTsv
 
 ylcloud:
+  upload:
+    max-file-size: 2147483648
   minio:
     endpoint: http://222.186.34.64:9000
     accessKey: NxKYwB6wpZee35VZfGIZ
