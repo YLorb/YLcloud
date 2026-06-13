@@ -335,6 +335,16 @@ public interface FileInfoMapper {
     void updateFileCount(@Param("fileUuid") String fileUuid,
                          @Param("count") Integer count);
 
+    @Update("update file_info set name = #{name}, type = #{type}, size = #{size}, md5 = #{md5}, hash = #{hash}, updatetime = #{updateTime} " +
+            "where file_uuid = #{fileUuid} and status = 1")
+    int updatePhysicalFileInfo(@Param("fileUuid") String fileUuid,
+                               @Param("name") String name,
+                               @Param("type") String type,
+                               @Param("size") Long size,
+                               @Param("md5") String md5,
+                               @Param("hash") String hash,
+                               @Param("updateTime") LocalDateTime updateTime);
+
     @Select("select count from file_info " +
             "where file_uuid = #{fileUuid}")
     int getFileCount(@Param("fileUuid") String fileUuid);

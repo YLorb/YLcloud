@@ -7,6 +7,7 @@ import io.minio.BucketExistsArgs;
 import io.minio.ComposeObjectArgs;
 import io.minio.ComposeSource;
 import io.minio.DownloadObjectArgs;
+import io.minio.GetBucketVersioningArgs;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
@@ -18,6 +19,7 @@ import io.minio.RemoveObjectArgs;
 import io.minio.Result;
 import io.minio.messages.Bucket;
 import io.minio.messages.Item;
+import io.minio.messages.VersioningConfiguration;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.IOUtils;
@@ -102,6 +104,19 @@ public class MinioclientUtil {
     }
 
     /**
+     * 判断默认存储桶是否已开启对象版本控制。
+     *
+     * @return true 表示默认存储桶已开启版本控制
+     * @throws Exception 查询失败时抛出
+     */
+    public boolean isDefaultBucketVersioningEnabled() throws Exception {
+        VersioningConfiguration configuration = minioClient.getBucketVersioning(
+                GetBucketVersioningArgs.builder().bucket(DEFAULT_BUCKET).build()
+        );
+        return configuration != null && VersioningConfiguration.Status.ENABLED.equals(configuration.status());
+    }
+
+    /**
      * 获取存储桶标签。
      */
     public void getBucketTags() {
@@ -153,6 +168,15 @@ public class MinioclientUtil {
      * @param file 文件元数据
      * @throws Exception 删除失败时抛出
      */
+    public String putObjectAndReturnVersionId(MultipartFile uploadFile, String objectName) throws Exception {
+        ObjectWriteResponse response = minioClient.putObject(PutObjectArgs.builder()
+                .bucket(DEFAULT_BUCKET)
+                .object(objectName)
+                .stream(uploadFile.getInputStream(),-1,1024 * 1024 * 5)
+                .build());
+        return response.versionId();
+    }
+
     public void removeObject(File file) throws Exception {
         minioClient.removeObject(RemoveObjectArgs.builder()
                 .bucket(DEFAULT_BUCKET)
@@ -202,6 +226,16 @@ public class MinioclientUtil {
      * @param response HTTP 响应
      * @throws Exception 输出失败时抛出
      */
+    public InputStream getObjectStream(String fileUuid, String versionId) throws Exception {
+        GetObjectArgs.Builder builder = GetObjectArgs.builder()
+                .bucket(DEFAULT_BUCKET)
+                .object(fileUuid);
+        if(versionId != null && !versionId.isBlank()) {
+            builder.versionId(versionId);
+        }
+        return minioClient.getObject(builder.build());
+    }
+
     public void previewObject(String fileUuid, String fileName, String contentType, HttpServletResponse response) throws Exception {
         InputStream inputStream = getObjectStream(fileUuid);
         response.setContentType(contentType);
@@ -217,6 +251,33 @@ public class MinioclientUtil {
      * @param response HTTP 响应，当前方法未使用该参数
      * @throws Exception 下载失败时抛出
      */
+    public void previewObject(String fileUuid, String versionId, String fileName, String contentType, HttpServletResponse response) throws Exception {
+        InputStream inputStream = getObjectStream(fileUuid,versionId);
+        response.setContentType(contentType);
+        response.setHeader("Content-Disposition","inline; filename=" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
+        IOUtils.copy(inputStream,response.getOutputStream());
+        inputStream.close();
+    }
+
+    public void getObject(String fileUuid, String versionId, String fileName, HttpServletResponse response) throws Exception {
+        InputStream inputStream = getObjectStream(fileUuid,versionId);
+        response.setContentType("application/octet-stream");
+        response.setHeader("Content-Disposition","attachment; filename=" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
+        IOUtils.copy(inputStream,response.getOutputStream());
+        inputStream.close();
+    }
+
+    public String restoreObjectVersion(String fileUuid, String versionId) throws Exception {
+        try (InputStream inputStream = getObjectStream(fileUuid,versionId)) {
+            ObjectWriteResponse response = minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(DEFAULT_BUCKET)
+                    .object(fileUuid)
+                    .stream(inputStream,-1,1024 * 1024 * 5)
+                    .build());
+            return response.versionId();
+        }
+    }
+
     public void downloadObject(FileDTO fileDTO, HttpServletResponse response) throws Exception {
         minioClient.downloadObject(DownloadObjectArgs.builder()
                 .bucket(DEFAULT_BUCKET)
