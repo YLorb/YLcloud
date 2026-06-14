@@ -22,12 +22,12 @@ public class RagChatService {
         this.properties = properties;
     }
 
-    public String answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config) {
+    public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config) {
         if(chunks == null || chunks.isEmpty()) {
-            return properties.getChat().getNoAnswerText();
+            return RagChatResult.success(properties.getChat().getNoAnswerText());
         }
         if(!Boolean.TRUE.equals(properties.getChat().getEnabled())) {
-            return fallbackAnswer();
+            return RagChatResult.failed(fallbackAnswer(),"RAG chat is disabled");
         }
         try {
             RagChatRequest request = new RagChatRequest();
@@ -39,12 +39,12 @@ public class RagChatService {
             request.setTemperature(properties.getChat().getTemperature());
             RagChatResponse response = ragModelClient.chat(request);
             if(response.getAnswer() == null || response.getAnswer().isBlank()) {
-                return properties.getChat().getNoAnswerText();
+                return RagChatResult.failed(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
             }
-            return response.getAnswer();
+            return RagChatResult.success(response.getAnswer());
         } catch (Exception ex) {
             log.warn("RAG chat generation failed",ex);
-            return fallbackAnswer();
+            return RagChatResult.failed(fallbackAnswer(),truncate(ex.getMessage(),1000));
         }
     }
 

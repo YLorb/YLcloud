@@ -11,7 +11,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
-
+import java.util.Locale;
 import java.util.Map;
 
 @Component
@@ -55,14 +55,34 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
 
     private void ensureCollection(String collectionName) {
         try {
-            restClient.get()
+            Map<?, ?> response = restClient.get()
                     .uri("/collections/{collectionName}",collectionName)
                     .header("api-key",safeApiKey())
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(Map.class);
+            validateCollection(collectionName,response);
             log.info("Qdrant collection already exists: {}",collectionName);
         } catch (HttpClientErrorException.NotFound ex) {
             createCollection(collectionName);
+        }
+    }
+
+    private void validateCollection(String collectionName, Map<?, ?> response) {
+        Map<?, ?> result = mapValue(response,"result");
+        Map<?, ?> config = mapValue(result,"config");
+        Map<?, ?> params = mapValue(config,"params");
+        Object vectors = value(params,"vectors");
+        if(!(vectors instanceof Map<?, ?> vectorConfig)) {
+            throw new IllegalStateException("Qdrant collection " + collectionName + " has unsupported vector config");
+        }
+        Integer actualSize = intValue(vectorConfig,"size");
+        String actualDistance = stringValue(vectorConfig,"distance");
+        if(actualSize == null || !actualSize.equals(properties.getEmbeddingDimension())
+                || actualDistance == null || !"cosine".equals(actualDistance.toLowerCase(Locale.ROOT))) {
+            throw new IllegalStateException("Qdrant collection " + collectionName
+                    + " config mismatch, expected size=" + properties.getEmbeddingDimension()
+                    + ", distance=Cosine, actual size=" + actualSize
+                    + ", distance=" + actualDistance);
         }
     }
 
@@ -124,5 +144,37 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         int statusCode = ex.getStatusCode().value();
         String responseBody = new String(ex.getResponseBodyAsByteArray(), StandardCharsets.UTF_8).toLowerCase();
         return (statusCode == 400 || statusCode == 409) && responseBody.contains("already");
+    }
+
+    private Map<?, ?> mapValue(Map<?, ?> source, String key) {
+        Object value = value(source,key);
+        if(value instanceof Map<?, ?> map) {
+            return map;
+        }
+        return Map.of();
+    }
+
+    private Object value(Map<?, ?> source, String key) {
+        return source == null ? null : source.get(key);
+    }
+
+    private Integer intValue(Map<?, ?> source, String key) {
+        Object value = value(source,key);
+        if(value instanceof Number number) {
+            return number.intValue();
+        }
+        if(value instanceof String text && !text.isBlank()) {
+            try {
+                return Integer.parseInt(text);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String stringValue(Map<?, ?> source, String key) {
+        Object value = value(source,key);
+        return value == null ? null : String.valueOf(value);
     }
 }

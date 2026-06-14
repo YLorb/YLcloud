@@ -33,6 +33,7 @@ import com.ylcloud.mapper.SpaceRagTaskMapper;
 import com.ylcloud.service.rag.DocumentTextExtractor;
 import com.ylcloud.service.rag.ExtractedDocumentText;
 import com.ylcloud.service.rag.QdrantVectorStoreService;
+import com.ylcloud.service.rag.RagChatResult;
 import com.ylcloud.service.rag.RagChatService;
 import com.ylcloud.service.rag.RagRerankService;
 import com.ylcloud.service.rag.RagTaskExecutorService;
@@ -171,7 +172,8 @@ public class SpaceRagService {
         }
         int limit = dto.getTopK() == null ? safeTopK(config.getTopK()) : dto.getTopK();
         List<FileRagChunk> chunks = searchChunks(spaceId,dto.getQuestion(),limit,config);
-        String answer = ragChatService.answer(dto.getQuestion(),chunks,config);
+        RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config);
+        String answer = chatResult.getAnswer();
         List<Long> hitChunkIds = new ArrayList<>();
         List<String> contexts = new ArrayList<>();
         StringJoiner idJoiner = new StringJoiner(",");
@@ -180,7 +182,8 @@ public class SpaceRagService {
             contexts.add(chunk.getContent());
             idJoiner.add(String.valueOf(chunk.getId()));
         }
-        saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),config.getChatModel(),true,null);
+        saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),config.getChatModel(),
+                chatResult.isSuccess(),chatResult.getErrorMessage());
 
         SpaceRagQueryVO vo = new SpaceRagQueryVO();
         vo.setQuestion(dto.getQuestion());
@@ -598,7 +601,7 @@ public class SpaceRagService {
                 return chunks;
             }
         }
-        return fileRagChunkMapper.listRecentBySpace(spaceId,limit);
+        return List.of();
     }
 
     private List<SpaceRagCitationVO> buildCitations(Long spaceId, List<FileRagChunk> chunks) {
