@@ -53,6 +53,15 @@ public interface FileRagChunkMapper {
             "order by c.updatetime desc limit #{limit}")
     List<FileRagChunk> listRecentBySpace(@Param("spaceId") Long spaceId, @Param("limit") Integer limit);
 
+    @Select("select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
+            "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.vector_id as vectorId, " +
+            "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
+            "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
+            "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 " +
+            "order by c.updatetime desc")
+    List<FileRagChunk> listActiveBySpace(@Param("spaceId") Long spaceId);
+
     @Select("select r.document_id as documentId, c.id as chunkId, c.content as content " +
             "from file_rag_chunk c join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
             "join space_rag_document d on d.id = r.document_id " +

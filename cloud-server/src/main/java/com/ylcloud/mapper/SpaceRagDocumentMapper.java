@@ -35,6 +35,13 @@ public interface SpaceRagDocumentMapper {
             "from space_rag_document where id = #{id} and status = 1")
     SpaceRagDocument getById(@Param("id") Long id);
 
+    @Select("select d.id, d.space_id as spaceId, d.space_file_id as spaceFileId, d.file_uuid as fileUuid, d.file_name as fileName, " +
+            "d.file_hash as fileHash, d.file_type as fileType, d.index_status as indexStatus, d.chunk_count as chunkCount, " +
+            "d.error_message as errorMessage, d.created_by as createdBy, d.status, d.createtime, d.updatetime " +
+            "from space_rag_document d join space_rag_chunk_ref r on r.document_id = d.id " +
+            "where r.space_id = #{spaceId} and r.file_chunk_id = #{chunkId} and r.status = 1 and d.status = 1 limit 1")
+    SpaceRagDocument getBySpaceAndChunkId(@Param("spaceId") Long spaceId, @Param("chunkId") Long chunkId);
+
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
             "file_hash as fileHash, file_type as fileType, index_status as indexStatus, chunk_count as chunkCount, " +
             "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +

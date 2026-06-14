@@ -23,3 +23,48 @@ ylcloud:
     accessKey: ${ylcloud.minio.accessKey}
     secretKey: ${ylcloud.minio.secretKey}
     bucket-name: ${ylcloud.minio.bucket-name}
+  rag:
+    vector-enabled: true
+    embedding-dimension: 1024
+    vector-top-n: 30
+    embedding-batch-size: 8
+    connect-timeout-ms: 3000
+    read-timeout-ms: 60000
+    model-service:
+      base-url: http://127.0.0.1:8001
+      embedding-model: BAAI/bge-m3
+      rerank-model: BAAI/bge-reranker-v2-m3
+      chat-model: Qwen/Qwen2.5-7B-Instruct
+    qdrant:
+      init-enabled: true
+      host: 127.0.0.1
+      rest-port: 6333
+      port: 6334
+      use-tls: false
+      collection-name: ylcloud_rag_bge_m3_v1
+      payload-text-key: text
+      min-score: 0.0
+    rerank:
+      enabled: true
+      top-k: 5
+    chat:
+      enabled: true
+      max-context-chars: 12000
+      max-chunk-chars: 1800
+      max-answer-tokens: 1024
+      temperature: 0.2
+      no-answer-text: 当前知识库中没有检索到足够的依据，无法回答该问题。
+      unavailable-text: 已检索到相关资料，但问答模型暂不可用。请先查看下方引用内容，稍后重试。
+      system-prompt: 你是云端知识库问答助手。只能根据提供的知识库上下文回答；如果上下文没有答案，明确说明无法从当前知识库回答。回答应简洁、准确，并在相关句子后使用引用编号。
+    extraction:
+      enabled: true
+      max-file-size: 52428800
+      max-text-length: 500000
+      fallback-to-metadata: true
+      supported-extensions:
+        - txt
+        - md
+        - markdown
+        - pdf
+        - doc
+        - docx

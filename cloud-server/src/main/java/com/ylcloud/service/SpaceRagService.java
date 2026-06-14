@@ -7,9 +7,11 @@ import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.SpaceDocumentChunkHitVO;
 import com.ylcloud.VO.SpaceDocumentSearchVO;
 import com.ylcloud.VO.SpaceRagConfigVO;
+import com.ylcloud.VO.SpaceRagCitationVO;
 import com.ylcloud.VO.SpaceRagDocumentVO;
 import com.ylcloud.VO.SpaceRagQueryVO;
 import com.ylcloud.VO.SpaceRagTaskVO;
+import com.ylcloud.config.RagProperties;
 import com.ylcloud.constant.SpaceConstant;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.File;
@@ -28,8 +30,16 @@ import com.ylcloud.mapper.SpaceRagDocumentMapper;
 import com.ylcloud.mapper.SpaceRagMapper;
 import com.ylcloud.mapper.SpaceRagQueryLogMapper;
 import com.ylcloud.mapper.SpaceRagTaskMapper;
+import com.ylcloud.service.rag.DocumentTextExtractor;
+import com.ylcloud.service.rag.ExtractedDocumentText;
+import com.ylcloud.service.rag.QdrantVectorStoreService;
+import com.ylcloud.service.rag.RagChatService;
+import com.ylcloud.service.rag.RagRerankService;
+import com.ylcloud.service.rag.RagTaskExecutorService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -59,6 +69,12 @@ public class SpaceRagService {
     private final SpaceFileMapper spaceFileMapper;
     private final FileInfoMapper fileInfoMapper;
     private final SpacePermissionService spacePermissionService;
+    private final QdrantVectorStoreService qdrantVectorStoreService;
+    private final RagChatService ragChatService;
+    private final RagRerankService ragRerankService;
+    private final RagProperties ragProperties;
+    private final DocumentTextExtractor documentTextExtractor;
+    private final RagTaskExecutorService ragTaskExecutorService;
 
     public SpaceRagService(SpaceRagMapper spaceRagMapper,
                            SpaceRagDocumentMapper spaceRagDocumentMapper,
@@ -68,7 +84,13 @@ public class SpaceRagService {
                            SpaceRagQueryLogMapper spaceRagQueryLogMapper,
                            SpaceFileMapper spaceFileMapper,
                            FileInfoMapper fileInfoMapper,
-                           SpacePermissionService spacePermissionService) {
+                           SpacePermissionService spacePermissionService,
+                           QdrantVectorStoreService qdrantVectorStoreService,
+                           RagChatService ragChatService,
+                           RagRerankService ragRerankService,
+                           RagProperties ragProperties,
+                           DocumentTextExtractor documentTextExtractor,
+                           RagTaskExecutorService ragTaskExecutorService) {
         this.spaceRagMapper = spaceRagMapper;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
         this.fileRagChunkMapper = fileRagChunkMapper;
@@ -78,6 +100,12 @@ public class SpaceRagService {
         this.spaceFileMapper = spaceFileMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spacePermissionService = spacePermissionService;
+        this.qdrantVectorStoreService = qdrantVectorStoreService;
+        this.ragChatService = ragChatService;
+        this.ragRerankService = ragRerankService;
+        this.ragProperties = ragProperties;
+        this.documentTextExtractor = documentTextExtractor;
+        this.ragTaskExecutorService = ragTaskExecutorService;
     }
 
     /**
@@ -142,8 +170,8 @@ public class SpaceRagService {
             throw new BaseException("当前空间未启用 RAG");
         }
         int limit = dto.getTopK() == null ? safeTopK(config.getTopK()) : dto.getTopK();
-        List<FileRagChunk> chunks = searchChunks(spaceId,dto.getQuestion(),limit);
-        String answer = buildAnswer(dto.getQuestion(),chunks);
+        List<FileRagChunk> chunks = searchChunks(spaceId,dto.getQuestion(),limit,config);
+        String answer = ragChatService.answer(dto.getQuestion(),chunks,config);
         List<Long> hitChunkIds = new ArrayList<>();
         List<String> contexts = new ArrayList<>();
         StringJoiner idJoiner = new StringJoiner(",");
@@ -159,6 +187,7 @@ public class SpaceRagService {
         vo.setAnswer(answer);
         vo.setHitChunkIds(hitChunkIds);
         vo.setContexts(contexts);
+        vo.setCitations(buildCitations(spaceId,chunks));
         return vo;
     }
 
@@ -262,18 +291,13 @@ public class SpaceRagService {
     @Transactional
     public Boolean rebuildSpace(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
-        SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId);
-        LocalDateTime started = LocalDateTime.now();
-        try {
-            for(SpaceRagDocument document : spaceRagDocumentMapper.listBySpaceId(spaceId)) {
-                rebuildDocument(document,userId);
-            }
-            finishTask(task,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningIndexTaskBySpace(spaceId);
+        if(runningTask != null) {
             return true;
-        } catch (Exception ex) {
-            finishTask(task,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
-            throw ex;
         }
+        SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId);
+        dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceTask(task.getId(),spaceId,userId));
+        return true;
     }
 
     /**
@@ -287,20 +311,22 @@ public class SpaceRagService {
     @Transactional
     public Boolean rebuildFile(Long spaceId, Long spaceFileId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
+        SpaceRagTask runningSpaceTask = spaceRagTaskMapper.findRunningSpaceTask(spaceId,SpaceConstant.RAG_TASK_REBUILD_SPACE);
+        if(runningSpaceTask != null) {
+            return true;
+        }
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningFileTask(spaceId,spaceFileId);
+        if(runningTask != null) {
+            return true;
+        }
         SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceFileId(spaceId,spaceFileId);
         if(document == null) {
             document = createDocument(requireFile(spaceId,spaceFileId),userId);
         }
         SpaceRagTask task = createTask(spaceId,spaceFileId,document.getId(),SpaceConstant.RAG_TASK_REBUILD_FILE,userId);
-        LocalDateTime started = LocalDateTime.now();
-        try {
-            rebuildDocument(document,userId);
-            finishTask(task,SpaceConstant.RAG_TASK_SUCCESS,null,started);
-            return true;
-        } catch (Exception ex) {
-            finishTask(task,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
-            throw ex;
-        }
+        Long documentId = document.getId();
+        dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),documentId,userId));
+        return true;
     }
 
     /**
@@ -315,15 +341,64 @@ public class SpaceRagService {
             return;
         }
         SpaceRagDocument document = createDocument(spaceFile,userId);
+        SpaceRagTask runningSpaceTask = spaceRagTaskMapper.findRunningSpaceTask(spaceFile.getSpaceId(),SpaceConstant.RAG_TASK_REBUILD_SPACE);
+        if(runningSpaceTask != null) {
+            return;
+        }
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningFileTask(spaceFile.getSpaceId(),spaceFile.getId());
+        if(runningTask != null) {
+            return;
+        }
         SpaceRagTask task = createTask(spaceFile.getSpaceId(),spaceFile.getId(),document.getId(),SpaceConstant.RAG_TASK_INDEX_FILE,userId);
+        dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),document.getId(),userId));
+    }
+
+    public void executeFileRagTask(Long taskId, Long documentId, Long userId) {
         LocalDateTime started = LocalDateTime.now();
         try {
+            markTaskRunning(taskId,started);
+            SpaceRagDocument document = spaceRagDocumentMapper.getById(documentId);
+            if(document == null) {
+                throw new BaseException("RAG document not found");
+            }
             rebuildDocument(document,userId);
-            finishTask(task,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+            finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
         } catch (Exception ex) {
-            finishTask(task,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
-            spaceRagDocumentMapper.updateIndexResult(document.getId(),SpaceConstant.RAG_INDEX_FAILED,0,truncate(ex.getMessage(),1000),LocalDateTime.now());
-            throw ex;
+            String errorMessage = truncate(ex.getMessage(),1000);
+            finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,errorMessage,started);
+            if(documentId != null) {
+                spaceRagDocumentMapper.updateIndexResult(documentId,SpaceConstant.RAG_INDEX_FAILED,0,errorMessage,LocalDateTime.now());
+            }
+        }
+    }
+
+    public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId) {
+        LocalDateTime started = LocalDateTime.now();
+        try {
+            markTaskRunning(taskId,started);
+            List<SpaceRagDocument> documents = spaceRagDocumentMapper.listBySpaceId(spaceId);
+            int failed = 0;
+            for(SpaceRagDocument document : documents) {
+                try {
+                    rebuildDocument(document,userId);
+                } catch (Exception ex) {
+                    failed++;
+                    spaceRagDocumentMapper.updateIndexResult(
+                            document.getId(),
+                            SpaceConstant.RAG_INDEX_FAILED,
+                            0,
+                            truncate(ex.getMessage(),1000),
+                            LocalDateTime.now()
+                    );
+                }
+            }
+            if(failed > 0) {
+                finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,"Partial document indexing failed: " + failed + "/" + documents.size(),started);
+                return;
+            }
+            finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+        } catch (Exception ex) {
+            finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
         }
     }
 
@@ -340,6 +415,7 @@ public class SpaceRagService {
         SpaceRagTask task = createTask(spaceId,spaceFileId,document == null ? null : document.getId(),SpaceConstant.RAG_TASK_DELETE_FILE,userId);
         LocalDateTime started = LocalDateTime.now();
         spaceRagChunkRefMapper.disableBySpaceFileId(spaceId,spaceFileId,LocalDateTime.now());
+        qdrantVectorStoreService.deleteBySpaceFile(spaceId,spaceFileId);
         spaceRagDocumentMapper.disableBySpaceFileId(spaceId,spaceFileId,SpaceConstant.RAG_INDEX_FAILED,"空间文件已删除",LocalDateTime.now());
         finishTask(task,SpaceConstant.RAG_TASK_SUCCESS,null,started);
     }
@@ -372,6 +448,7 @@ public class SpaceRagService {
             spaceRagChunkRefMapper.insert(ref);
             refCount++;
         }
+        qdrantVectorStoreService.upsertSpaceChunks(document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
         spaceRagDocumentMapper.updateIndexResult(document.getId(),SpaceConstant.RAG_INDEX_SUCCESS,refCount,null,LocalDateTime.now());
     }
 
@@ -384,7 +461,8 @@ public class SpaceRagService {
         if(!exists.isEmpty()) {
             return exists;
         }
-        String text = buildDocumentText(spaceFile,file);
+        ExtractedDocumentText extracted = documentTextExtractor.extract(spaceFile,file);
+        String text = resolveDocumentText(spaceFile,file,extracted);
         int chunkSize = safeChunkSize(config.getChunkSize());
         int chunkOverlap = safeChunkOverlap(config.getChunkOverlap(),config.getChunkSize());
         List<String> contents = splitText(text,chunkSize,chunkOverlap);
@@ -398,7 +476,7 @@ public class SpaceRagService {
             chunk.setContent(content);
             chunk.setContentHash(sha256(content));
             chunk.setTokenCount(content.length());
-            chunk.setMetadata("{\"fileName\":\"" + escapeJson(spaceFile.getFileName()) + "\"}");
+            chunk.setMetadata(buildChunkMetadata(spaceFile,extracted));
             chunk.setVectorId(null);
             chunk.setEmbeddingModel(config.getEmbeddingModel());
             chunk.setChunkSize(chunkSize);
@@ -410,6 +488,34 @@ public class SpaceRagService {
             result.add(chunk);
         }
         return result;
+    }
+
+    private String resolveDocumentText(SpaceFile spaceFile, File file, ExtractedDocumentText extracted) {
+        if(extracted != null && extracted.isSuccess() && extracted.getText() != null && !extracted.getText().isBlank()) {
+            return extracted.getText();
+        }
+        boolean fallback = ragProperties.getExtraction() == null
+                || !Boolean.FALSE.equals(ragProperties.getExtraction().getFallbackToMetadata());
+        if(fallback) {
+            return buildDocumentText(spaceFile,file);
+        }
+        String message = extracted == null ? "文档解析失败" : extracted.getErrorMessage();
+        throw new BaseException(message == null ? "文档解析失败" : message);
+    }
+
+    private String buildChunkMetadata(SpaceFile spaceFile, ExtractedDocumentText extracted) {
+        String parser = extracted == null ? "unknown" : extracted.getParser();
+        boolean fallback = extracted != null && extracted.isFallback();
+        String errorMessage = extracted == null ? null : extracted.getErrorMessage();
+        StringBuilder builder = new StringBuilder();
+        builder.append("{\"fileName\":\"").append(escapeJson(spaceFile.getFileName())).append("\"");
+        builder.append(",\"parser\":\"").append(escapeJson(parser)).append("\"");
+        builder.append(",\"fallback\":").append(fallback);
+        if(errorMessage != null && !errorMessage.isBlank()) {
+            builder.append(",\"errorMessage\":\"").append(escapeJson(truncate(errorMessage,200))).append("\"");
+        }
+        builder.append("}");
+        return builder.toString();
     }
 
     private SpaceRagDocument createDocument(SpaceFile spaceFile, Long userId) {
@@ -466,7 +572,19 @@ public class SpaceRagService {
         return builder.toString();
     }
 
-    private List<FileRagChunk> searchChunks(Long spaceId, String question, int limit) {
+    private List<FileRagChunk> searchChunks(Long spaceId, String question, int limit, SpaceRagConfig config) {
+        List<FileRagChunk> spaceChunks = fileRagChunkMapper.listActiveBySpace(spaceId);
+        int vectorLimit = Math.max(limit,ragProperties.getVectorTopN() == null ? 30 : ragProperties.getVectorTopN());
+        List<FileRagChunk> semanticChunks = qdrantVectorStoreService.search(
+                spaceId,
+                question,
+                spaceChunks,
+                vectorLimit,
+                config.getScoreThreshold() == null ? null : config.getScoreThreshold().doubleValue()
+        );
+        if(!semanticChunks.isEmpty()) {
+            return ragRerankService.rerank(question,semanticChunks,limit);
+        }
         List<FileRagChunk> chunks = fileRagChunkMapper.searchBySpaceAndKeyword(spaceId,question,limit);
         if(!chunks.isEmpty()) {
             return chunks;
@@ -483,17 +601,29 @@ public class SpaceRagService {
         return fileRagChunkMapper.listRecentBySpace(spaceId,limit);
     }
 
-    private String buildAnswer(String question, List<FileRagChunk> chunks) {
-        if(chunks.isEmpty()) {
-            return "当前空间知识库中暂未检索到可用内容。";
+    private List<SpaceRagCitationVO> buildCitations(Long spaceId, List<FileRagChunk> chunks) {
+        List<SpaceRagCitationVO> citations = new ArrayList<>();
+        if(chunks == null || chunks.isEmpty()) {
+            return citations;
         }
-        StringBuilder builder = new StringBuilder();
-        builder.append("根据当前空间知识库，问题“").append(question).append("”可参考以下内容：");
         for(int i = 0; i < chunks.size(); i++) {
-            builder.append("\n").append(i + 1).append(". ").append(truncate(chunks.get(i).getContent(),200));
+            FileRagChunk chunk = chunks.get(i);
+            SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceAndChunkId(spaceId,chunk.getId());
+            SpaceRagCitationVO citation = new SpaceRagCitationVO();
+            citation.setIndex(i + 1);
+            citation.setChunkId(chunk.getId());
+            citation.setContentSummary(truncate(chunk.getContent(),240));
+            if(document != null) {
+                citation.setDocumentId(document.getId());
+                citation.setSpaceFileId(document.getSpaceFileId());
+                citation.setFileName(document.getFileName());
+                String base = "/api/space/" + spaceId + "/files/" + document.getSpaceFileId();
+                citation.setPreviewUrl(base + "/preview");
+                citation.setDownloadUrl(base + "/download");
+            }
+            citations.add(citation);
         }
-        builder.append("\n\n当前回答使用全局文件 chunk 和空间引用表检索生成；接入 langchain4j 后，可替换为总向量库召回和模型生成。");
-        return builder.toString();
+        return citations;
     }
 
     private List<String> splitText(String text, int chunkSize, int chunkOverlap) {
@@ -530,6 +660,27 @@ public class SpaceRagService {
 
     private void finishTask(SpaceRagTask task, String status, String errorMessage, LocalDateTime startedTime) {
         spaceRagTaskMapper.updateResult(task.getId(),status,errorMessage,startedTime,LocalDateTime.now(),LocalDateTime.now());
+    }
+
+    private void finishTask(Long taskId, String status, String errorMessage, LocalDateTime startedTime) {
+        spaceRagTaskMapper.updateResult(taskId,status,errorMessage,startedTime,LocalDateTime.now(),LocalDateTime.now());
+    }
+
+    private void markTaskRunning(Long taskId, LocalDateTime startedTime) {
+        spaceRagTaskMapper.updateResult(taskId,SpaceConstant.RAG_TASK_RUNNING,null,startedTime,null,LocalDateTime.now());
+    }
+
+    private void dispatchAfterCommit(Runnable runnable) {
+        if(TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    runnable.run();
+                }
+            });
+            return;
+        }
+        runnable.run();
     }
 
     private void saveQueryLog(Long spaceId, Long userId, String question, String answer, String hitChunkIds, String modelName, boolean success, String errorMessage) {

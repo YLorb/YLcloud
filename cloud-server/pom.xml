@@ -46,6 +46,18 @@
             <artifactId>minio</artifactId>
         </dependency>
         <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-qdrant</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>

@@ -13,4 +13,5 @@ public class SpaceRagQueryVO {
     private String answer;
     private List<Long> hitChunkIds;
     private List<String> contexts;
+    private List<SpaceRagCitationVO> citations;
 }
