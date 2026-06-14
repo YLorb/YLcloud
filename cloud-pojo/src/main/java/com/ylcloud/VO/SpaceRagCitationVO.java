@@ -12,4 +12,6 @@ public class SpaceRagCitationVO {
     private String contentSummary;
     private String previewUrl;
     private String downloadUrl;
+    private Double vectorScore;
+    private Double rerankScore;
 }

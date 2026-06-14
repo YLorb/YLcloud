@@ -15,8 +15,12 @@ import com.ylcloud.utils.Md5Util;
 import com.ylcloud.utils.MinioclientUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -30,6 +34,7 @@ import java.util.List;
  */
 @Service
 public class FileVersionService {
+    private static final Logger log = LoggerFactory.getLogger(FileVersionService.class);
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
 
     private final FileVersionMapper fileVersionMapper;
@@ -37,6 +42,7 @@ public class FileVersionService {
     private final SpaceFileMapper spaceFileMapper;
     private final SpacePermissionService spacePermissionService;
     private final SpaceFileService spaceFileService;
+    private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
 
     public FileVersionService(FileVersionMapper fileVersionMapper,
@@ -44,12 +50,14 @@ public class FileVersionService {
                               SpaceFileMapper spaceFileMapper,
                               SpacePermissionService spacePermissionService,
                               SpaceFileService spaceFileService,
+                              SpaceRagService spaceRagService,
                               MinioclientUtil minioclientUtil) {
         this.fileVersionMapper = fileVersionMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceFileMapper = spaceFileMapper;
         this.spacePermissionService = spacePermissionService;
         this.spaceFileService = spaceFileService;
+        this.spaceRagService = spaceRagService;
         this.minioclientUtil = minioclientUtil;
     }
 
@@ -99,6 +107,7 @@ public class FileVersionService {
         String fileType = getFileType(fileName);
         updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),fileName,fileType,uploadFile.getSize(),md5,hash);
         FileVersion version = createVersion(spaceFile.getFileUuid(),versionId,fileName,hash,md5,fileType,uploadFile.getSize(),changeNote,userId);
+        scheduleRagRebuildAfterCommit(spaceId,spaceFileId,userId);
         return toVO(spaceId,spaceFileId,version);
     }
 
@@ -220,7 +229,29 @@ public class FileVersionService {
         updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),source.getFileName(),source.getFileType(),source.getFileSize(),source.getFileMd5(),source.getFileHash());
         String note = changeNote == null || changeNote.isBlank() ? "恢复自版本 " + source.getVersionNo() : changeNote;
         FileVersion version = createVersion(spaceFile.getFileUuid(),newMinioVersionId,source.getFileName(),source.getFileHash(),source.getFileMd5(),source.getFileType(),source.getFileSize(),note,userId);
+        scheduleRagRebuildAfterCommit(spaceId,spaceFileId,userId);
         return toVO(spaceId,spaceFileId,version);
+    }
+
+    private void scheduleRagRebuildAfterCommit(Long spaceId, Long spaceFileId, Long userId) {
+        Runnable task = () -> {
+            try {
+                spaceRagService.rebuildFile(spaceId,spaceFileId,userId);
+            } catch (Exception ex) {
+                log.warn("Failed to schedule RAG rebuild after file version change, spaceId={}, spaceFileId={}",
+                        spaceId,spaceFileId,ex);
+            }
+        };
+        if(TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    task.run();
+                }
+            });
+            return;
+        }
+        task.run();
     }
 
     private SpaceFile requireVersionableSpaceFile(Long spaceId, Long spaceFileId) {

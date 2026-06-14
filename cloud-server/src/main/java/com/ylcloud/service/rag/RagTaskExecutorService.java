@@ -25,4 +25,9 @@ public class RagTaskExecutorService {
     public void runSpaceTask(Long taskId, Long spaceId, Long userId) {
         spaceRagService.executeSpaceRagTask(taskId,spaceId,userId);
     }
+
+    @Async("ragTaskExecutor")
+    public void runSpaceRepairTask(Long taskId, Long spaceId, Long userId) {
+        spaceRagService.executeSpaceRagTask(taskId,spaceId,userId,true);
+    }
 }

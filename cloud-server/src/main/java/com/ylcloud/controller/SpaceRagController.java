@@ -130,4 +130,26 @@ public class SpaceRagController {
     public Result<List<SpaceRagTaskVO>> listTasks(@PathVariable Long spaceId) {
         return Result.success(spaceRagService.listTasks(spaceId,BaseContext.getCurrentId()));
     }
+
+    @PostMapping("/tasks/{taskId}/retry")
+    public Result<Boolean> retryTask(@PathVariable Long spaceId,
+                                     @PathVariable Long taskId) {
+        return Result.success(spaceRagService.retryTask(spaceId,taskId,BaseContext.getCurrentId()));
+    }
+
+    @PostMapping("/tasks/retry-failed")
+    public Result<Boolean> retryFailedTasks(@PathVariable Long spaceId) {
+        return Result.success(spaceRagService.retryFailedTasks(spaceId,BaseContext.getCurrentId()));
+    }
+
+    @PostMapping("/vectors/repair")
+    public Result<Boolean> repairSpaceVectors(@PathVariable Long spaceId) {
+        return Result.success(spaceRagService.repairSpaceVectors(spaceId,BaseContext.getCurrentId()));
+    }
+
+    @PostMapping("/files/{spaceFileId}/vectors/repair")
+    public Result<Boolean> repairFileVectors(@PathVariable Long spaceId,
+                                             @PathVariable Long spaceFileId) {
+        return Result.success(spaceRagService.repairFileVectors(spaceId,spaceFileId,BaseContext.getCurrentId()));
+    }
 }

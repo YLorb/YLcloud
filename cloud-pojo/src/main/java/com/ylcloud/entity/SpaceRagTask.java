@@ -15,6 +15,9 @@ public class SpaceRagTask {
     private Long documentId;
     private String taskType;
     private String taskStatus;
+    private Integer totalCount;
+    private Integer successCount;
+    private Integer failedCount;
     private String errorMessage;
     private Long createdBy;
     private LocalDateTime startedTime;

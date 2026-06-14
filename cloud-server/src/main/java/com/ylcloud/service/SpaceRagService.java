@@ -226,6 +226,48 @@ public class SpaceRagService {
         return result;
     }
 
+    @Transactional
+    public Boolean retryTask(Long spaceId, Long taskId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        SpaceRagTask failedTask = spaceRagTaskMapper.getById(taskId);
+        if(failedTask == null || !spaceId.equals(failedTask.getSpaceId())) {
+            throw new BaseException("RAG 任务不存在");
+        }
+        if(!SpaceConstant.RAG_TASK_FAILED.equals(failedTask.getTaskStatus())) {
+            throw new BaseException("只有失败的 RAG 任务可以重试");
+        }
+        if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(failedTask.getTaskType())) {
+            return rebuildSpace(spaceId,userId);
+        }
+        if(failedTask.getSpaceFileId() != null) {
+            return rebuildFile(spaceId,failedTask.getSpaceFileId(),userId);
+        }
+        throw new BaseException("当前 RAG 任务缺少可重试的文件范围");
+    }
+
+    @Transactional
+    public Boolean retryFailedTasks(Long spaceId, Long userId) {
+        return repairSpaceVectors(spaceId,userId);
+    }
+
+    @Transactional
+    public Boolean repairSpaceVectors(Long spaceId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningIndexTaskBySpace(spaceId);
+        if(runningTask != null) {
+            return true;
+        }
+        SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId);
+        dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceRepairTask(task.getId(),spaceId,userId));
+        return true;
+    }
+
+    @Transactional
+    public Boolean repairFileVectors(Long spaceId, Long spaceFileId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        return rebuildFile(spaceId,spaceFileId,userId);
+    }
+
     /**
      * 搜索空间中的 RAG 文档。
      *
@@ -360,14 +402,17 @@ public class SpaceRagService {
         LocalDateTime started = LocalDateTime.now();
         try {
             markTaskRunning(taskId,started);
+            updateTaskProgress(taskId,1,0,0);
             SpaceRagDocument document = spaceRagDocumentMapper.getById(documentId);
             if(document == null) {
                 throw new BaseException("RAG document not found");
             }
             rebuildDocument(document,userId);
+            updateTaskProgress(taskId,1,1,0);
             finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
         } catch (Exception ex) {
             String errorMessage = truncate(ex.getMessage(),1000);
+            updateTaskProgress(taskId,1,0,1);
             finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,errorMessage,started);
             if(documentId != null) {
                 spaceRagDocumentMapper.updateIndexResult(documentId,SpaceConstant.RAG_INDEX_FAILED,0,errorMessage,LocalDateTime.now());
@@ -376,14 +421,24 @@ public class SpaceRagService {
     }
 
     public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId) {
+        executeSpaceRagTask(taskId,spaceId,userId,false);
+    }
+
+    public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId, boolean clearSpaceVectors) {
         LocalDateTime started = LocalDateTime.now();
         try {
             markTaskRunning(taskId,started);
+            if(clearSpaceVectors) {
+                qdrantVectorStoreService.deleteBySpaceStrict(spaceId);
+            }
             List<SpaceRagDocument> documents = spaceRagDocumentMapper.listBySpaceId(spaceId);
+            updateTaskProgress(taskId,documents.size(),0,0);
             int failed = 0;
+            int success = 0;
             for(SpaceRagDocument document : documents) {
                 try {
                     rebuildDocument(document,userId);
+                    success++;
                 } catch (Exception ex) {
                     failed++;
                     spaceRagDocumentMapper.updateIndexResult(
@@ -394,6 +449,7 @@ public class SpaceRagService {
                             LocalDateTime.now()
                     );
                 }
+                updateTaskProgress(taskId,documents.size(),success,failed);
             }
             if(failed > 0) {
                 finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,"Partial document indexing failed: " + failed + "/" + documents.size(),started);
@@ -654,6 +710,9 @@ public class SpaceRagService {
         task.setDocumentId(documentId);
         task.setTaskType(taskType);
         task.setTaskStatus(SpaceConstant.RAG_TASK_PENDING);
+        task.setTotalCount(0);
+        task.setSuccessCount(0);
+        task.setFailedCount(0);
         task.setCreatedBy(userId);
         task.setCreatetime(now);
         task.setUpdatetime(now);
@@ -671,6 +730,10 @@ public class SpaceRagService {
 
     private void markTaskRunning(Long taskId, LocalDateTime startedTime) {
         spaceRagTaskMapper.updateResult(taskId,SpaceConstant.RAG_TASK_RUNNING,null,startedTime,null,LocalDateTime.now());
+    }
+
+    private void updateTaskProgress(Long taskId, int totalCount, int successCount, int failedCount) {
+        spaceRagTaskMapper.updateProgress(taskId,totalCount,successCount,failedCount,LocalDateTime.now());
     }
 
     private void dispatchAfterCommit(Runnable runnable) {
@@ -746,6 +809,9 @@ public class SpaceRagService {
         vo.setDocumentId(task.getDocumentId());
         vo.setTaskType(task.getTaskType());
         vo.setTaskStatus(task.getTaskStatus());
+        vo.setTotalCount(task.getTotalCount());
+        vo.setSuccessCount(task.getSuccessCount());
+        vo.setFailedCount(task.getFailedCount());
         vo.setErrorMessage(task.getErrorMessage());
         vo.setCreatedBy(task.getCreatedBy());
         vo.setStartedTime(task.getStartedTime());

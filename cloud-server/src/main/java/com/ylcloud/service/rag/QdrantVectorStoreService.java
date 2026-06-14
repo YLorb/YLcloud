@@ -119,6 +119,24 @@ public class QdrantVectorStoreService {
         }
     }
 
+    public void deleteBySpace(Long spaceId) {
+        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) {
+            return;
+        }
+        try {
+            embeddingStore.removeAll(new IsEqualTo(SPACE_ID,spaceId));
+        } catch (Exception ex) {
+            log.warn("Failed to remove Qdrant vectors for spaceId={}",spaceId,ex);
+        }
+    }
+
+    public void deleteBySpaceStrict(Long spaceId) {
+        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) {
+            return;
+        }
+        embeddingStore.removeAll(new IsEqualTo(SPACE_ID,spaceId));
+    }
+
     private Metadata metadata(Long spaceId, Long spaceFileId, Long documentId, FileRagChunk chunk) {
         Metadata metadata = new Metadata();
         metadata.put(CHUNK_ID,chunk.getId());
