@@ -30,10 +30,26 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, clearSession, getStoredUser, setSession } from "./api";
-import type { FileItem, FilePreview, RagConfig, RagDocument, RagQuery, RagTask, ShareFile, Space, SpaceFile, SpaceMember, User } from "./types";
+import type {
+  ChunkUploadInit,
+  FileItem,
+  FilePreview,
+  FileVersion,
+  RagConfig,
+  RagDocument,
+  RagQuery,
+  RagTask,
+  ShareFile,
+  Space,
+  SpaceDocumentSearch,
+  SpaceFile,
+  SpaceMember,
+  User
+} from "./types";
 
 type Section = "files" | "recycle" | "shares" | "spaces";
 type Toast = { tone: "ok" | "warn"; text: string } | null;
+type FileDigest = { md5: string; sha1: string };
 
 const sampleFiles: FileItem[] = [
   { fileId: 1, fileUuid: "demo-folder", isDir: true, parentId: 0, name: "项目资料", type: "folder", size: 0 },
@@ -45,6 +61,39 @@ const sampleSpaces: Space[] = [
   { id: 1, name: "研发知识库", description: "团队文档、索引任务与智能问答", role: "OWNER", ragStatus: 1, versionEnabled: 1 },
   { id: 2, name: "课程资料共享", description: "实验报告与学习资料", role: "EDITOR", ragStatus: 0, versionEnabled: 0 }
 ];
+
+function digestFileInWorker(file: File, chunkSize: number, onProgress: (loaded: number, total: number) => void) {
+  return new Promise<FileDigest>((resolve, reject) => {
+    const worker = new Worker(new URL("./hashWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent) => {
+      const data = event.data as { type: "progress"; loaded: number; total: number } | ({ type: "done" } & FileDigest);
+      if (data.type === "progress") {
+        onProgress(data.loaded, data.total);
+        return;
+      }
+      worker.terminate();
+      resolve({ md5: data.md5, sha1: data.sha1 });
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || "文件校验失败"));
+    };
+    worker.postMessage({ file, chunkSize });
+  });
+}
+
+function uploadRecordKey(parentId: number, file: File, md5: string, sha1: string) {
+  return `ylcloud_upload_${parentId}_${file.name}_${file.size}_${md5}_${sha1}`;
+}
+
+function createUploadId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    const next = char === "x" ? value : (value & 0x3) | 0x8;
+    return next.toString(16);
+  });
+}
 
 function formatSize(size?: number) {
   if (!size) return "-";
@@ -247,6 +296,7 @@ function FileManager({ setToast }: { setToast: (toast: Toast) => void }) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const multipartInput = useRef<HTMLInputElement>(null);
   const parentId = parentStack[parentStack.length - 1]?.id ?? 0;
 
   async function loadFiles(nextParentId = parentId) {
@@ -279,6 +329,75 @@ function FileManager({ setToast }: { setToast: (toast: Toast) => void }) {
     } finally {
       setLoading(false);
       if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  async function multipartUpload(filesToUpload: FileList | null) {
+    const file = filesToUpload?.[0];
+    if (!file) return;
+    const chunkSize = 5 * 1024 * 1024;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    if (totalChunks <= 0) {
+      setToast({ tone: "warn", text: "文件大小无效" });
+      return;
+    }
+    setLoading(true);
+    try {
+      setToast({ tone: "ok", text: "正在校验文件指纹" });
+      const digest = await digestFileInWorker(file, chunkSize, (loaded, total) => {
+        const percent = Math.floor((loaded / total) * 100);
+        setToast({ tone: "ok", text: `文件校验 ${percent}%` });
+      });
+      const recordKey = uploadRecordKey(parentId, file, digest.md5, digest.sha1);
+      const storedUploadId = localStorage.getItem(recordKey);
+      const uploadId = storedUploadId || createUploadId();
+      const initPayload = {
+        fileName: file.name,
+        fileMd5: digest.md5,
+        fileSha1: digest.sha1,
+        fileHash: digest.sha1,
+        fileSize: file.size,
+        chunkSize,
+        totalChunks,
+        parentId
+      };
+      let init: ChunkUploadInit;
+      try {
+        init = await api.initMultipartUpload({ ...initPayload, uploadId });
+      } catch (err) {
+        if (!storedUploadId) throw err;
+        localStorage.removeItem(recordKey);
+        init = await api.initMultipartUpload({ ...initPayload, uploadId: createUploadId() });
+      }
+      if (init.instantUpload) {
+        localStorage.removeItem(recordKey);
+        await loadFiles();
+        setToast({ tone: "ok", text: "秒传完成" });
+        return;
+      }
+      if (!init.uploadId) {
+        throw new Error("后端未返回上传任务 ID");
+      }
+      localStorage.setItem(recordKey, init.uploadId);
+      const uploaded = new Set(init.uploadedChunks || []);
+      const status = await api.multipartStatus(init.uploadId).catch(() => null);
+      (status?.uploadedChunks || []).forEach((chunk) => uploaded.add(chunk));
+      for (let index = 0; index < totalChunks; index += 1) {
+        if (uploaded.has(index)) continue;
+        const start = index * chunkSize;
+        const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
+        await api.uploadChunk({ file: chunk, uploadId: init.uploadId, chunkIndex: index });
+        setToast({ tone: "ok", text: `分片上传 ${index + 1}/${totalChunks}` });
+      }
+      await api.mergeMultipartUpload({ uploadId: init.uploadId, fileName: file.name, partNames: [] });
+      localStorage.removeItem(recordKey);
+      await loadFiles();
+      setToast({ tone: "ok", text: "分片上传完成" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "分片上传失败" });
+    } finally {
+      setLoading(false);
+      if (multipartInput.current) multipartInput.current.value = "";
     }
   }
 
@@ -381,12 +500,17 @@ function FileManager({ setToast }: { setToast: (toast: Toast) => void }) {
           </div>
           <div className="toolbar-actions">
             <input ref={fileInput} type="file" multiple hidden onChange={(event) => upload(event.target.files)} />
+            <input ref={multipartInput} type="file" hidden onChange={(event) => multipartUpload(event.target.files)} />
             <IconButton label="刷新" onClick={() => loadFiles()}>
               <RefreshCw size={18} />
             </IconButton>
             <button className="soft-button" type="button" onClick={() => fileInput.current?.click()}>
               <UploadCloud size={17} />
               上传
+            </button>
+            <button className="soft-button" type="button" onClick={() => multipartInput.current?.click()}>
+              <UploadCloud size={17} />
+              分片上传
             </button>
             <button className="soft-button" type="button" onClick={() => create(1)}>
               <FolderPlus size={17} />
@@ -494,6 +618,17 @@ function RecycleBin({ setToast }: { setToast: (toast: Toast) => void }) {
     }
   }
 
+  async function purge(file: FileItem) {
+    if (!window.confirm(`彻底删除「${file.name}」？此操作不可恢复。`)) return;
+    try {
+      await api.deleteRecycle(file.fileId);
+      await load();
+      setToast({ tone: "ok", text: "文件已彻底删除" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "彻底删除失败" });
+    }
+  }
+
   return (
     <section className="main-panel solo">
       <div className="panel-toolbar">
@@ -515,6 +650,10 @@ function RecycleBin({ setToast }: { setToast: (toast: Toast) => void }) {
           <button type="button" onClick={() => restore(file)}>
             <ArchiveRestore size={16} />
             恢复
+          </button>
+          <button type="button" className="danger" onClick={() => purge(file)}>
+            <Trash2 size={16} />
+            彻底删除
           </button>
         </div>
       ))}
@@ -593,9 +732,13 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [active, setActive] = useState<Space | null>(null);
   const [files, setFiles] = useState<SpaceFile[]>([]);
+  const [selectedSpaceFile, setSelectedSpaceFile] = useState<SpaceFile | null>(null);
+  const [versions, setVersions] = useState<FileVersion[]>([]);
+  const versionInput = useRef<HTMLInputElement>(null);
   const [members, setMembers] = useState<SpaceMember[]>([]);
   const [ragConfig, setRagConfig] = useState<RagConfig | null>(null);
   const [documents, setDocuments] = useState<RagDocument[]>([]);
+  const [documentHits, setDocumentHits] = useState<SpaceDocumentSearch[]>([]);
   const [tasks, setTasks] = useState<RagTask[]>([]);
   const [query, setQuery] = useState<RagQuery | null>(null);
   const [question, setQuestion] = useState("");
@@ -640,12 +783,28 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
     }
   }
 
+  async function loadVersions(space: Space | null, file: SpaceFile | null) {
+    if (!space || !file || file.dir) {
+      setVersions([]);
+      return;
+    }
+    try {
+      setVersions(await api.listSpaceFileVersions(space.id, file.id));
+    } catch (err) {
+      setVersions([]);
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "读取版本列表失败" });
+    }
+  }
+
   useEffect(() => {
     loadSpaces();
   }, []);
 
   useEffect(() => {
     loadSpaceDetail(active);
+    setSelectedSpaceFile(null);
+    setVersions([]);
+    setDocumentHits([]);
   }, [active?.id]);
 
   async function createSpace(event: FormEvent<HTMLFormElement>) {
@@ -662,6 +821,38 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
       setToast({ tone: "ok", text: "空间已创建" });
     } catch (err) {
       setToast({ tone: "warn", text: err instanceof Error ? err.message : "创建空间失败" });
+    }
+  }
+
+  async function saveSpace(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!active) return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("spaceName") || active.name).trim();
+    const description = String(form.get("spaceDescription") || "").trim();
+    const versionEnabled = form.get("spaceVersionEnabled") === "on" ? 1 : 0;
+    try {
+      const updated = await api.updateSpace(active.id, { name, description });
+      const updatedVersion = await api.updateSpaceVersionSetting(active.id, versionEnabled).catch(() => updated);
+      const next = { ...updated, versionEnabled: updatedVersion.versionEnabled ?? versionEnabled };
+      setActive(next);
+      setSpaces((items) => items.map((item) => (item.id === next.id ? next : item)));
+      setToast({ tone: "ok", text: "空间设置已保存" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "保存空间设置失败" });
+    }
+  }
+
+  async function deleteActiveSpace() {
+    if (!active || !window.confirm(`删除空间「${active.name}」？`)) return;
+    try {
+      await api.deleteSpace(active.id);
+      const nextSpaces = spaces.filter((space) => space.id !== active.id);
+      setSpaces(nextSpaces);
+      setActive(nextSpaces[0] || null);
+      setToast({ tone: "ok", text: "空间已删除" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "删除空间失败" });
     }
   }
 
@@ -683,6 +874,76 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
       await loadSpaceDetail(active);
     } catch (err) {
       setToast({ tone: "warn", text: err instanceof Error ? err.message : "重建失败" });
+    }
+  }
+
+  async function rebuildSelectedFileRag() {
+    if (!active || !selectedSpaceFile) return;
+    try {
+      await api.rebuildFileRag(active.id, selectedSpaceFile.id);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "已提交单文件索引重建任务" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "单文件重建失败" });
+    }
+  }
+
+  async function repairSelectedFileVectors() {
+    if (!active || !selectedSpaceFile) return;
+    try {
+      await api.repairFileVectors(active.id, selectedSpaceFile.id);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "已提交单文件向量修复" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "单文件向量修复失败" });
+    }
+  }
+
+  async function repairSpaceVectors() {
+    if (!active) return;
+    try {
+      await api.repairSpaceVectors(active.id);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "已提交空间向量修复" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "空间向量修复失败" });
+    }
+  }
+
+  async function searchDocuments(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!active) return;
+    const form = new FormData(event.currentTarget);
+    const keyword = String(form.get("keyword") || "").trim();
+    const indexStatus = String(form.get("indexStatus") || "").trim();
+    try {
+      setDocumentHits(await api.searchRagDocuments(active.id, { keyword, indexStatus, searchContent: 1, page: 1, pageSize: 20 }));
+      setToast({ tone: "ok", text: "文档搜索完成" });
+    } catch (err) {
+      setDocumentHits([]);
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "文档搜索失败" });
+    }
+  }
+
+  async function retryTask(task: RagTask) {
+    if (!active) return;
+    try {
+      await api.retryRagTask(active.id, task.id);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "任务已重试" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "任务重试失败" });
+    }
+  }
+
+  async function retryFailedTasks() {
+    if (!active) return;
+    try {
+      await api.retryFailedRagTasks(active.id);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "失败任务已批量重试" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "批量重试失败" });
     }
   }
 
@@ -723,10 +984,80 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
     if (!active || !window.confirm(`从空间移除「${file.name}」？`)) return;
     try {
       await api.removeSpaceFile(active.id, file.id);
+      if (selectedSpaceFile?.id === file.id) {
+        setSelectedSpaceFile(null);
+        setVersions([]);
+      }
       await loadSpaceDetail(active);
       setToast({ tone: "ok", text: "空间文件已移除" });
     } catch (err) {
       setToast({ tone: "warn", text: err instanceof Error ? err.message : "移除空间文件失败" });
+    }
+  }
+
+  async function selectSpaceFile(file: SpaceFile) {
+    setSelectedSpaceFile(file);
+    await loadVersions(active, file);
+  }
+
+  async function toggleSpaceFileVersion(file: SpaceFile) {
+    if (!active) return;
+    const nextEnabled = file.effectiveVersionEnabled ? 0 : 1;
+    try {
+      await api.updateSpaceFileVersionSetting(active.id, file.id, nextEnabled);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "文件版本设置已更新" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "更新文件版本设置失败" });
+    }
+  }
+
+  async function previewSpaceFile(file: SpaceFile) {
+    if (!active || file.dir) return;
+    try {
+      const info = await api.previewSpaceFile(active.id, file.id);
+      setToast({ tone: "ok", text: info.textContent || info.previewType || "已获取空间文件预览信息" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "空间文件预览失败" });
+    }
+  }
+
+  async function downloadSpaceFile(file: SpaceFile) {
+    if (!active || file.dir) return;
+    try {
+      await api.downloadSpaceFile(active.id, file.id, file.name);
+      setToast({ tone: "ok", text: "已开始下载空间文件" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "空间文件下载失败" });
+    }
+  }
+
+  async function uploadVersion(filesToUpload: FileList | null) {
+    const file = filesToUpload?.[0];
+    if (!active || !selectedSpaceFile || selectedSpaceFile.dir || !file) return;
+    const changeNote = window.prompt("版本说明，可留空") || undefined;
+    try {
+      await api.uploadSpaceFileVersion(active.id, selectedSpaceFile.id, file, changeNote);
+      await loadVersions(active, selectedSpaceFile);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "新版本已上传" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "上传版本失败" });
+    } finally {
+      if (versionInput.current) versionInput.current.value = "";
+    }
+  }
+
+  async function restoreVersion(version: FileVersion) {
+    if (!active || !selectedSpaceFile || !window.confirm(`恢复到版本 ${version.versionNo ?? version.id}？`)) return;
+    const changeNote = window.prompt("恢复说明，可留空") || undefined;
+    try {
+      await api.restoreSpaceFileVersion(active.id, selectedSpaceFile.id, version.id, changeNote);
+      await loadVersions(active, selectedSpaceFile);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "版本已恢复" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "版本恢复失败" });
     }
   }
 
@@ -744,6 +1075,30 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
       setToast({ tone: "ok", text: "成员已添加" });
     } catch (err) {
       setToast({ tone: "warn", text: err instanceof Error ? err.message : "添加成员失败" });
+    }
+  }
+
+  async function updateMember(member: SpaceMember) {
+    if (!active) return;
+    const role = window.prompt("新的成员角色", member.role || "VIEWER");
+    if (!role || role === member.role) return;
+    try {
+      await api.updateMemberRole(active.id, member.userId, role);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "成员角色已更新" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "更新成员角色失败" });
+    }
+  }
+
+  async function removeMember(member: SpaceMember) {
+    if (!active || !window.confirm(`移除用户 ${member.userId}？`)) return;
+    try {
+      await api.removeMember(active.id, member.userId);
+      await loadSpaceDetail(active);
+      setToast({ tone: "ok", text: "成员已移除" });
+    } catch (err) {
+      setToast({ tone: "warn", text: err instanceof Error ? err.message : "移除成员失败" });
     }
   }
 
@@ -808,6 +1163,18 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
                 重建索引
               </button>
             </div>
+            <form className="settings-strip" onSubmit={saveSpace}>
+              <input name="spaceName" defaultValue={active.name} aria-label="空间名称" />
+              <input name="spaceDescription" defaultValue={active.description || ""} aria-label="空间描述" />
+              <label>
+                <input name="spaceVersionEnabled" type="checkbox" defaultChecked={Boolean(active.versionEnabled)} />
+                空间版本
+              </label>
+              <button type="submit">保存空间</button>
+              <button type="button" className="danger" onClick={deleteActiveSpace}>
+                删除空间
+              </button>
+            </form>
             <div className="metrics-grid">
               <div>
                 <span>空间文件</span>
@@ -848,16 +1215,71 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
                 </div>
                 {!files.length ? <EmptyState title="暂无空间文件" body="可以从个人文件导入，或在后端接口扩展上传入口。" /> : null}
                 {files.map((file) => (
-                  <div className="compact-row" key={file.id}>
+                  <div className={`compact-row ${selectedSpaceFile?.id === file.id ? "selected" : ""}`} key={file.id}>
                     <span className={file.dir ? "file-icon folder" : "file-icon"}>{file.dir ? <Folder size={18} /> : <File size={18} />}</span>
-                    <strong>{file.name}</strong>
+                    <button className="row-title-button" type="button" onClick={() => selectSpaceFile(file)}>
+                      {file.name}
+                    </button>
                     <span>{file.effectiveVersionEnabled ? "版本开启" : "版本继承"}</span>
+                    <button type="button" onClick={() => previewSpaceFile(file)} disabled={file.dir}>
+                      <Search size={15} />
+                      预览
+                    </button>
+                    <button type="button" onClick={() => downloadSpaceFile(file)} disabled={file.dir}>
+                      <Download size={15} />
+                      下载
+                    </button>
+                    <button type="button" onClick={() => toggleSpaceFileVersion(file)}>
+                      <Settings2 size={15} />
+                      版本
+                    </button>
                     <button type="button" onClick={() => removeSpaceFile(file)}>
                       <Trash2 size={15} />
                       移除
                     </button>
                   </div>
                 ))}
+                {selectedSpaceFile && !selectedSpaceFile.dir ? (
+                  <div className="version-panel">
+                    <div className="panel-mini-header">
+                      <strong>{selectedSpaceFile.name}</strong>
+                      <span>{versions.length} 个版本</span>
+                    </div>
+                    <input ref={versionInput} type="file" hidden onChange={(event) => uploadVersion(event.target.files)} />
+                    <div className="row-actions">
+                      <button type="button" onClick={() => versionInput.current?.click()}>
+                        <UploadCloud size={15} />
+                        上传新版本
+                      </button>
+                      <button type="button" onClick={rebuildSelectedFileRag}>
+                        <RefreshCw size={15} />
+                        重建此文件
+                      </button>
+                      <button type="button" onClick={repairSelectedFileVectors}>
+                        <Settings2 size={15} />
+                        修复向量
+                      </button>
+                    </div>
+                    {!versions.length ? <p className="muted-line">暂无版本记录</p> : null}
+                    {versions.map((version) => (
+                      <div className="compact-row version-row" key={version.id}>
+                        <span className="file-icon">
+                          <File size={16} />
+                        </span>
+                        <strong>v{version.versionNo ?? version.id}</strong>
+                        <span>{version.current ? "当前" : formatSize(version.fileSize)}</span>
+                        <button type="button" onClick={() => api.downloadSpaceFileVersion(active.id, selectedSpaceFile.id, version.id, version.fileName || selectedSpaceFile.name)}>
+                          <Download size={15} />
+                          下载
+                        </button>
+                        <button type="button" onClick={() => restoreVersion(version)}>
+                          <ArchiveRestore size={15} />
+                          恢复
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="sub-panel">
                 <h3>
@@ -908,8 +1330,74 @@ function SpacesView({ setToast }: { setToast: (toast: Toast) => void }) {
                   <strong>用户 {member.userId}</strong>
                   <span>{member.role || "VIEWER"}</span>
                   <span>{member.status === 0 ? "禁用" : "正常"}</span>
+                  <button type="button" onClick={() => updateMember(member)}>
+                    <Settings2 size={15} />
+                    改角色
+                  </button>
+                  <button type="button" className="danger" onClick={() => removeMember(member)}>
+                    <Trash2 size={15} />
+                    移除
+                  </button>
                 </div>
               ))}
+            </div>
+            <div className="split-panels ops-panels">
+              <div className="sub-panel">
+                <h3>RAG 文档检索</h3>
+                <form className="inline-form" onSubmit={searchDocuments}>
+                  <input name="keyword" placeholder="关键词" />
+                  <select name="indexStatus" defaultValue="" aria-label="索引状态">
+                    <option value="">全部状态</option>
+                    <option value="SUCCESS">SUCCESS</option>
+                    <option value="FAILED">FAILED</option>
+                    <option value="PENDING">PENDING</option>
+                    <option value="PROCESSING">PROCESSING</option>
+                  </select>
+                  <button type="submit">
+                    <Search size={16} />
+                    搜索
+                  </button>
+                </form>
+                {[...documentHits, ...documents.filter((doc) => !documentHits.some((hit) => hit.documentId === doc.id))].slice(0, 8).map((doc) => (
+                  <div className="compact-row" key={`doc-${"documentId" in doc ? doc.documentId : doc.id}`}>
+                    <span className="file-icon">
+                      <File size={16} />
+                    </span>
+                    <strong>{doc.fileName}</strong>
+                    <span>{doc.indexStatus || "-"}</span>
+                    <span>{doc.chunkCount ?? 0} chunks</span>
+                  </div>
+                ))}
+              </div>
+              <div className="sub-panel">
+                <div className="panel-mini-header">
+                  <h3>RAG 任务</h3>
+                  <div className="row-actions">
+                    <button type="button" onClick={retryFailedTasks}>
+                      <RefreshCw size={15} />
+                      重试失败
+                    </button>
+                    <button type="button" onClick={repairSpaceVectors}>
+                      <Settings2 size={15} />
+                      修复空间向量
+                    </button>
+                  </div>
+                </div>
+                {!tasks.length ? <p className="muted-line">暂无任务</p> : null}
+                {tasks.slice(0, 8).map((task) => (
+                  <div className="compact-row" key={task.id}>
+                    <span className="file-icon">
+                      <Bot size={16} />
+                    </span>
+                    <strong>{task.taskType || `任务 ${task.id}`}</strong>
+                    <span>{task.taskStatus || "-"}</span>
+                    <button type="button" onClick={() => retryTask(task)}>
+                      <RefreshCw size={15} />
+                      重试
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="rag-console">
               <div>

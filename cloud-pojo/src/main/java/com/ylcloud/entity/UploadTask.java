@@ -44,6 +44,8 @@ public class UploadTask {
      */
     private String fileMd5;
 
+    private String fileSha1;
+
     /**
      * 完整文件内容 hash，用于秒传。
      */

@@ -1,13 +1,17 @@
 import type {
   ApiResult,
+  ChunkStatus,
+  ChunkUploadInit,
   FileItem,
   FilePreview,
+  FileVersion,
   RagConfig,
   RagDocument,
   RagQuery,
   RagTask,
   ShareFile,
   Space,
+  SpaceDocumentSearch,
   SpaceFile,
   SpaceMember,
   User
@@ -136,6 +140,40 @@ export const api = {
     request<FilePreview>(`/api/file/preview/${fileUuid}?${params({ parentId })}`),
   downloadFile: (fileUuid: string, parentId: number, filename: string) =>
     download(`/api/file/download/${fileUuid}?${params({ parentId })}`, filename),
+  bucketExists: () => request<boolean>("/api/file/bucket"),
+  moveFiles: (sourceplace: number, targetplace: number) =>
+    request<boolean>(`/api/file/move?${params({ sourceplace, targetplace })}`, { method: "PUT" }),
+  copyFiles: (sourceplace: number, targetplace: number) =>
+    request<boolean>(`/api/file/copy?${params({ sourceplace, targetplace })}`, { method: "PUT" }),
+  initMultipartUpload: (payload: {
+    uploadId?: string;
+    fileName: string;
+    fileMd5?: string;
+    fileSha1?: string;
+    fileHash: string;
+    fileSize: number;
+    chunkSize?: number;
+    totalChunks?: number;
+    parentId?: number;
+  }) =>
+    request<ChunkUploadInit>("/api/file/multipart/init", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  uploadChunk: (payload: { file: Blob; uploadId: string; chunkIndex: number; chunkMd5?: string }) => {
+    const body = new FormData();
+    body.set("file", payload.file);
+    body.set("uploadId", payload.uploadId);
+    body.set("chunkIndex", String(payload.chunkIndex));
+    if (payload.chunkMd5) body.set("chunkMd5", payload.chunkMd5);
+    return request<boolean>("/api/file/multipart/chunk", { method: "POST", body });
+  },
+  multipartStatus: (uploadId: string) => request<ChunkStatus>(`/api/file/multipart/status/${uploadId}`),
+  mergeMultipartUpload: (payload: { uploadId: string; fileUuid?: string; fileName?: string; partNames: string[] }) =>
+    request<FileItem>("/api/file/multipart/merge", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   listRecycle: () => request<FileItem[]>("/api/file/recycle"),
   restoreRecycle: (fileId: number) =>
     request<boolean>(`/api/file/recycle/${fileId}/restore`, { method: "PUT" }),
@@ -143,12 +181,22 @@ export const api = {
     request<boolean>(`/api/file/recycle/${fileId}`, { method: "DELETE" }),
   getShare: (shareCode: string) => request<ShareFile>(`/api/share/${shareCode}`),
   listSpaces: () => request<Space[]>("/api/space/list"),
+  getSpace: (spaceId: number) => request<Space>(`/api/space/${spaceId}`),
   createSpace: (payload: { name: string; description?: string }) =>
     request<Space>("/api/space", { method: "POST", body: JSON.stringify(payload) }),
   updateSpace: (spaceId: number, payload: { name: string; description?: string }) =>
     request<Space>(`/api/space/${spaceId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  updateSpaceVersionSetting: (spaceId: number, versionEnabled: number) =>
+    request<Space>(`/api/space/${spaceId}/version-setting`, {
+      method: "PUT",
+      body: JSON.stringify({ versionEnabled })
+    }),
+  deleteSpace: (spaceId: number) => request<boolean>(`/api/space/${spaceId}`, { method: "DELETE" }),
   listSpaceFiles: (spaceId: number, parentId?: number | null) =>
     request<SpaceFile[]>(`/api/space/${spaceId}/files/list?${params({ parentId })}`),
+  treeSpaceFiles: (spaceId: number) => request<SpaceFile[]>(`/api/space/${spaceId}/files/tree`),
+  listVersionEnabledSpaceFiles: (spaceId: number) =>
+    request<SpaceFile[]>(`/api/space/${spaceId}/files/version-enabled`),
   createSpaceFolder: (spaceId: number, payload: { name: string; parentId?: number | null }) =>
     request<SpaceFile>(`/api/space/${spaceId}/files/folder`, {
       method: "POST",
@@ -161,6 +209,32 @@ export const api = {
     }),
   removeSpaceFile: (spaceId: number, fileId: number) =>
     request<boolean>(`/api/space/${spaceId}/files/${fileId}`, { method: "DELETE" }),
+  updateSpaceFileVersionSetting: (spaceId: number, fileId: number, versionEnabled: number) =>
+    request<SpaceFile>(`/api/space/${spaceId}/files/${fileId}/version-setting`, {
+      method: "PUT",
+      body: JSON.stringify({ versionEnabled })
+    }),
+  previewSpaceFile: (spaceId: number, fileId: number) =>
+    request<FilePreview>(`/api/space/${spaceId}/files/${fileId}/preview`),
+  downloadSpaceFile: (spaceId: number, fileId: number, filename: string) =>
+    download(`/api/space/${spaceId}/files/${fileId}/download`, filename),
+  uploadSpaceFileVersion: (spaceId: number, fileId: number, file: File, changeNote?: string) => {
+    const body = new FormData();
+    body.set("file", file);
+    if (changeNote) body.set("changeNote", changeNote);
+    return request<FileVersion>(`/api/space/${spaceId}/files/${fileId}/versions`, { method: "POST", body });
+  },
+  listSpaceFileVersions: (spaceId: number, fileId: number) =>
+    request<FileVersion[]>(`/api/space/${spaceId}/files/${fileId}/versions`),
+  previewSpaceFileVersion: (spaceId: number, fileId: number, versionRecordId: number) =>
+    request<FilePreview>(`/api/space/${spaceId}/files/${fileId}/versions/${versionRecordId}/preview`),
+  downloadSpaceFileVersion: (spaceId: number, fileId: number, versionRecordId: number, filename: string) =>
+    download(`/api/space/${spaceId}/files/${fileId}/versions/${versionRecordId}/download`, filename),
+  restoreSpaceFileVersion: (spaceId: number, fileId: number, versionRecordId: number, changeNote?: string) =>
+    request<FileVersion>(
+      `/api/space/${spaceId}/files/${fileId}/versions/${versionRecordId}/restore?${params({ changeNote })}`,
+      { method: "POST" }
+    ),
   listMembers: (spaceId: number) => request<SpaceMember[]>(`/api/space/${spaceId}/members`),
   addMember: (spaceId: number, payload: { userId: number; role?: string }) =>
     request<boolean>(`/api/space/${spaceId}/members`, { method: "POST", body: JSON.stringify(payload) }),
@@ -169,6 +243,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ role })
     }),
+  removeMember: (spaceId: number, userId: number) =>
+    request<boolean>(`/api/space/${spaceId}/members/${userId}`, { method: "DELETE" }),
   ragConfig: (spaceId: number) => request<RagConfig>(`/api/space/${spaceId}/rag/config`),
   updateRagConfig: (spaceId: number, payload: Partial<RagConfig>) =>
     request<RagConfig>(`/api/space/${spaceId}/rag/config`, {
@@ -182,6 +258,20 @@ export const api = {
     }),
   rebuildSpaceRag: (spaceId: number) =>
     request<boolean>(`/api/space/${spaceId}/rag/rebuild`, { method: "POST" }),
+  rebuildFileRag: (spaceId: number, spaceFileId: number) =>
+    request<boolean>(`/api/space/${spaceId}/rag/files/${spaceFileId}/rebuild`, { method: "POST" }),
   listRagDocuments: (spaceId: number) => request<RagDocument[]>(`/api/space/${spaceId}/rag/documents`),
-  listRagTasks: (spaceId: number) => request<RagTask[]>(`/api/space/${spaceId}/rag/tasks`)
+  searchRagDocuments: (
+    spaceId: number,
+    payload: { keyword?: string; fileType?: string; indexStatus?: string; searchContent?: number; page?: number; pageSize?: number }
+  ) => request<SpaceDocumentSearch[]>(`/api/space/${spaceId}/rag/documents/search?${params(payload)}`),
+  listRagTasks: (spaceId: number) => request<RagTask[]>(`/api/space/${spaceId}/rag/tasks`),
+  retryRagTask: (spaceId: number, taskId: number) =>
+    request<boolean>(`/api/space/${spaceId}/rag/tasks/${taskId}/retry`, { method: "POST" }),
+  retryFailedRagTasks: (spaceId: number) =>
+    request<boolean>(`/api/space/${spaceId}/rag/tasks/retry-failed`, { method: "POST" }),
+  repairSpaceVectors: (spaceId: number) =>
+    request<boolean>(`/api/space/${spaceId}/rag/vectors/repair`, { method: "POST" }),
+  repairFileVectors: (spaceId: number, spaceFileId: number) =>
+    request<boolean>(`/api/space/${spaceId}/rag/files/${spaceFileId}/vectors/repair`, { method: "POST" })
 };

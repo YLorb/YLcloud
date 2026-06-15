@@ -622,11 +622,18 @@ pre,
 
 .compact-row {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  grid-template-columns: 34px minmax(0, 1fr) repeat(auto-fit, minmax(82px, max-content));
   align-items: center;
   gap: 12px;
   min-height: 58px;
   border-bottom: 1px solid var(--line);
+}
+
+.compact-row.selected {
+  margin-inline: -8px;
+  padding-inline: 8px;
+  border-radius: 12px;
+  background: #f4f8ff;
 }
 
 .compact-row strong {
@@ -634,6 +641,103 @@ pre,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.compact-row button.danger,
+.settings-strip .danger {
+  color: var(--red);
+  background: #fff1f2;
+}
+
+.row-title-button {
+  min-width: 0;
+  justify-content: flex-start;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  font-weight: 700;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-strip,
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-strip {
+  margin: -6px 0 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.settings-strip input {
+  max-width: 220px;
+}
+
+.settings-strip label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #3d495c;
+  white-space: nowrap;
+}
+
+.settings-strip label input {
+  width: auto;
+  min-height: auto;
+}
+
+.settings-strip button,
+.row-actions button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 11px;
+  color: #2f3c4f;
+  background: #eef3fa;
+  cursor: pointer;
+}
+
+.version-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.panel-mini-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-mini-header h3 {
+  margin: 0;
+}
+
+.version-row {
+  min-height: 48px;
+}
+
+.ops-panels {
+  margin-top: 16px;
+}
+
+.muted-line {
+  color: var(--muted);
 }
 
 .lookup-form {

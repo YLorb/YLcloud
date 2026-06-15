@@ -10,12 +10,18 @@ import lombok.Data;
 
 @Data
 public class MultifileDTO {
+    @Pattern(regexp = "^[0-9a-fA-F-]{36}$", message = "上传任务 ID 格式不正确")
+    private String uploadId;
+
     @NotBlank(message = "文件名不能为空")
     @Size(max = 255, message = "文件名不能超过 255 个字符")
     private String fileName;
 
     @Pattern(regexp = "^[a-fA-F0-9]{32}$", message = "文件 MD5 格式不正确")
     private String fileMd5;
+
+    @Pattern(regexp = "^[a-fA-F0-9]{40}$", message = "文件 SHA1 格式不正确")
+    private String fileSha1;
 
     @NotBlank(message = "文件 hash 不能为空")
     @Size(max = 128, message = "文件 hash 不能超过 128 个字符")

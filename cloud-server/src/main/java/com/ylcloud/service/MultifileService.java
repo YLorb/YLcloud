@@ -27,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 大文件分片上传业务服务。
@@ -72,7 +73,10 @@ public class MultifileService {
         Long parentId = normalizeParentId(multifileDTO.getParentId(), userId);
         requireNoSameName(multifileDTO.getFileName(), parentId, userId);
 
-        File existingFile = fileInfoMapper.getFileByHash(multifileDTO.getFileHash());
+        File existingFile = fileInfoMapper.getFileByMd5Sha1Size(
+                multifileDTO.getFileMd5(),
+                multifileDTO.getFileSha1(),
+                multifileDTO.getFileSize());
         if(existingFile != null) {
             log.info("文件已存在，执行秒传: {}", multifileDTO.getFileName());
             FileVO fileVO = reuseExistingFile(existingFile,multifileDTO.getFileName(),parentId,userId);
@@ -88,19 +92,22 @@ public class MultifileService {
                 Math.toIntExact((multifileDTO.getFileSize() + chunkSize - 1) / chunkSize) :
                 multifileDTO.getTotalChunks();
 
-        UploadTask activeTask = multifileMapper.getActiveTask(userId,parentId,multifileDTO.getFileHash(),multifileDTO.getFileName());
-        if(activeTask != null) {
-            return buildInitVO(activeTask,false);
+        String uploadId = normalizeUploadId(multifileDTO.getUploadId());
+        UploadTask existingTask = multifileMapper.getByUploadId(uploadId,userId);
+        if(existingTask != null) {
+            validateResumeTask(existingTask,multifileDTO,parentId,chunkSize,totalChunks);
+            return buildInitVO(existingTask,false);
         }
 
         LocalDateTime now = LocalDateTime.now();
         UploadTask uploadTask = new UploadTask();
-        uploadTask.setUploadId(UuidUtil.randomUuid());
+        uploadTask.setUploadId(uploadId);
         uploadTask.setUserId(userId);
         uploadTask.setParentId(parentId);
         uploadTask.setFileName(multifileDTO.getFileName());
         uploadTask.setFileSize(multifileDTO.getFileSize());
         uploadTask.setFileMd5(multifileDTO.getFileMd5());
+        uploadTask.setFileSha1(multifileDTO.getFileSha1());
         uploadTask.setFileHash(multifileDTO.getFileHash());
         uploadTask.setChunkSize(chunkSize);
         uploadTask.setTotalChunks(totalChunks);
@@ -233,6 +240,12 @@ public class MultifileService {
         if(multifileDTO.getFileSize() > maxFileSize) {
             throw new BaseException("文件大小超过限制");
         }
+        if(multifileDTO.getFileMd5() == null || multifileDTO.getFileMd5().isBlank()) {
+            throw new BaseException("文件 MD5 不能为空");
+        }
+        if(multifileDTO.getFileSha1() == null || multifileDTO.getFileSha1().isBlank()) {
+            throw new BaseException("文件 SHA1 不能为空");
+        }
         if(multifileDTO.getFileHash() == null || multifileDTO.getFileHash().isBlank()) {
             throw new BaseException("文件 hash 不能为空");
         }
@@ -259,6 +272,36 @@ public class MultifileService {
             throw new BaseException("目标目录不存在或不属于当前用户");
         }
         return parentId;
+    }
+
+    private String normalizeUploadId(String uploadId) {
+        if(uploadId == null || uploadId.isBlank()) {
+            return UuidUtil.randomUuid();
+        }
+        if(!uploadId.matches("^[0-9a-fA-F-]{36}$")) {
+            throw new BaseException("上传任务 ID 格式不正确");
+        }
+        return uploadId;
+    }
+
+    private void validateResumeTask(UploadTask task,
+                                    MultifileDTO multifileDTO,
+                                    Long parentId,
+                                    Long chunkSize,
+                                    Integer totalChunks) {
+        if(!UploadTaskConstant.UPLOADING.equals(task.getStatus())) {
+            throw new BaseException("上传任务状态异常");
+        }
+        if(!Objects.equals(task.getParentId(),parentId)
+                || !Objects.equals(task.getFileName(),multifileDTO.getFileName())
+                || !Objects.equals(task.getFileSize(),multifileDTO.getFileSize())
+                || !Objects.equals(task.getFileMd5(),multifileDTO.getFileMd5())
+                || !Objects.equals(task.getFileSha1(),multifileDTO.getFileSha1())
+                || !Objects.equals(task.getFileHash(),multifileDTO.getFileHash())
+                || !Objects.equals(task.getChunkSize(),chunkSize)
+                || !Objects.equals(task.getTotalChunks(),totalChunks)) {
+            throw new BaseException("上传任务信息不匹配");
+        }
     }
 
     /**
@@ -376,7 +419,9 @@ public class MultifileService {
                 .createtime(now)
                 .updatetime(now)
                 .build();
-        fileInfoMapper.updateFileCount(existingFile.getFileUuid(),1);
+        if(fileInfoMapper.updateFileCount(existingFile.getFileUuid(),1) == 0) {
+            throw new BaseException("文件引用计数更新失败");
+        }
         fileInfoMapper.insertFile_User(userFileDTO);
         userFileDTO.setPath(buildPath(userFileDTO,userId));
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),userFileDTO.getPath(),userId);
@@ -401,6 +446,7 @@ public class MultifileService {
                 .type(getFileType(task.getFileName()))
                 .size(task.getFileSize())
                 .md5(task.getFileMd5())
+                .sha1(task.getFileSha1())
                 .hash(task.getFileHash())
                 .status(StatusConstant.ENABLE)
                 .count(1)

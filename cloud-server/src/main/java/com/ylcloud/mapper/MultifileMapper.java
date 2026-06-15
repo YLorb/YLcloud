@@ -18,7 +18,7 @@ public interface MultifileMapper {
      * @return 处理结果
      */
     @Select("select id, upload_id as uploadId, user_id as userId, parent_id as parentId, " +
-            "file_name as fileName, file_size as fileSize, file_md5 as fileMd5, file_hash as fileHash, " +
+            "file_name as fileName, file_size as fileSize, file_md5 as fileMd5, file_sha1 as fileSha1, file_hash as fileHash, " +
             "chunk_size as chunkSize, total_chunks as totalChunks, uploaded_chunks as uploadedChunks, " +
             "status, file_uuid as fileUuid, createtime, updatetime " +
             "from upload_task " +
@@ -32,7 +32,7 @@ public interface MultifileMapper {
      * @return 处理结果
      */
     @Select("select id, upload_id as uploadId, user_id as userId, parent_id as parentId, " +
-            "file_name as fileName, file_size as fileSize, file_md5 as fileMd5, file_hash as fileHash, " +
+            "file_name as fileName, file_size as fileSize, file_md5 as fileMd5, file_sha1 as fileSha1, file_hash as fileHash, " +
             "chunk_size as chunkSize, total_chunks as totalChunks, uploaded_chunks as uploadedChunks, " +
             "status, file_uuid as fileUuid, createtime, updatetime " +
             "from upload_task " +
@@ -52,10 +52,10 @@ public interface MultifileMapper {
      * 新增 insert 相关逻辑。
      * @return 影响行数
      */
-    @Insert("insert into upload_task(upload_id, user_id, parent_id, file_name, file_size, file_md5, file_hash, " +
+    @Insert("insert into upload_task(upload_id, user_id, parent_id, file_name, file_size, file_md5, file_sha1, file_hash, " +
             "chunk_size, total_chunks, uploaded_chunks, status, file_uuid, createtime, updatetime) " +
-            "values(#{uploadId}, #{userId}, #{parentId}, #{fileName}, #{fileSize}, #{fileMd5}, #{fileHash}, " +
-            "#{chunkSize}, #{totalChunks}, #{uploadedChunks}, #{status}, #{fileUuid}, #{createtime}, #{updatetime})")
+            "values(#{uploadId}, #{userId}, #{parentId}, #{fileName}, #{fileSize}, #{fileMd5}, #{fileSha1}, " +
+            "#{fileHash}, #{chunkSize}, #{totalChunks}, #{uploadedChunks}, #{status}, #{fileUuid}, #{createtime}, #{updatetime})")
     int insert(UploadTask uploadTask);
 
     /**

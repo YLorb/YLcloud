@@ -510,9 +510,11 @@ public class FileService {
 
 
         String md5;
+        String sha1;
         String hash;
         try {
             md5 = Md5Util.md5(uploadFile.getInputStream());
+            sha1 = HashUtil.sha1(uploadFile.getInputStream());
             hash = HashUtil.sha256(uploadFile.getInputStream());
         } catch (IOException e) {
             throw new RuntimeException("文件解析失败", e);
@@ -534,6 +536,7 @@ public class FileService {
                     .size(uploadFile.getSize())
                     .hash(hash)
                     .md5(md5)
+                    .sha1(sha1)
                     .status(1)
                     .count(1)
                     .createTime(LocalDateTime.now())
@@ -587,7 +590,9 @@ public class FileService {
                     .createtime(LocalDateTime.now())
                     .updatetime(LocalDateTime.now()).build();
             // file_info 璁℃暟
-            fileInfoMapper.updateFileCount(file.getFileUuid(),1);
+            if(fileInfoMapper.updateFileCount(file.getFileUuid(),1) == 0) {
+                throw new BaseException("文件引用计数更新失败");
+            }
 
             // 鎻掑叆 user_file
             fileInfoMapper.insertFile_User(file_user);
@@ -1348,7 +1353,9 @@ public class FileService {
             throw new BaseException("文件元数据不存在");
         }
         hardDeleteUserFile(userFileDTO);
-        fileInfoMapper.updateFileCount(userFileDTO.getFileUuid(),-1);
+        if(fileInfoMapper.updateFileCount(userFileDTO.getFileUuid(),-1) == 0) {
+            throw new BaseException("文件引用计数更新失败");
+        }
         if(fileInfoMapper.getFileCount(userFileDTO.getFileUuid()) == 0) {
             deleteOSS(userFileDTO);
         }
@@ -1633,7 +1640,9 @@ public class FileService {
         fileInfoMapper.updatePath(copied.getId(),copied.getFileUuid(),copied.getPath(),userId);
 
         if(source.getDir() == 0) {
-            fileInfoMapper.updateFileCount(source.getFileUuid(),1);
+            if(fileInfoMapper.updateFileCount(source.getFileUuid(),1) == 0) {
+                throw new BaseException("文件引用计数更新失败");
+            }
             log.info("文件复制成功");
             return copied;
         }

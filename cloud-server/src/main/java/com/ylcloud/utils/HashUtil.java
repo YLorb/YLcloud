@@ -9,6 +9,7 @@ import java.security.NoSuchAlgorithmException;
 public class HashUtil {
     private static final int BUFFER_SIZE = 8192;
     private static final String SHA_256 = "SHA-256";
+    private static final String SHA_1 = "SHA-1";
 
     private HashUtil() {
     }
@@ -23,6 +24,10 @@ public class HashUtil {
 
     public static String sha256(InputStream inputStream) throws IOException {
         return hash(inputStream, SHA_256);
+    }
+
+    public static String sha1(InputStream inputStream) throws IOException {
+        return hash(inputStream, SHA_1);
     }
 
     public static String hash(String text, String algorithm) {

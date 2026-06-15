@@ -6,7 +6,6 @@ import com.ylcloud.entity.File;
 import io.minio.BucketExistsArgs;
 import io.minio.ComposeObjectArgs;
 import io.minio.ComposeSource;
-import io.minio.DownloadObjectArgs;
 import io.minio.GetBucketVersioningArgs;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
@@ -242,11 +241,7 @@ public class MinioclientUtil {
     }
 
     public void downloadObject(FileDTO fileDTO, HttpServletResponse response) throws Exception {
-        minioClient.downloadObject(DownloadObjectArgs.builder()
-                .bucket(defaultBucket)
-                .object(fileDTO.getFileUuid())
-                .filename(fileDTO.getName())
-                .build());
+        throw new UnsupportedOperationException("Server-side local downloads are disabled; stream objects through HttpServletResponse instead.");
     }
 
     /**

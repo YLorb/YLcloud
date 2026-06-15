@@ -9,6 +9,9 @@ spring:
     password: ${YLCLOUD_DATASOURCE_PASSWORD:ylcloud}
 
 ylcloud:
+  jwt:
+    secret: ${YLCLOUD_JWT_SECRET:ylcloud-local-dev-secret-change-me-32bytes}
+    expiration-ms: ${YLCLOUD_JWT_EXPIRATION_MS:3600000}
   upload:
     max-file-size: 2147483648
   minio:

@@ -34,6 +34,8 @@ public class File {
 
     private String md5;
 
+    private String sha1;
+
     private String hash;
 
     private Integer status;

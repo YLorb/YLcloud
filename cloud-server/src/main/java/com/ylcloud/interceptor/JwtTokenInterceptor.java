@@ -28,6 +28,7 @@ public class JwtTokenInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response,Object handler) throws Exception {
+        BaseContext.removeCurrentId();
         String requestURI = request.getRequestURI();
         log.info("jwt intercept request={}",requestURI);
 

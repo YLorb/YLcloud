@@ -17,6 +17,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -36,6 +37,9 @@ import java.util.List;
 public class FileVersionService {
     private static final Logger log = LoggerFactory.getLogger(FileVersionService.class);
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
+
+    @Value("${ylcloud.upload.max-file-size:2147483648}")
+    private Long maxFileSize;
 
     private final FileVersionMapper fileVersionMapper;
     private final FileInfoMapper fileInfoMapper;
@@ -93,10 +97,15 @@ public class FileVersionService {
             throw new BaseException("新版本文件不能为空");
         }
 
+        String fileName = resolveVersionFileName(uploadFile,spaceFile);
+        validateVersionUploadFile(uploadFile,fileName);
+
         String md5;
+        String sha1;
         String hash;
         try {
             md5 = Md5Util.md5(uploadFile.getInputStream());
+            sha1 = HashUtil.sha1(uploadFile.getInputStream());
             hash = HashUtil.sha256(uploadFile.getInputStream());
         } catch (Exception e) {
             throw new BaseException("新版本文件哈希计算失败");
@@ -113,10 +122,8 @@ public class FileVersionService {
             throw new BaseException("MinIO bucket 未开启对象版本控制，无法维护历史版本");
         }
 
-        String fileName = uploadFile.getOriginalFilename() == null || uploadFile.getOriginalFilename().isBlank() ?
-                spaceFile.getFileName() : uploadFile.getOriginalFilename();
         String fileType = getFileType(fileName);
-        updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),fileName,fileType,uploadFile.getSize(),md5,hash);
+        updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),fileName,fileType,uploadFile.getSize(),md5,sha1,hash);
         FileVersion version = createVersion(spaceFile.getFileUuid(),versionId,fileName,hash,md5,fileType,uploadFile.getSize(),changeNote,userId);
         scheduleRagRebuildAfterCommit(spaceId,spaceFileId,userId);
         return toVO(spaceId,spaceFileId,version);
@@ -249,7 +256,7 @@ public class FileVersionService {
             throw new BaseException("MinIO bucket 未开启对象版本控制，无法维护历史版本");
         }
 
-        updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),source.getFileName(),source.getFileType(),source.getFileSize(),source.getFileMd5(),source.getFileHash());
+        updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),source.getFileName(),source.getFileType(),source.getFileSize(),source.getFileMd5(),null,source.getFileHash());
         String note = changeNote == null || changeNote.isBlank() ? "恢复自版本 " + source.getVersionNo() : changeNote;
         FileVersion version = createVersion(spaceFile.getFileUuid(),newMinioVersionId,source.getFileName(),source.getFileHash(),source.getFileMd5(),source.getFileType(),source.getFileSize(),note,userId);
         scheduleRagRebuildAfterCommit(spaceId,spaceFileId,userId);
@@ -360,8 +367,8 @@ public class FileVersionService {
      * @param md5 文件 MD5
      * @param hash 文件哈希
      */
-    private void updateCurrentFile(Long spaceId, Long spaceFileId, String fileUuid, String fileName, String type, Long size, String md5, String hash) {
-        int rows = fileInfoMapper.updatePhysicalFileInfo(fileUuid,fileName,type,size,md5,hash,LocalDateTime.now());
+    private void updateCurrentFile(Long spaceId, Long spaceFileId, String fileUuid, String fileName, String type, Long size, String md5, String sha1, String hash) {
+        int rows = fileInfoMapper.updatePhysicalFileInfo(fileUuid,fileName,type,size,md5,sha1,hash,LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("文件当前版本元数据更新失败");
         }
@@ -436,6 +443,27 @@ public class FileVersionService {
      * @param fileName 文件名
      * @return 处理结果
      */
+    private String resolveVersionFileName(MultipartFile uploadFile, SpaceFile spaceFile) {
+        String originalFilename = uploadFile.getOriginalFilename();
+        String fileName = originalFilename == null || originalFilename.isBlank() ? spaceFile.getFileName() : originalFilename;
+        if(fileName == null) {
+            throw new BaseException("文件名不能为空");
+        }
+        return fileName.trim();
+    }
+
+    private void validateVersionUploadFile(MultipartFile uploadFile, String fileName) {
+        if(uploadFile.getSize() > maxFileSize) {
+            throw new BaseException("文件大小超过限制");
+        }
+        if(fileName.isEmpty() || fileName.length() > 255) {
+            throw new BaseException("文件名不能为空且不能超过 255 个字符");
+        }
+        if(fileName.contains("/") || fileName.contains("\\") || fileName.contains("..")) {
+            throw new BaseException("文件名包含非法路径字符");
+        }
+    }
+
     private String getFileType(String fileName) {
         if(fileName == null || !fileName.contains(".")) {
             return "";

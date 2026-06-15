@@ -35,6 +35,41 @@ export type FilePreview = {
   textContent?: string;
 };
 
+export type ChunkUploadInit = {
+  uploadId?: string;
+  instantUpload: boolean;
+  uploadedChunks?: number[];
+  chunkSize?: number;
+  totalChunks?: number;
+  file?: FileItem;
+};
+
+export type ChunkStatus = {
+  uploadId: string;
+  totalChunks: number;
+  uploadedCount: number;
+  uploadedChunks: number[];
+};
+
+export type FileVersion = {
+  id: number;
+  fileUuid?: string;
+  versionNo?: number;
+  minioVersionId?: string;
+  fileName?: string;
+  fileHash?: string;
+  fileMd5?: string;
+  fileType?: string;
+  fileSize?: number;
+  changeNote?: string;
+  createdBy?: number;
+  current?: number;
+  createtime?: string;
+  previewUrl?: string;
+  streamUrl?: string;
+  downloadUrl?: string;
+};
+
 export type ShareFile = {
   fileId: number;
   name: string;
@@ -113,6 +148,24 @@ export type RagDocument = {
   indexStatus?: string;
   chunkCount?: number;
   errorMessage?: string;
+  updatetime?: string;
+};
+
+export type SpaceDocumentSearch = {
+  documentId: number;
+  spaceId: number;
+  spaceFileId: number;
+  fileUuid?: string;
+  fileName: string;
+  fileType?: string;
+  path?: string;
+  indexStatus?: string;
+  chunkCount?: number;
+  hitContents?: string[];
+  hitChunkIds?: number[];
+  previewUrl?: string;
+  streamUrl?: string;
+  downloadUrl?: string;
   updatetime?: string;
 };
 

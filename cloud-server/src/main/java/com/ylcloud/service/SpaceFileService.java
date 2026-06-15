@@ -158,7 +158,9 @@ public class SpaceFileService {
         spaceFile.setCreatetime(now);
         spaceFile.setUpdatetime(now);
         spaceFileMapper.insert(spaceFile);
-        fileInfoMapper.updateFileCount(userFile.getFileUuid(),1);
+        if(fileInfoMapper.updateFileCount(userFile.getFileUuid(),1) == 0) {
+            throw new BaseException("文件引用计数更新失败");
+        }
         spaceRagService.handleFileImported(spaceFile,userId);
         return toVO(spaceFile);
     }
@@ -196,7 +198,9 @@ public class SpaceFileService {
             throw new BaseException("空间文件删除失败");
         }
         if(file.getDir() == 0 && file.getFileUuid() != null) {
-            fileInfoMapper.updateFileCount(file.getFileUuid(),-1);
+            if(fileInfoMapper.updateFileCount(file.getFileUuid(),-1) == 0) {
+                throw new BaseException("文件引用计数更新失败");
+            }
             spaceRagService.handleFileRemoved(spaceId,file.getId(),userId);
         }
     }
