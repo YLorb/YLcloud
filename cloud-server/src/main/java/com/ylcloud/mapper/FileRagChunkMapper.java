@@ -16,23 +16,39 @@ import java.util.List;
 @Mapper
 public interface FileRagChunkMapper {
 
+    /**
+     * 新增 insert 相关逻辑。
+     * @return 影响行数
+     */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into file_rag_chunk(file_uuid, file_hash, chunk_index, content, content_hash, token_count, metadata, vector_id, embedding_model, chunk_size, chunk_overlap, status, createtime, updatetime) " +
             "values(#{fileUuid}, #{fileHash}, #{chunkIndex}, #{content}, #{contentHash}, #{tokenCount}, #{metadata}, #{vectorId}, #{embeddingModel}, #{chunkSize}, #{chunkOverlap}, #{status}, #{createtime}, #{updatetime})")
     int insert(FileRagChunk chunk);
 
+    /**
+     * 查询 listByFileUuid 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select id, file_uuid as fileUuid, file_hash as fileHash, chunk_index as chunkIndex, content, content_hash as contentHash, " +
             "token_count as tokenCount, metadata, vector_id as vectorId, embedding_model as embeddingModel, chunk_size as chunkSize, " +
             "chunk_overlap as chunkOverlap, status, createtime, updatetime from file_rag_chunk " +
             "where file_uuid = #{fileUuid} and status = 1 order by chunk_index")
     List<FileRagChunk> listByFileUuid(@Param("fileUuid") String fileUuid);
 
+    /**
+     * 查询 listByFileUuidAndHash 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select id, file_uuid as fileUuid, file_hash as fileHash, chunk_index as chunkIndex, content, content_hash as contentHash, " +
             "token_count as tokenCount, metadata, vector_id as vectorId, embedding_model as embeddingModel, chunk_size as chunkSize, " +
             "chunk_overlap as chunkOverlap, status, createtime, updatetime from file_rag_chunk " +
             "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and status = 1 order by chunk_index")
     List<FileRagChunk> listByFileUuidAndHash(@Param("fileUuid") String fileUuid, @Param("fileHash") String fileHash);
 
+    /**
+     * 搜索 searchBySpaceAndKeyword 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
             "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.vector_id as vectorId, " +
             "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
@@ -44,6 +60,10 @@ public interface FileRagChunkMapper {
                                                @Param("keyword") String keyword,
                                                @Param("limit") Integer limit);
 
+    /**
+     * 查询 listRecentBySpace 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
             "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.vector_id as vectorId, " +
             "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
@@ -53,6 +73,10 @@ public interface FileRagChunkMapper {
             "order by c.updatetime desc limit #{limit}")
     List<FileRagChunk> listRecentBySpace(@Param("spaceId") Long spaceId, @Param("limit") Integer limit);
 
+    /**
+     * 查询 listActiveBySpace 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
             "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.vector_id as vectorId, " +
             "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
@@ -62,6 +86,10 @@ public interface FileRagChunkMapper {
             "order by c.updatetime desc")
     List<FileRagChunk> listActiveBySpace(@Param("spaceId") Long spaceId);
 
+    /**
+     * 搜索 searchDocumentChunkHits 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select r.document_id as documentId, c.id as chunkId, c.content as content " +
             "from file_rag_chunk c join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
             "join space_rag_document d on d.id = r.document_id " +

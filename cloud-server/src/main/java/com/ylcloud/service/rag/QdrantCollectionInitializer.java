@@ -27,6 +27,11 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
     private final RagProperties properties;
     private final RestClient restClient;
 
+    /**
+     * 初始化 QdrantCollectionInitializer 对象。
+     *
+     * @param properties 配置属性
+     */
     public QdrantCollectionInitializer(RagProperties properties) {
         this.properties = properties;
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -38,6 +43,11 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
                 .build();
     }
 
+    /**
+     * 运行 run 相关逻辑。
+     *
+     * @param args 方法入参
+     */
     @Override
     public void run(ApplicationArguments args) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled())
@@ -53,6 +63,11 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         log.info("Qdrant collection is ready: {}",collectionName);
     }
 
+    /**
+     * 确保 ensureCollection 相关逻辑。
+     *
+     * @param collectionName 方法入参
+     */
     private void ensureCollection(String collectionName) {
         try {
             Map<?, ?> response = restClient.get()
@@ -67,6 +82,12 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         }
     }
 
+    /**
+     * 校验 validateCollection 相关逻辑。
+     *
+     * @param collectionName 方法入参
+     * @param response 响应对象
+     */
     private void validateCollection(String collectionName, Map<?, ?> response) {
         Map<?, ?> result = mapValue(response,"result");
         Map<?, ?> config = mapValue(result,"config");
@@ -86,6 +107,11 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         }
     }
 
+    /**
+     * 创建 createCollection 相关逻辑。
+     *
+     * @param collectionName 方法入参
+     */
     private void createCollection(String collectionName) {
         Map<String, Object> body = Map.of(
                 "vectors",Map.of(
@@ -106,6 +132,12 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
                 collectionName,properties.getEmbeddingDimension());
     }
 
+    /**
+     * 确保 ensurePayloadIndex 相关逻辑。
+     *
+     * @param collectionName 方法入参
+     * @param fieldName 方法入参
+     */
     private void ensurePayloadIndex(String collectionName, String fieldName) {
         try {
             restClient.put()
@@ -130,22 +162,45 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         }
     }
 
+    /**
+     * 执行 baseUrl 函数的业务处理。
+     *
+     * @param properties 配置属性
+     * @return 处理结果
+     */
     private String baseUrl(RagProperties properties) {
         String scheme = Boolean.TRUE.equals(properties.getQdrant().getUseTls()) ? "https" : "http";
         return scheme + "://" + properties.getQdrant().getHost() + ":" + properties.getQdrant().getRestPort();
     }
 
+    /**
+     * 执行 safeApiKey 函数的业务处理。
+     * @return 处理结果
+     */
     private String safeApiKey() {
         String apiKey = properties.getQdrant().getApiKey();
         return apiKey == null ? "" : apiKey;
     }
 
+    /**
+     * 执行 isIndexAlreadyExists 函数的业务处理。
+     *
+     * @param ex 方法入参
+     * @return 处理结果
+     */
     private boolean isIndexAlreadyExists(HttpClientErrorException ex) {
         int statusCode = ex.getStatusCode().value();
         String responseBody = new String(ex.getResponseBodyAsByteArray(), StandardCharsets.UTF_8).toLowerCase();
         return (statusCode == 400 || statusCode == 409) && responseBody.contains("already");
     }
 
+    /**
+     * 执行 mapValue 函数的业务处理。
+     *
+     * @param source 方法入参
+     * @param key 方法入参
+     * @return 处理结果
+     */
     private Map<?, ?> mapValue(Map<?, ?> source, String key) {
         Object value = value(source,key);
         if(value instanceof Map<?, ?> map) {
@@ -154,10 +209,24 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         return Map.of();
     }
 
+    /**
+     * 执行 value 函数的业务处理。
+     *
+     * @param source 方法入参
+     * @param key 方法入参
+     * @return 处理结果
+     */
     private Object value(Map<?, ?> source, String key) {
         return source == null ? null : source.get(key);
     }
 
+    /**
+     * 执行 intValue 函数的业务处理。
+     *
+     * @param source 方法入参
+     * @param key 方法入参
+     * @return 影响行数
+     */
     private Integer intValue(Map<?, ?> source, String key) {
         Object value = value(source,key);
         if(value instanceof Number number) {
@@ -173,6 +242,13 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         return null;
     }
 
+    /**
+     * 执行 stringValue 函数的业务处理。
+     *
+     * @param source 方法入参
+     * @param key 方法入参
+     * @return 处理结果
+     */
     private String stringValue(Map<?, ?> source, String key) {
         Object value = value(source,key);
         return value == null ? null : String.valueOf(value);

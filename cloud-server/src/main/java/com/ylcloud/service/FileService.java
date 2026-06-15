@@ -25,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.IOUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -52,6 +53,9 @@ public class FileService {
     @Autowired
     private MinioclientUtil minioclientUtil;
 
+    @Value("${ylcloud.upload.max-file-size:2147483648}")
+    private Long maxFileSize;
+
     private enum FilePermission {
         READ,
         WRITE,
@@ -59,18 +63,36 @@ public class FileService {
         DELETE
     }
 
+    /**
+     * 转换 toFileVO 相关逻辑。
+     *
+     * @param file 文件对象
+     * @return 处理结果
+     */
     private FileVO toFileVO(File file) {
         FileVO fileVO = new FileVO();
         BeanUtils.copyProperties(file,fileVO);
         return fileVO;
     }
 
+    /**
+     * 转换 toFileVO 相关逻辑。
+     *
+     * @param fileDTO 方法入参
+     * @return 处理结果
+     */
     private FileVO toFileVO(FileDTO fileDTO) {
         FileVO fileVO = new FileVO();
         BeanUtils.copyProperties(fileDTO,fileVO);
         return fileVO;
     }
 
+    /**
+     * 转换 toFileVO 相关逻辑。
+     *
+     * @param userFileDTO 方法入参
+     * @return 处理结果
+     */
     private FileVO toFileVO(UserFileDTO userFileDTO) {
         FileVO fileVO = new FileVO();
         fileVO.setFileId(userFileDTO.getId());
@@ -94,10 +116,22 @@ public class FileService {
         return fileVO;
     }
 
+    /**
+     * 执行 file_Status 函数的业务处理。
+     *
+     * @param fileUuid 文件 UUID
+     * @return 处理结果
+     */
     private boolean file_Status(String fileUuid) {
         return fileInfoMapper.getFileStatus(fileUuid);
     }
 
+    /**
+     * 执行 userFileAvailable 函数的业务处理。
+     *
+     * @param userFileDTO 方法入参
+     * @return 处理结果
+     */
     private boolean userFileAvailable(UserFileDTO userFileDTO) {
         if(userFileDTO == null || userFileDTO.getStatus() == StatusConstant.DISABLE) {
             return false;
@@ -105,10 +139,20 @@ public class FileService {
         return userFileDTO.getDir() == 1 || file_Status(userFileDTO.getFileUuid());
     }
 
+    /**
+     * 执行 Admin 函数的业务处理。
+     *
+     * @param user 方法入参
+     * @return 处理结果
+     */
     private boolean Admin(User user) {
         return user != null && ("ADMIN".equalsIgnoreCase(user.getRole()) || "admin".equalsIgnoreCase(user.getUsername()));
     }
 
+    /**
+     * 执行 currentUser 函数的业务处理。
+     * @return 处理结果
+     */
     private User currentUser() {
         User user = loginMapper.getById(BaseContext.getCurrentId());
         if(user == null) {
@@ -117,6 +161,12 @@ public class FileService {
         return user;
     }
 
+    /**
+     * 校验 requirePermission 相关逻辑。
+     *
+     * @param userFileDTO 方法入参
+     * @param permission 方法入参
+     */
     private void requirePermission(UserFileDTO userFileDTO, FilePermission permission) {
         if(userFileDTO == null || userFileDTO.getStatus() == StatusConstant.DISABLE) {
             throw new BaseException("文件不存在或已失效");
@@ -128,6 +178,12 @@ public class FileService {
         throw new BaseException("没有文件" + permissionName(permission) + "权限");
     }
 
+    /**
+     * 执行 permissionName 函数的业务处理。
+     *
+     * @param permission 方法入参
+     * @return 处理结果
+     */
     private String permissionName(FilePermission permission) {
         return switch (permission) {
             case READ -> "读取";
@@ -137,6 +193,13 @@ public class FileService {
         };
     }
 
+    /**
+     * 校验 requireFileById 相关逻辑。
+     *
+     * @param fileId 文件 ID
+     * @param permission 方法入参
+     * @return 处理结果
+     */
     private UserFileDTO requireFileById(Long fileId, FilePermission permission) {
         User user = currentUser();
         UserFileDTO userFileDTO = Admin(user) ? fileInfoMapper.getByFileIdAny(fileId) : fileInfoMapper.getByFileId(fileId,user.getId());
@@ -144,6 +207,13 @@ public class FileService {
         return userFileDTO;
     }
 
+    /**
+     * 校验 requireFileByIdActiveOrRecycle 相关逻辑。
+     *
+     * @param fileId 文件 ID
+     * @param permission 方法入参
+     * @return 处理结果
+     */
     private UserFileDTO requireFileByIdActiveOrRecycle(Long fileId, FilePermission permission) {
         User user = currentUser();
         UserFileDTO userFileDTO = Admin(user) ?
@@ -153,6 +223,14 @@ public class FileService {
         return userFileDTO;
     }
 
+    /**
+     * 校验 requireFileByUuid 相关逻辑。
+     *
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param permission 方法入参
+     * @return 处理结果
+     */
     private UserFileDTO requireFileByUuid(String fileUuid, Long parentId, FilePermission permission) {
         User user = currentUser();
         Long realParentId = normalizeParentId(parentId,user.getId());
@@ -163,6 +241,11 @@ public class FileService {
         return userFileDTO;
     }
 
+    /**
+     * 校验 requireWritableDirectory 相关逻辑。
+     *
+     * @param directory 方法入参
+     */
     private void requireWritableDirectory(UserFileDTO directory) {
         requirePermission(directory,FilePermission.WRITE);
         if(directory.getDir() != 1) {
@@ -170,6 +253,13 @@ public class FileService {
         }
     }
 
+    /**
+     * 查询 listChildren 相关逻辑。
+     *
+     * @param parentId 父级 ID
+     * @param ownerId 方法入参
+     * @return 列表结果
+     */
     private List<UserFileDTO> listChildren(Long parentId, Long ownerId) {
         User user = currentUser();
         if(Admin(user)) {
@@ -178,6 +268,13 @@ public class FileService {
         return fileInfoMapper.listFileByparentId(parentId,ownerId);
     }
 
+    /**
+     * 查询 listChildrenActiveOrRecycle 相关逻辑。
+     *
+     * @param parentId 父级 ID
+     * @param ownerId 方法入参
+     * @return 列表结果
+     */
     private List<UserFileDTO> listChildrenActiveOrRecycle(Long parentId, Long ownerId) {
         User user = currentUser();
         if(Admin(user)) {
@@ -187,9 +284,9 @@ public class FileService {
     }
 
     /**
-     * 校验恢复后的目标目录中不存在同名同类型的正常文件节点。
+     * 校验 requireNoRestoreNameConflict 相关逻辑。
      *
-     * @param userFileDTO 待恢复的用户文件关系
+     * @param userFileDTO 方法入参
      */
     private void requireNoRestoreNameConflict(UserFileDTO userFileDTO) {
         List<UserFileDTO> siblings = listChildren(userFileDTO.getParentId(),userFileDTO.getUserId());
@@ -203,6 +300,14 @@ public class FileService {
         }
     }
 
+    /**
+     * 执行 File_Info 函数的业务处理。
+     *
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private File File_Info(String fileUuid, Long parentId, Long userId) {
         UserFileDTO userFileDTO = parentId == null ?
                 fileInfoMapper.getByFileUuid(fileUuid,userId) :
@@ -230,11 +335,31 @@ public class FileService {
         return file;
     }
 
+    /**
+     * 查询 getFileType 相关逻辑。
+     *
+     * @param name 名称
+     * @return 处理结果
+     */
     private String getFileType(String name) {
-        return name.substring(name.lastIndexOf("."));
+        if(name == null) {
+            return ".txt";
+        }
+        int dotIndex = name.lastIndexOf(".");
+        if(dotIndex < 0 || dotIndex == name.length() - 1) {
+            return ".txt";
+        }
+        return name.substring(dotIndex);
     }
 
 
+    /**
+     * 查询 getFileType 相关逻辑。
+     *
+     * @param fileUuid 文件 UUID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private String getFileType(String fileUuid,Long userId) {
         UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
         if(userFileDTO == null) {
@@ -246,12 +371,59 @@ public class FileService {
     }
 
 
+    /**
+     * 执行 FileType 函数的业务处理。
+     *
+     * @param fileName 文件名
+     * @return 处理结果
+     */
     private String FileType(String fileName) {
-        String suffix = fileName.substring(fileName.lastIndexOf("."));
-        if(suffix == null) suffix = ".txt";
-        return suffix;
+        return getFileType(fileName);
     }
 
+    private String requireSafeFileName(String fileName) {
+        if(fileName == null) {
+            throw new BaseException("文件名不能为空");
+        }
+        String normalized = fileName.trim();
+        if(normalized.isEmpty() || normalized.length() > 255) {
+            throw new BaseException("文件名不能为空且不能超过 255 个字符");
+        }
+        if(normalized.contains("/") || normalized.contains("\\") || normalized.contains("..")) {
+            throw new BaseException("文件名包含非法路径字符");
+        }
+        return normalized;
+    }
+
+    private void validateUploadFile(MultipartFile uploadFile) {
+        if(uploadFile == null || uploadFile.isEmpty()) {
+            throw new BaseException("上传文件不能为空");
+        }
+        if(uploadFile.getSize() > maxFileSize) {
+            throw new BaseException("文件大小超过限制");
+        }
+        requireSafeFileName(uploadFile.getOriginalFilename());
+    }
+
+    private void requireNoNameConflict(String fileName, int dir, Long parentId, Long userId, Long ignoreId) {
+        List<UserFileDTO> siblings = listChildren(parentId,userId);
+        for(UserFileDTO sibling : siblings) {
+            if(ignoreId != null && ignoreId.equals(sibling.getId())) {
+                continue;
+            }
+            if(fileName.equals(sibling.getFileName()) && sibling.getDir() == dir) {
+                throw new BaseException("目标目录已存在同名文件或目录");
+            }
+        }
+    }
+
+    /**
+     * 查询 getPath 相关逻辑。
+     *
+     * @param fileId 文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private String getPath(Long fileId,Long userId) {
         UserFileDTO userFileDTO = fileInfoMapper.getByFileId(fileId,userId);
         if(userFileDTO == null) {
@@ -266,6 +438,13 @@ public class FileService {
     }
 
 
+    /**
+     * 规范化 normalizeParentId 相关逻辑。
+     *
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private Long normalizeParentId(Long parentId, Long userId) {
         if (parentId == null || parentId == 0L) {
             UserFileDTO root = fileInfoMapper.getRootDirByUserId(userId);
@@ -298,18 +477,27 @@ public class FileService {
         return parentId;
     }
 
+    /**
+     * 查询 getRootId 相关逻辑。
+     *
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     public Long getRootId(Long userId) {
         return normalizeParentId(null,userId);
     }
 
     /**
-     * 上传文件
-     * @param uploadFile 文件上传
-     * @param parentId 父节点
-     * @return 返回VO视图
+     * 上传 upload 相关逻辑。
+     *
+     * @param uploadFile 上传文件
+     * @param parentId 父级 ID
+     * @return 处理结果
      */
     public FileVO upload(MultipartFile uploadFile,Long parentId) {
         Long userId = BaseContext.getCurrentId();
+        validateUploadFile(uploadFile);
+        String originalFilename = requireSafeFileName(uploadFile.getOriginalFilename());
         if (uploadFile == null || uploadFile.isEmpty()) {
             log.warn("用户尝试上传空文件");
             throw new RuntimeException("上传文件不能为空");
@@ -318,6 +506,7 @@ public class FileService {
         UserFileDTO parent = requireFileById(parentId,FilePermission.WRITE);
         requireWritableDirectory(parent);
         Long ownerId = parent.getUserId();
+        requireNoNameConflict(originalFilename,0,parentId,ownerId,null);
 
 
         String md5;
@@ -338,10 +527,10 @@ public class FileService {
             String fileUuid = UuidUtil.randomUuid();
             File exist = fileInfoMapper.getFileByHash(hash);
             File file = File.builder()
-                    .name(uploadFile.getOriginalFilename())
+                    .name(originalFilename)
                     .fileUuid(fileUuid)
                     .dir(false)
-                    .type(getFileType(uploadFile.getOriginalFilename()))
+                    .type(getFileType(originalFilename))
                     .size(uploadFile.getSize())
                     .hash(hash)
                     .md5(md5)
@@ -354,7 +543,7 @@ public class FileService {
                     .userId(ownerId)
                     .parentId(parentId)
                     .fileUuid(fileUuid)
-                    .fileName(uploadFile.getOriginalFilename())
+                    .fileName(originalFilename)
                     .status(1)
                     .Dir(0)
                     .path(null)
@@ -391,7 +580,7 @@ public class FileService {
                     .userId(ownerId)
                     .parentId(parentId)
                     .fileUuid(file.getFileUuid())
-                    .fileName(uploadFile.getOriginalFilename())
+                    .fileName(originalFilename)
                     .status(1)
                     .Dir(0)
                     .path(null)
@@ -409,6 +598,13 @@ public class FileService {
         }
     }
 
+    /**
+     * 下载 downloadFile 相关逻辑。
+     *
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param response 响应对象
+     */
     public void downloadFile(String fileUuid, Long parentId, HttpServletResponse response) {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
         Long ownerId = userFileDTO.getUserId();
@@ -436,11 +632,11 @@ public class FileService {
     }
 
     /**
-     * 获取文件预览信息；文本直接返回内容，图片、PDF、音视频返回预览流地址。
+     * 预览 previewFile 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID
-     * @return 文件预览信息
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @return 处理结果
      */
     public FilePreviewVO previewFile(String fileUuid, Long parentId) {
         UserFileDTO userFileDTO = requirePreviewableFile(fileUuid,parentId);
@@ -470,11 +666,11 @@ public class FileService {
     }
 
     /**
-     * 输出文件预览流，用于图片、PDF、文本、音视频的 inline 预览。
+     * 预览 previewFileStream 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID
-     * @param response HTTP 响应对象
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param response 响应对象
      */
     public void previewFileStream(String fileUuid, Long parentId, HttpServletResponse response) {
         UserFileDTO userFileDTO = requirePreviewableFile(fileUuid,parentId);
@@ -500,11 +696,11 @@ public class FileService {
     }
 
     /**
-     * 查询文件并校验当前用户是否具备预览权限。
+     * 校验 requirePreviewableFile 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID
-     * @return 可预览的用户文件关系
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @return 处理结果
      */
     private UserFileDTO requirePreviewableFile(String fileUuid, Long parentId) {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
@@ -518,10 +714,10 @@ public class FileService {
     }
 
     /**
-     * 读取文本文件预览内容。
+     * 执行 readTextPreview 函数的业务处理。
      *
-     * @param file 文件元数据
-     * @return 文本内容
+     * @param file 文件对象
+     * @return 处理结果
      */
     private String readTextPreview(File file) {
         if(file.getSize() != null && file.getSize() > MAX_TEXT_PREVIEW_SIZE) {
@@ -536,11 +732,11 @@ public class FileService {
     }
 
     /**
-     * 根据内容类型和文件名判断预览类型。
+     * 解析 resolvePreviewType 相关逻辑。
      *
-     * @param contentType HTTP 内容类型
+     * @param contentType 方法入参
      * @param fileName 文件名
-     * @return 预览类型
+     * @return 处理结果
      */
     private String resolvePreviewType(String contentType, String fileName) {
         if(contentType.startsWith("image/")) {
@@ -562,11 +758,11 @@ public class FileService {
     }
 
     /**
-     * 根据文件名和已存储类型推断 HTTP 内容类型。
+     * 解析 resolveContentType 相关逻辑。
      *
      * @param fileName 文件名
-     * @param storedType 数据库中保存的文件类型
-     * @return HTTP 内容类型
+     * @param storedType 方法入参
+     * @return 处理结果
      */
     private String resolveContentType(String fileName, String storedType) {
         String lowerName = fileName == null ? "" : fileName.toLowerCase();
@@ -593,11 +789,11 @@ public class FileService {
     }
 
     /**
-     * 判断文件名是否匹配指定后缀。
+     * 判断 hasExtension 相关逻辑。
      *
      * @param fileName 文件名
-     * @param extensions 候选文件后缀
-     * @return 是否匹配任一后缀
+     * @param extensions 方法入参
+     * @return 处理结果
      */
     private boolean hasExtension(String fileName, String... extensions) {
         if(fileName == null) {
@@ -613,11 +809,11 @@ public class FileService {
     }
 
     /**
-     * 创建或复用文件分享链接。
+     * 执行 shareFile 函数的业务处理。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID
-     * @return 分享访问路径
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @return 处理结果
      */
     public String shareFile(String fileUuid, Long parentId) {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
@@ -647,9 +843,8 @@ public class FileService {
     }
 
     /**
-     * 生成数据库内唯一的分享码。
-     *
-     * @return 8 位大小写字母和数字组成的分享码
+     * 执行 generateUniqueShareCode 函数的业务处理。
+     * @return 处理结果
      */
     private String generateUniqueShareCode() {
         for(int i = 0; i < 10; i++) {
@@ -662,10 +857,10 @@ public class FileService {
     }
 
     /**
-     * 根据分享码查询公开展示的分享文件。
+     * 查询 getSharedFile 相关逻辑。
      *
      * @param shareCode 分享码
-     * @return 分享文件公开摘要
+     * @return 处理结果
      */
     public ShareFileVO getSharedFile(String shareCode) {
         UserFileDTO userFileDTO = getValidSharedUserFile(shareCode);
@@ -673,12 +868,12 @@ public class FileService {
     }
 
     /**
-     * 构建公开分享文件展示对象。
+     * 构建 buildShareFileVO 相关逻辑。
      *
      * @param shareCode 分享码
-     * @param userFileDTO 用户文件节点
-     * @param includeChildren 是否包含目录子内容
-     * @return 分享文件公开展示对象
+     * @param userFileDTO 方法入参
+     * @param includeChildren 方法入参
+     * @return 处理结果
      */
     private ShareFileVO buildShareFileVO(String shareCode, UserFileDTO userFileDTO, boolean includeChildren) {
         ShareFileVO shareFileVO = new ShareFileVO();
@@ -715,11 +910,11 @@ public class FileService {
     }
 
     /**
-     * 下载公开分享中的文件。
+     * 下载 downloadSharedFile 相关逻辑。
      *
      * @param shareCode 分享码
-     * @param fileId 分享目录下被选择的文件节点 ID；分享单文件时可不传
-     * @param response HTTP 响应对象
+     * @param fileId 文件 ID
+     * @param response 响应对象
      */
     public void downloadSharedFile(String shareCode, Long fileId, HttpServletResponse response) {
         UserFileDTO userFileDTO = getValidSharedTargetFile(shareCode,fileId);
@@ -744,11 +939,11 @@ public class FileService {
     }
 
     /**
-     * 获取公开分享文件的预览信息。
+     * 预览 previewSharedFile 相关逻辑。
      *
      * @param shareCode 分享码
-     * @param fileId 分享目录下被选择的文件节点 ID；分享单文件时可不传
-     * @return 分享文件预览信息
+     * @param fileId 文件 ID
+     * @return 处理结果
      */
     public FilePreviewVO previewSharedFile(String shareCode, Long fileId) {
         UserFileDTO userFileDTO = requirePreviewableSharedFile(shareCode,fileId);
@@ -778,11 +973,11 @@ public class FileService {
     }
 
     /**
-     * 输出公开分享文件的预览流。
+     * 预览 previewSharedFileStream 相关逻辑。
      *
      * @param shareCode 分享码
-     * @param fileId 分享目录下被选择的文件节点 ID；分享单文件时可不传
-     * @param response HTTP 响应对象
+     * @param fileId 文件 ID
+     * @param response 响应对象
      */
     public void previewSharedFileStream(String shareCode, Long fileId, HttpServletResponse response) {
         UserFileDTO userFileDTO = requirePreviewableSharedFile(shareCode,fileId);
@@ -809,11 +1004,11 @@ public class FileService {
     }
 
     /**
-     * 校验并获取公开分享中可预览的文件节点。
+     * 校验 requirePreviewableSharedFile 相关逻辑。
      *
      * @param shareCode 分享码
-     * @param fileId 分享目录下被选择的文件节点 ID；分享单文件时可不传
-     * @return 可预览的用户文件节点
+     * @param fileId 文件 ID
+     * @return 处理结果
      */
     private UserFileDTO requirePreviewableSharedFile(String shareCode, Long fileId) {
         UserFileDTO userFileDTO = getValidSharedTargetFile(shareCode,fileId);
@@ -824,10 +1019,10 @@ public class FileService {
     }
 
     /**
-     * 校验分享码并获取被分享根节点。
+     * 查询 getValidSharedUserFile 相关逻辑。
      *
      * @param shareCode 分享码
-     * @return 被分享的用户文件节点
+     * @return 处理结果
      */
     private UserFileDTO getValidSharedUserFile(String shareCode) {
         FileShare fileShare = fileShareMapper.getActiveByShareCode(shareCode);
@@ -846,11 +1041,11 @@ public class FileService {
     }
 
     /**
-     * 校验分享码和选择的文件节点，确保访问范围不能越过分享根目录。
+     * 查询 getValidSharedTargetFile 相关逻辑。
      *
      * @param shareCode 分享码
-     * @param fileId 分享目录下被选择的文件节点 ID；分享单文件时可不传
-     * @return 公开分享范围内的用户文件节点
+     * @param fileId 文件 ID
+     * @return 处理结果
      */
     private UserFileDTO getValidSharedTargetFile(String shareCode, Long fileId) {
         UserFileDTO sharedRoot = getValidSharedUserFile(shareCode);
@@ -872,12 +1067,12 @@ public class FileService {
     }
 
     /**
-     * 判断目标节点是否属于分享根目录的子树。
+     * 执行 isSharedDescendant 函数的业务处理。
      *
-     * @param sharedRootId 分享根目录节点 ID
-     * @param target 目标用户文件节点
-     * @param userId 文件所属用户 ID
-     * @return 是否属于分享根目录的子树
+     * @param sharedRootId 方法入参
+     * @param target 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     private boolean isSharedDescendant(Long sharedRootId, UserFileDTO target, Long userId) {
         Long currentId = target.getId();
@@ -894,6 +1089,13 @@ public class FileService {
         return false;
     }
 
+    /**
+     * 查询 listFiles 相关逻辑。
+     *
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
     public List<FileVO> listFiles(Long parentId,Long userId) {
         parentId = normalizeParentId(parentId, userId);
         UserFileDTO parent = requireFileById(parentId,FilePermission.READ);
@@ -909,6 +1111,10 @@ public class FileService {
         return files;
     }
 
+    /**
+     * 执行 bucketExists 函数的业务处理。
+     * @return 处理结果
+     */
     public boolean bucketExists() {
         try {
             minioclientUtil.bucketExists(NameConstant.DEFAULT_BUCKETNAME);
@@ -919,8 +1125,17 @@ public class FileService {
         return true;
     }
 
+    /**
+     * 重命名 renameFile 相关逻辑。
+     *
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param newName 新名称
+     * @return 处理结果
+     */
     public FileVO renameFile(String fileUuid, Long parentId, String newName) {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
+        newName = requireSafeFileName(newName);
         if(newName == null || newName.trim().isEmpty()) {
             throw new RuntimeException("文件名不能为空");
         }
@@ -944,6 +1159,11 @@ public class FileService {
         //return toFileVO(userFileDTO);
     }
 
+    /**
+     * 删除 deleteOSS 相关逻辑。
+     *
+     * @param userFileDTO 方法入参
+     */
     public void deleteOSS(UserFileDTO userFileDTO) {
         File file = fileInfoMapper.getFileByFileUuid(userFileDTO.getFileUuid(),userFileDTO.getUserId());
         if(file == null) {
@@ -960,9 +1180,9 @@ public class FileService {
     }
 
     /**
-     * 软删除文件或目录树，放入回收站；不修改引用计数，也不删除 MinIO 对象。
+     * 执行 softDeleteTree 函数的业务处理。
      *
-     * @param userFileDTO 用户文件关系
+     * @param userFileDTO 方法入参
      */
     private void softDeleteTree(UserFileDTO userFileDTO) {
         requirePermission(userFileDTO,FilePermission.DELETE);
@@ -982,11 +1202,11 @@ public class FileService {
     }
 
     /**
-     * 删除文件或目录入口；该操作为软删除，文件进入回收站。
+     * 删除 deleteFiles 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID
-     * @return 删除是否成功
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @return 处理结果
      */
     @Transactional
     public boolean deleteFiles(String fileUuid,Long parentId) {
@@ -996,10 +1216,10 @@ public class FileService {
     }
 
     /**
-     * 批量软删除文件或目录。
+     * 删除 deletelot 相关逻辑。
      *
-     * @param deleteList 待删除的用户文件关系列表
-     * @return 批量删除是否成功
+     * @param deleteList 方法入参
+     * @return 处理结果
      */
     @Transactional
     public Boolean deletelot(List<UserFileDTO> deleteList) {
@@ -1011,9 +1231,8 @@ public class FileService {
     }
 
     /**
-     * 查询当前用户回收站中的顶层文件或目录。
-     *
-     * @return 回收站文件列表
+     * 查询 listRecycleFiles 相关逻辑。
+     * @return 列表结果
      */
     public List<FileVO> listRecycleFiles() {
         User user = currentUser();
@@ -1026,10 +1245,10 @@ public class FileService {
     }
 
     /**
-     * 从回收站恢复文件或目录树。
+     * 恢复 restoreRecycleFile 相关逻辑。
      *
-     * @param fileId 用户文件关系 ID
-     * @return 恢复是否成功
+     * @param fileId 文件 ID
+     * @return 处理结果
      */
     @Transactional
     public Boolean restoreRecycleFile(Long fileId) {
@@ -1050,9 +1269,9 @@ public class FileService {
     }
 
     /**
-     * 递归恢复回收站中的文件或目录。
+     * 恢复 restoreTree 相关逻辑。
      *
-     * @param userFileDTO 用户文件关系
+     * @param userFileDTO 方法入参
      */
     private void restoreTree(UserFileDTO userFileDTO) {
         requirePermission(userFileDTO,FilePermission.MODIFY);
@@ -1075,10 +1294,10 @@ public class FileService {
     }
 
     /**
-     * 彻底删除回收站中的文件或目录树，并同步引用计数和 MinIO 对象。
+     * 删除 deleteRecycleFilePermanently 相关逻辑。
      *
-     * @param fileId 用户文件关系 ID
-     * @return 彻底删除是否成功
+     * @param fileId 文件 ID
+     * @return 处理结果
      */
     @Transactional
     public Boolean deleteRecycleFilePermanently(Long fileId) {
@@ -1091,9 +1310,9 @@ public class FileService {
     }
 
     /**
-     * 递归彻底删除文件或目录树。
+     * 执行 hardDeleteTree 函数的业务处理。
      *
-     * @param userFileDTO 用户文件关系
+     * @param userFileDTO 方法入参
      */
     private void hardDeleteTree(UserFileDTO userFileDTO) {
         requirePermission(userFileDTO,FilePermission.DELETE);
@@ -1107,9 +1326,9 @@ public class FileService {
     }
 
     /**
-     * 彻底删除目录节点的用户文件关系。
+     * 执行 hardDeleteUserFile 函数的业务处理。
      *
-     * @param userFileDTO 用户文件关系
+     * @param userFileDTO 方法入参
      */
     private void hardDeleteUserFile(UserFileDTO userFileDTO) {
         int rows = fileInfoMapper.deleteByFileIdAny(userFileDTO.getId());
@@ -1119,9 +1338,9 @@ public class FileService {
     }
 
     /**
-     * 彻底删除文件节点，并在引用计数为 0 时清理 MinIO 对象和 file_info。
+     * 执行 hardDeletePhysicalFileReference 函数的业务处理。
      *
-     * @param userFileDTO 用户文件关系
+     * @param userFileDTO 方法入参
      */
     private void hardDeletePhysicalFileReference(UserFileDTO userFileDTO) {
         File file = fileInfoMapper.getFileByFileUuid(userFileDTO.getFileUuid(),userFileDTO.getUserId());
@@ -1136,16 +1355,18 @@ public class FileService {
     }
 
     /**
-     * 新建文件或目录。
+     * 执行 makefile 函数的业务处理。
      *
-     * @param isDir 是否目录，1 表示目录，0 表示文件
-     * @param parentId 父目录 ID
-     * @param name 文件或目录名称
-     * @param type 文件类型
-     * @return 新建后的文件信息
+     * @param isDir 方法入参
+     * @param parentId 父级 ID
+     * @param name 名称
+     * @param type 类型
+     * @return 处理结果
      */
     public FileVO makefile(int isDir,Long parentId,String name,String type) {
         Long userId = BaseContext.getCurrentId();
+        String safeName = requireSafeFileName(name);
+        name = safeName;
         if(name == null || name.length() == 0) {
             log.warn("文件名不合法:{}",name);
             throw new RuntimeException("文件名不合法");
@@ -1157,7 +1378,7 @@ public class FileService {
 
         List<UserFileDTO> files = listChildren(parentId,ownerId);
         files.forEach(fileiter -> {
-            if(fileiter.getFileName().equals(name) && fileiter.getDir() == isDir) {
+            if(fileiter.getFileName().equals(safeName) && fileiter.getDir() == isDir) {
                 log.warn("同目录下有重名文件");
                 throw new RuntimeException("存在同名文件,请重试");
             }
@@ -1244,6 +1465,14 @@ public class FileService {
         return toFileVO(file);
     }
 
+    /**
+     * 执行 movefiles 函数的业务处理。
+     *
+     * @param sourceplace 方法入参
+     * @param targetplace 方法入参
+     * @return 处理结果
+     */
+    @Transactional
     public Boolean movefiles(Long sourceplace, Long targetplace) {
         UserFileDTO files = requireFileById(sourceplace,FilePermission.MODIFY);
         UserFileDTO filet = requireFileById(targetplace,FilePermission.WRITE);
@@ -1262,6 +1491,8 @@ public class FileService {
             throw new BaseException("不能移动目录到自身或子目录");
         }
 
+        requireNoNameConflict(files.getFileName(),files.getDir(),filet.getId(),files.getUserId(),files.getId());
+
         if(files.getDir() == 0) {
             files.setParentId( normalizeParentId( filet.getId(),filet.getUserId() ) );
 
@@ -1271,6 +1502,8 @@ public class FileService {
                 throw new RuntimeException("移动失败");
             }
             log.info("文件移动成功");
+            files.setPath(getPath(files.getId(),files.getUserId()));
+            fileInfoMapper.updatePath(files.getId(),files.getFileUuid(),files.getPath(),files.getUserId());
             return true;
         }
         else {
@@ -1296,6 +1529,14 @@ public class FileService {
         return true;
     }
 
+    /**
+     * 复制 copyfiles 相关逻辑。
+     *
+     * @param sourceplace 方法入参
+     * @param targetplace 方法入参
+     * @return 处理结果
+     */
+    @Transactional
     public Boolean copyfiles(Long sourceplace, Long targetplace) {
         UserFileDTO files = requireFileById(sourceplace,FilePermission.READ);
         UserFileDTO filet = requireFileById(targetplace,FilePermission.WRITE);
@@ -1321,6 +1562,13 @@ public class FileService {
         return true;
     }
 
+    /**
+     * 检查 checkCopyName 相关逻辑。
+     *
+     * @param source 方法入参
+     * @param targetParentId 方法入参
+     * @param userId 用户 ID
+     */
     private void checkCopyName(UserFileDTO source, Long targetParentId, Long userId) {
         List<UserFileDTO> files = fileInfoMapper.listFileByparentId(targetParentId,userId);
         files.forEach(fileiter -> {
@@ -1331,6 +1579,14 @@ public class FileService {
         });
     }
 
+    /**
+     * 执行 isChildDir 函数的业务处理。
+     *
+     * @param sourceId 方法入参
+     * @param targetId 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private boolean isChildDir(Long sourceId, Long targetId, Long userId) {
         Long currentId = targetId;
         while(currentId != null && currentId != 0L) {
@@ -1346,6 +1602,14 @@ public class FileService {
         return false;
     }
 
+    /**
+     * 复制 copyFileTree 相关逻辑。
+     *
+     * @param source 方法入参
+     * @param targetParentId 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private UserFileDTO copyFileTree(UserFileDTO source, Long targetParentId, Long userId) {
         LocalDateTime now = LocalDateTime.now();
         UserFileDTO copied = UserFileDTO.builder()

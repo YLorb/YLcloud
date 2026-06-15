@@ -60,11 +60,11 @@ public class MultifileService {
     private FileService fileService;
 
     /**
-     * 初始化分片上传任务；如果完整文件 hash 已存在，则直接复用物理文件完成秒传。
+     * 初始化 initfile 相关逻辑。
      *
      * @param multifileDTO 分片上传初始化参数
-     * @param userId 当前登录用户 ID
-     * @return 初始化结果，包含上传任务 ID、秒传标记、分片大小和已上传分片列表
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public InitifileVO initfile(MultifileDTO multifileDTO, Long userId) {
@@ -113,16 +113,14 @@ public class MultifileService {
     }
 
     /**
-     * 上传单个分片。
+     * 上传 uploadChunk 相关逻辑。
      *
-     * <p>该方法具备幂等性：如果同一个 uploadId + chunkIndex 已经存在有效记录，则直接返回成功。</p>
-     *
-     * @param file 当前分片文件
-     * @param uploadId 上传任务 ID
-     * @param chunkIndex 当前分片序号，从 0 开始
-     * @param chunkMd5 当前分片 MD5，可为空；不为空时会校验分片内容
-     * @param userId 当前登录用户 ID
-     * @return 分片上传是否成功
+     * @param file 文件对象
+     * @param uploadId 方法入参
+     * @param chunkIndex 方法入参
+     * @param chunkMd5 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     public Boolean uploadChunk(MultipartFile file, String uploadId, Integer chunkIndex, String chunkMd5, Long userId) {
         if(file == null || file.isEmpty()) {
@@ -153,8 +151,10 @@ public class MultifileService {
             uploadChunk.setStatus(StatusConstant.ENABLE);
             uploadChunk.setCreatetime(LocalDateTime.now());
             uploadChunk.setUpdatetime(LocalDateTime.now());
-            chunkUploadMapper.insert(uploadChunk);
-            multifileMapper.increaseUploadedChunks(uploadId);
+            int rows = chunkUploadMapper.insertIgnore(uploadChunk);
+            if(rows > 0) {
+                multifileMapper.increaseUploadedChunks(uploadId);
+            }
             return true;
         } catch (Exception e) {
             log.error("分片上传失败: uploadId={}, chunkIndex={}", uploadId, chunkIndex, e);
@@ -163,11 +163,11 @@ public class MultifileService {
     }
 
     /**
-     * 查询上传任务的断点续传进度。
+     * 执行 status 函数的业务处理。
      *
-     * @param uploadId 上传任务 ID
-     * @param userId 当前登录用户 ID
-     * @return 上传进度信息，包含已上传分片序号列表
+     * @param uploadId 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     public ChunkStatusVO status(String uploadId, Long userId) {
         UploadTask task = multifileMapper.getByUploadId(uploadId,userId);
@@ -179,11 +179,11 @@ public class MultifileService {
     }
 
     /**
-     * 合并指定上传任务下的所有分片，并写入 file_info 与 user_file。
+     * 合并 merge 相关逻辑。
      *
-     * @param uploadId 上传任务 ID
-     * @param userId 当前登录用户 ID
-     * @return 合并完成后的文件信息
+     * @param uploadId 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public FileVO merge(String uploadId, Long userId) {
@@ -216,7 +216,7 @@ public class MultifileService {
     }
 
     /**
-     * 校验初始化上传任务参数。
+     * 校验 validateInitParam 相关逻辑。
      *
      * @param multifileDTO 分片上传初始化参数
      */
@@ -245,11 +245,11 @@ public class MultifileService {
     }
 
     /**
-     * 规范化父目录 ID；当父目录为空或 0 时返回当前用户根目录。
+     * 规范化 normalizeParentId 相关逻辑。
      *
-     * @param parentId 请求传入的父目录 ID
-     * @param userId 当前登录用户 ID
-     * @return 可用的父目录 ID
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     private Long normalizeParentId(Long parentId, Long userId) {
         if(parentId == null || parentId == 0L) {
@@ -262,11 +262,11 @@ public class MultifileService {
     }
 
     /**
-     * 查询并校验上传任务必须存在且处于上传中状态。
+     * 校验 requireUploadingTask 相关逻辑。
      *
-     * @param uploadId 上传任务 ID
-     * @param userId 当前登录用户 ID
-     * @return 上传中的任务实体
+     * @param uploadId 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     private UploadTask requireUploadingTask(String uploadId, Long userId) {
         if(uploadId == null || uploadId.isBlank()) {
@@ -283,11 +283,11 @@ public class MultifileService {
     }
 
     /**
-     * 校验目标目录下不存在同名文件。
+     * 校验 requireNoSameName 相关逻辑。
      *
      * @param fileName 文件名
-     * @param parentId 父目录 ID
-     * @param userId 当前登录用户 ID
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
      */
     private void requireNoSameName(String fileName, Long parentId, Long userId) {
         File sameNameFile = fileInfoMapper.findFileByName(fileName,userId,parentId);
@@ -297,11 +297,11 @@ public class MultifileService {
     }
 
     /**
-     * 校验分片大小是否符合上传任务定义。
+     * 校验 validateChunkSize 相关逻辑。
      *
-     * @param file 当前分片文件
-     * @param task 上传任务实体
-     * @param chunkIndex 当前分片序号
+     * @param file 文件对象
+     * @param task 任务对象
+     * @param chunkIndex 方法入参
      */
     private void validateChunkSize(MultipartFile file, UploadTask task, Integer chunkIndex) {
         long expectedSize = task.getChunkSize();
@@ -315,10 +315,10 @@ public class MultifileService {
     }
 
     /**
-     * 校验分片 MD5；未传入 MD5 时跳过校验。
+     * 校验 validateChunkMd5 相关逻辑。
      *
-     * @param file 当前分片文件
-     * @param chunkMd5 前端传入的分片 MD5
+     * @param file 文件对象
+     * @param chunkMd5 方法入参
      */
     private void validateChunkMd5(MultipartFile file, String chunkMd5) {
         if(chunkMd5 == null || chunkMd5.isBlank()) {
@@ -338,11 +338,11 @@ public class MultifileService {
     }
 
     /**
-     * 根据上传任务组装初始化响应结果。
+     * 构建 buildInitVO 相关逻辑。
      *
-     * @param uploadTask 上传任务实体
-     * @param instantUpload 是否秒传成功
-     * @return 初始化响应结果
+     * @param uploadTask 方法入参
+     * @param instantUpload 方法入参
+     * @return 处理结果
      */
     private InitifileVO buildInitVO(UploadTask uploadTask, Boolean instantUpload) {
         InitifileVO initifileVO = new InitifileVO();
@@ -355,13 +355,13 @@ public class MultifileService {
     }
 
     /**
-     * 复用已存在的物理文件，创建当前用户目录下的 user_file 记录，实现秒传。
+     * 执行 reuseExistingFile 函数的业务处理。
      *
-     * @param existingFile 已存在的物理文件元数据
-     * @param fileName 当前用户目录中展示的文件名
-     * @param parentId 父目录 ID
-     * @param userId 当前登录用户 ID
-     * @return 秒传后的文件信息
+     * @param existingFile 方法入参
+     * @param fileName 文件名
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     private FileVO reuseExistingFile(File existingFile, String fileName, Long parentId, Long userId) {
         LocalDateTime now = LocalDateTime.now();
@@ -384,13 +384,13 @@ public class MultifileService {
     }
 
     /**
-     * 保存分片合并后的文件元数据和用户文件关系。
+     * 保存 saveMergedFile 相关逻辑。
      *
-     * @param task 上传任务实体
-     * @param fileUuid 合并后最终文件 UUID
-     * @param parentId 父目录 ID
-     * @param userId 当前登录用户 ID
-     * @return 合并后的文件信息
+     * @param task 任务对象
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     private FileVO saveMergedFile(UploadTask task, String fileUuid, Long parentId, Long userId) {
         LocalDateTime now = LocalDateTime.now();
@@ -427,11 +427,11 @@ public class MultifileService {
     }
 
     /**
-     * 根据父目录路径构造当前文件路径。
+     * 构建 buildPath 相关逻辑。
      *
-     * @param userFileDTO 用户文件关系实体
-     * @param userId 当前登录用户 ID
-     * @return 当前文件路径
+     * @param userFileDTO 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     private String buildPath(UserFileDTO userFileDTO, Long userId) {
         UserFileDTO parent = fileInfoMapper.getByFileId(userFileDTO.getParentId(),userId);
@@ -443,11 +443,11 @@ public class MultifileService {
     }
 
     /**
-     * 将物理文件信息和用户文件关系合并为前端展示对象。
+     * 转换 toFileVO 相关逻辑。
      *
-     * @param file 物理文件元数据
-     * @param userFileDTO 用户文件关系
-     * @return 文件展示对象
+     * @param file 文件对象
+     * @param userFileDTO 方法入参
+     * @return 处理结果
      */
     private FileVO toFileVO(File file, UserFileDTO userFileDTO) {
         FileVO fileVO = new FileVO();
@@ -466,10 +466,10 @@ public class MultifileService {
     }
 
     /**
-     * 根据文件名解析文件后缀。
+     * 查询 getFileType 相关逻辑。
      *
      * @param fileName 文件名
-     * @return 文件类型后缀；无后缀时返回 .txt
+     * @return 处理结果
      */
     private String getFileType(String fileName) {
         int dotIndex = fileName.lastIndexOf(".");

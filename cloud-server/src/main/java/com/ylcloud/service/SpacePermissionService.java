@@ -13,10 +13,22 @@ import org.springframework.stereotype.Service;
 public class SpacePermissionService {
     private final SpaceMemberMapper spaceMemberMapper;
 
+    /**
+     * 初始化 SpacePermissionService 对象。
+     *
+     * @param spaceMemberMapper 方法入参
+     */
     public SpacePermissionService(SpaceMemberMapper spaceMemberMapper) {
         this.spaceMemberMapper = spaceMemberMapper;
     }
 
+    /**
+     * 校验 requireMember 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     public SpaceMember requireMember(Long spaceId, Long userId) {
         SpaceMember member = spaceMemberMapper.getActive(spaceId,userId);
         if(member == null) {
@@ -25,6 +37,13 @@ public class SpacePermissionService {
         return member;
     }
 
+    /**
+     * 校验 requireAdmin 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     public SpaceMember requireAdmin(Long spaceId, Long userId) {
         SpaceMember member = requireMember(spaceId,userId);
         if(!SpaceConstant.ROLE_OWNER.equals(member.getRole()) && !SpaceConstant.ROLE_ADMIN.equals(member.getRole())) {
@@ -33,6 +52,13 @@ public class SpacePermissionService {
         return member;
     }
 
+    /**
+     * 校验 requireOwner 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     public SpaceMember requireOwner(Long spaceId, Long userId) {
         SpaceMember member = requireMember(spaceId,userId);
         if(!SpaceConstant.ROLE_OWNER.equals(member.getRole())) {
@@ -41,10 +67,22 @@ public class SpacePermissionService {
         return member;
     }
 
+    /**
+     * 执行 isOwnerRole 函数的业务处理。
+     *
+     * @param role 角色
+     * @return 处理结果
+     */
     public boolean isOwnerRole(String role) {
         return SpaceConstant.ROLE_OWNER.equals(role);
     }
 
+    /**
+     * 执行 isAdminRole 函数的业务处理。
+     *
+     * @param role 角色
+     * @return 处理结果
+     */
     public boolean isAdminRole(String role) {
         return SpaceConstant.ROLE_OWNER.equals(role) || SpaceConstant.ROLE_ADMIN.equals(role);
     }

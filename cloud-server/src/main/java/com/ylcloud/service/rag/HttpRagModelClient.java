@@ -12,6 +12,11 @@ import java.util.List;
 public class HttpRagModelClient implements RagModelClient {
     private final RestClient restClient;
 
+    /**
+     * 初始化 HttpRagModelClient 对象。
+     *
+     * @param properties 配置属性
+     */
     public HttpRagModelClient(RagProperties properties) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.getConnectTimeoutMs());
@@ -22,6 +27,12 @@ public class HttpRagModelClient implements RagModelClient {
                 .build();
     }
 
+    /**
+     * 生成向量 embed 相关逻辑。
+     *
+     * @param texts 文本列表
+     * @return 列表结果
+     */
     @Override
     public List<float[]> embed(List<String> texts) {
         EmbedResponse response = restClient.post()
@@ -43,6 +54,14 @@ public class HttpRagModelClient implements RagModelClient {
         return result;
     }
 
+    /**
+     * 重排序 rerank 相关逻辑。
+     *
+     * @param query 查询内容
+     * @param documents 文档列表
+     * @param topK 召回数量
+     * @return 列表结果
+     */
     @Override
     public List<RerankResult> rerank(String query, List<String> documents, Integer topK) {
         RerankResponse response = restClient.post()
@@ -56,6 +75,12 @@ public class HttpRagModelClient implements RagModelClient {
         return response.getResults();
     }
 
+    /**
+     * 生成回答 chat 相关逻辑。
+     *
+     * @param request 请求对象
+     * @return 处理结果
+     */
     @Override
     public RagChatResponse chat(RagChatRequest request) {
         RagChatResponse response = restClient.post()
@@ -66,9 +91,24 @@ public class HttpRagModelClient implements RagModelClient {
         return response == null ? new RagChatResponse() : response;
     }
 
+    /**
+     * 生成向量 EmbedRequest 相关逻辑。
+     *
+     * @param texts 文本列表
+     * @param normalize 方法入参
+     * @return 处理结果
+     */
     private record EmbedRequest(List<String> texts, Boolean normalize) {
     }
 
+    /**
+     * 重排序 RerankRequest 相关逻辑。
+     *
+     * @param query 查询内容
+     * @param documents 文档列表
+     * @param topK 召回数量
+     * @return 处理结果
+     */
     private record RerankRequest(String query, List<String> documents, Integer topK) {
     }
 

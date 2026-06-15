@@ -6,7 +6,6 @@ import com.ylcloud.VO.UserLoginVO;
 import com.ylcloud.service.LoginService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,21 +15,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api")
 @Slf4j
 public class Login {
+    private final LoginService loginService;
 
-    @Autowired
-    private LoginService loginService;
+    public Login(LoginService loginService) {
+        this.loginService = loginService;
+    }
 
-    /**
-     * 用户登录并返回登录态信息。
-     *
-     * @param userLoginDTO 登录参数
-     * @return 登录用户信息和令牌
-     */
     @PostMapping("/login")
     public Result<UserLoginVO> login(@RequestBody @Valid UserLoginDTO userLoginDTO) {
-        log.info("用户尝试登录：{}", userLoginDTO);
+        log.info("login attempt username={}",userLoginDTO.getUsername());
         UserLoginVO user = loginService.login(userLoginDTO);
-        log.info("result:用户id：{}，token内部id：{}",user.getId(),user.getToken());
+        log.info("login success userId={}",user.getId());
         return Result.success(user);
     }
 }

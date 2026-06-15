@@ -11,6 +11,10 @@ import java.util.List;
 @Mapper
 public interface FileInfoMapper {
 
+    /**
+     * 查询 getByFileId 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -19,6 +23,10 @@ public interface FileInfoMapper {
             "and status = 1")
     UserFileDTO getByFileId(@Param("fileId") Long fileId, @Param("userId") Long userId);
 
+    /**
+     * 查询 getByFileIdActiveOrRecycle 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -27,6 +35,10 @@ public interface FileInfoMapper {
             "and status in (1, 2)")
     UserFileDTO getByFileIdActiveOrRecycle(@Param("fileId") Long fileId, @Param("userId") Long userId);
 
+    /**
+     * 查询 getByFileUuid 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -36,6 +48,10 @@ public interface FileInfoMapper {
     UserFileDTO getByFileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
 
 
+    /**
+     * 查询 getByFileUuid 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -45,6 +61,10 @@ public interface FileInfoMapper {
             "and status = 1")
     UserFileDTO getByFileUuid(@Param("fileUuid") String fileUuid, @Param("parentId") Long parentId,@Param("userId") Long userId);
 
+    /**
+     * 查询 getByFileIdAny 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -52,6 +72,10 @@ public interface FileInfoMapper {
             "and status = 1")
     UserFileDTO getByFileIdAny(@Param("fileId") Long fileId);
 
+    /**
+     * 查询 getByFileIdAnyActiveOrRecycle 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -59,6 +83,10 @@ public interface FileInfoMapper {
             "and status in (1, 2)")
     UserFileDTO getByFileIdAnyActiveOrRecycle(@Param("fileId") Long fileId);
 
+    /**
+     * 查询 getByFileUuidAny 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -68,6 +96,10 @@ public interface FileInfoMapper {
             "limit 1")
     UserFileDTO getByFileUuidAny(@Param("fileUuid") String fileUuid, @Param("parentId") Long parentId);
 
+    /**
+     * 查询 getFileInfo 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select file_id as fileId, file_uuid as fileUuid, " +
             "name, type, size, md5, hash, status, " +
             "createtime as createTime, updatetime as updateTime " +
@@ -77,6 +109,10 @@ public interface FileInfoMapper {
             "limit 1")
     File getFileInfo(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
 
+    /**
+     * 查询 getFileByFileUuid 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select file_id as fileId, file_uuid as fileUuid, " +
             "name, type, size, md5, hash, status, " +
             "createtime as createTime, updatetime as updateTime " +
@@ -86,6 +122,10 @@ public interface FileInfoMapper {
             "limit 1")
     File getFileByFileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
 
+    /**
+     * 查询 getFileByHash 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select fi.file_id as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.user_id as userId, uf.parent_id as parentId, uf.file_name as name, " +
             "fi.type, fi.size, uf.path, fi.md5, fi.hash, fi.status, " +
@@ -102,13 +142,23 @@ public interface FileInfoMapper {
                        @Param("parentId") Long parentId,
                        @Param("userId") Long userId);
 
-    // TODO(Codex): replace select * with explicit aliases for stable File field mapping.
-    @Select("select * from file_info " +
+    /**
+     * 查询 getFileByHash 相关逻辑。
+     * @return 处理结果
+     */
+    @Select("select file_id as fileId, file_uuid as fileUuid, " +
+            "name, type, size, md5, hash, status, count, " +
+            "createtime as createTime, updatetime as updateTime " +
+            "from file_info " +
             "where hash = #{hash} " +
             "and status = 1 " +
             "limit 1")
     File getFileByHash(@Param("hash") String hash);
 
+    /**
+     * 查询 getUserFileList 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -118,6 +168,10 @@ public interface FileInfoMapper {
             "order by is_dir desc, updatetime desc")
     List<UserFileDTO> getUserFileList(@Param("parentId") Long parentId, @Param("userId") Long userId);
 
+    /**
+     * 查询 listFileByUserId 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select fi.file_id as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.user_id as userId, uf.parent_id as parentId, uf.file_name as name, " +
             "fi.type, fi.size, uf.path, fi.md5, fi.hash, fi.status, " +
@@ -129,6 +183,10 @@ public interface FileInfoMapper {
             "order by uf.is_dir desc, uf.updatetime desc")
     List<FileVO> listFileByUserId(@Param("userId") Long userId);
 
+    /**
+     * 查询 getRootDirByUserId 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -140,6 +198,10 @@ public interface FileInfoMapper {
             "limit 1")
     UserFileDTO getRootDirByUserId(@Param("userId") Long userId);
 
+    /**
+     * 查询 listFileVOByparentId 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -150,6 +212,10 @@ public interface FileInfoMapper {
     List<UserFileDTO> listFileVOByparentId(@Param("parentId") Long parentId,
                                            @Param("userId") Long userId);
 
+    /**
+     * 查询 listFileByparentId 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -160,6 +226,10 @@ public interface FileInfoMapper {
     List<UserFileDTO> listFileByparentId(@Param("parentId") Long parentId,
                                          @Param("userId") Long userId);
 
+    /**
+     * 查询 listFileByparentIdAny 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -168,6 +238,10 @@ public interface FileInfoMapper {
             "order by is_dir desc, updatetime desc")
     List<UserFileDTO> listFileByparentIdAny(@Param("parentId") Long parentId);
 
+    /**
+     * 查询 listFileByparentIdActiveOrRecycle 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -178,6 +252,10 @@ public interface FileInfoMapper {
     List<UserFileDTO> listFileByparentIdActiveOrRecycle(@Param("parentId") Long parentId,
                                                         @Param("userId") Long userId);
 
+    /**
+     * 查询 listFileByparentIdAnyActiveOrRecycle 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, " +
             "status, user_id as userId, parent_id as parentId, path, createtime, updatetime " +
             "from user_file " +
@@ -186,6 +264,10 @@ public interface FileInfoMapper {
             "order by is_dir desc, updatetime desc")
     List<UserFileDTO> listFileByparentIdAnyActiveOrRecycle(@Param("parentId") Long parentId);
 
+    /**
+     * 查询 listRecycleRootByUserId 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select uf.ID as id, uf.file_name as fileName, uf.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.status, uf.user_id as userId, uf.parent_id as parentId, uf.path, uf.createtime, uf.updatetime " +
             "from user_file uf " +
@@ -196,6 +278,10 @@ public interface FileInfoMapper {
             "order by uf.updatetime desc")
     List<UserFileDTO> listRecycleRootByUserId(@Param("userId") Long userId);
 
+    /**
+     * 查询 listRecycleRootAny 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select uf.ID as id, uf.file_name as fileName, uf.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.status, uf.user_id as userId, uf.parent_id as parentId, uf.path, uf.createtime, uf.updatetime " +
             "from user_file uf " +
@@ -205,12 +291,20 @@ public interface FileInfoMapper {
             "order by uf.updatetime desc")
     List<UserFileDTO> listRecycleRootAny();
 
+    /**
+     * 新增 insertFileInfo 相关逻辑。
+     * @return 影响行数
+     */
     @Options(useGeneratedKeys = true, keyProperty = "fileId", keyColumn = "file_id")
     @Insert("insert into file_info(file_uuid, name, type, size, md5, hash, status, count, createtime, updatetime) " +
             "values " +
             "(#{fileUuid}, #{name}, #{type}, #{size}, #{md5}, #{hash}, #{status}, #{count}, #{createTime}, #{updateTime})")
     int insertFileInfo(File file);
 
+    /**
+     * 更新 updateName 相关逻辑。
+     * @return 影响行数
+     */
     @Update("update user_file " +
             "set file_name = #{newName}, " +
             "updatetime = #{updateTime} " +
@@ -222,6 +316,10 @@ public interface FileInfoMapper {
                    @Param("userId") Long userId,
                    @Param("updateTime") LocalDateTime updateTime);
 
+    /**
+     * 更新 updateNameById 相关逻辑。
+     * @return 影响行数
+     */
     @Update("update user_file " +
             "set file_name = #{newName}, " +
             "updatetime = #{updateTime} " +
@@ -231,6 +329,10 @@ public interface FileInfoMapper {
                        @Param("newName") String newName,
                        @Param("updateTime") LocalDateTime updateTime);
 
+    /**
+     * 更新 updateStatusById 相关逻辑。
+     * @return 影响行数
+     */
     @Update("update user_file " +
             "set status = #{status}, " +
             "updatetime = #{updateTime} " +
@@ -239,21 +341,37 @@ public interface FileInfoMapper {
                          @Param("status") Integer status,
                          @Param("updateTime") LocalDateTime updateTime);
 
+    /**
+     * 删除 deleteByfileUuid 相关逻辑。
+     * @return 影响行数
+     */
     @Delete("delete from user_file " +
             "where file_uuid = #{fileUuid} " +
             "and user_id = #{userId} " +
             "and parent_id = #{parentId}")
     int deleteByfileUuid(@Param("fileUuid") String fileUuid,@Param("parentId") Long parentId,@Param("userId") Long userId);
 
+    /**
+     * 删除 deleteByFileId 相关逻辑。
+     * @return 影响行数
+     */
     @Delete("delete from user_file " +
             "where ID = #{id} " +
             "and user_id = #{userId}")
     int deleteByFileId(@Param("id")Long id,@Param("userId") Long userId);
 
+    /**
+     * 删除 deleteByFileIdAny 相关逻辑。
+     * @return 影响行数
+     */
     @Delete("delete from user_file " +
             "where ID = #{id}")
     int deleteByFileIdAny(@Param("id")Long id);
 
+    /**
+     * 查找 findFileByName 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select fi.file_id as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.user_id as userId, uf.parent_id as parentId, uf.file_name as name, " +
             "fi.type, fi.size, uf.path, fi.md5, fi.hash, fi.status, " +
@@ -269,6 +387,10 @@ public interface FileInfoMapper {
                         @Param("userId") Long userId,
                         @Param("parentId") Long parentId);
 
+    /**
+     * 执行 ParentIdExist 函数的业务处理。
+     * @return 处理结果
+     */
     @Select("select count(1) > 0 " +
             "from user_file " +
             "where ID = #{parentId} " +
@@ -277,6 +399,10 @@ public interface FileInfoMapper {
             "and status = 1")
     boolean ParentIdExist(@Param("parentId") Long parentId, @Param("userId") Long userId);
 
+    /**
+     * 执行 ParentIdExistAny 函数的业务处理。
+     * @return 处理结果
+     */
     @Select("select count(1) > 0 " +
             "from user_file " +
             "where ID = #{parentId} " +
@@ -284,6 +410,10 @@ public interface FileInfoMapper {
             "and status = 1")
     boolean ParentIdExistAny(@Param("parentId") Long parentId);
 
+    /**
+     * 更新 updateParent 相关逻辑。
+     * @return 影响行数
+     */
     @Update("update user_file " +
             "set parent_id = #{newParentId}, " +
             "updatetime = #{timenow} " +
@@ -292,6 +422,10 @@ public interface FileInfoMapper {
                      @Param("newParentId") Long newParentId,
                      @Param("timenow") LocalDateTime timenow);
 
+    /**
+     * 执行 myfather 函数的业务处理。
+     * @return 处理结果
+     */
     @Select("select parent_id " +
             "from user_file " +
             "where ID = #{fileId} " +
@@ -299,22 +433,37 @@ public interface FileInfoMapper {
             "and status = 1")
     Long myfather(@Param("fileId") String fileId, @Param("userId") Long userId);
 
+    /**
+     * 新增 insertFile_User 相关逻辑。
+     * @return 影响行数
+     */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "ID")
     @Insert("insert into user_file(file_name, file_uuid, is_dir, status, user_id, parent_id, path, createtime, updatetime) " +
             "values " +
             "(#{fileName}, #{fileUuid}, #{dir}, #{status}, #{userId}, #{parentId}, #{path}, #{createtime}, #{updatetime})")
     int insertFile_User(UserFileDTO fileUserDTO);
 
+    /**
+     * 删除 delete_fileinfo_ByfileUuid 相关逻辑。
+     * @return 影响行数
+     */
     @Delete("delete from file_info " +
             "where file_uuid = #{fileUuid}")
     int delete_fileinfo_ByfileUuid(@Param("fileUuid") String fileUuid);
 
+    /**
+     * 查询 getFileStatus 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select count(1) > 0 " +
             "from file_info " +
             "where file_uuid = #{fileUuid} " +
             "and status = 1")
     boolean getFileStatus(@Param("fileUuid") String fileUuid);
 
+    /**
+     * 更新 updatePath 相关逻辑。
+     */
     @Update("update user_file " +
             "set path = #{path} " +
             "where ID = #{id} " +
@@ -322,6 +471,9 @@ public interface FileInfoMapper {
             "and user_id = #{userId}")
     void updatePath(@Param("id")Long id,@Param("fileUuid") String fileUuid,@Param("path") String path,@Param("userId") Long userId);
 
+    /**
+     * 更新 updateParent 相关逻辑。
+     */
     @Update("update user_file " +
             "set parent_id = #{parentId} " +
             "where ID = #{id} " +
@@ -329,12 +481,19 @@ public interface FileInfoMapper {
             "and user_id = #{userId}")
     void updateParent(@Param("id") Long id,@Param("fileUuid") String fileUuid,@Param("parentId") Long parentId,@Param("userId") Long userId);
 
+    /**
+     * 更新 updateFileCount 相关逻辑。
+     */
     @Update("update file_info " +
             "set count = count + #{count} " +
             "where file_uuid = #{fileUuid}")
     void updateFileCount(@Param("fileUuid") String fileUuid,
                          @Param("count") Integer count);
 
+    /**
+     * 更新 updatePhysicalFileInfo 相关逻辑。
+     * @return 影响行数
+     */
     @Update("update file_info set name = #{name}, type = #{type}, size = #{size}, md5 = #{md5}, hash = #{hash}, updatetime = #{updateTime} " +
             "where file_uuid = #{fileUuid} and status = 1")
     int updatePhysicalFileInfo(@Param("fileUuid") String fileUuid,
@@ -345,6 +504,10 @@ public interface FileInfoMapper {
                                @Param("hash") String hash,
                                @Param("updateTime") LocalDateTime updateTime);
 
+    /**
+     * 查询 getFileCount 相关逻辑。
+     * @return 影响行数
+     */
     @Select("select count from file_info " +
             "where file_uuid = #{fileUuid}")
     int getFileCount(@Param("fileUuid") String fileUuid);

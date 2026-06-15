@@ -18,19 +18,35 @@ import java.util.List;
 @Mapper
 public interface SpaceMemberMapper {
 
+    /**
+     * 新增 insert 相关逻辑。
+     * @return 影响行数
+     */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into space_member(space_id, user_id, role, status, createtime, updatetime) " +
             "values(#{spaceId}, #{userId}, #{role}, #{status}, #{createtime}, #{updatetime})")
     int insert(SpaceMember spaceMember);
 
+    /**
+     * 查询 getActive 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select id, space_id as spaceId, user_id as userId, role, status, createtime, updatetime " +
             "from space_member where space_id = #{spaceId} and user_id = #{userId} and status = 1")
     SpaceMember getActive(@Param("spaceId") Long spaceId, @Param("userId") Long userId);
 
+    /**
+     * 查询 listBySpaceId 相关逻辑。
+     * @return 列表结果
+     */
     @Select("select id, space_id as spaceId, user_id as userId, role, status, createtime, updatetime " +
             "from space_member where space_id = #{spaceId} and status = 1 order by role, createtime")
     List<SpaceMemberVO> listBySpaceId(@Param("spaceId") Long spaceId);
 
+    /**
+     * 更新 updateRole 相关逻辑。
+     * @return 影响行数
+     */
     @Update("update space_member set role = #{role}, updatetime = #{updateTime} " +
             "where space_id = #{spaceId} and user_id = #{userId} and status = 1")
     int updateRole(@Param("spaceId") Long spaceId,
@@ -38,6 +54,10 @@ public interface SpaceMemberMapper {
                    @Param("role") String role,
                    @Param("updateTime") LocalDateTime updateTime);
 
+    /**
+     * 执行 disable 函数的业务处理。
+     * @return 影响行数
+     */
     @Update("update space_member set status = 0, updatetime = #{updateTime} " +
             "where space_id = #{spaceId} and user_id = #{userId} and status = 1")
     int disable(@Param("spaceId") Long spaceId,

@@ -15,11 +15,8 @@ import java.util.List;
 public interface ChunkUploadMapper {
 
     /**
-     * 查询指定上传任务下的某个分片记录。
-     *
-     * @param uploadId 上传任务 ID
-     * @param chunkIndex 分片序号，从 0 开始
-     * @return 分片记录，不存在时返回 null
+     * 查询 getByUploadIdAndIndex 相关逻辑。
+     * @return 处理结果
      */
     @Select("select id, upload_id as uploadId, chunk_index as chunkIndex, chunk_md5 as chunkMd5, " +
             "size, object_name as objectName, status, createtime, updatetime " +
@@ -31,10 +28,8 @@ public interface ChunkUploadMapper {
     UploadChunk getByUploadIdAndIndex(@Param("uploadId") String uploadId, @Param("chunkIndex") Integer chunkIndex);
 
     /**
-     * 查询指定上传任务已上传的分片序号列表。
-     *
-     * @param uploadId 上传任务 ID
-     * @return 已上传分片序号列表
+     * 查询 listUploadedIndexes 相关逻辑。
+     * @return 列表结果
      */
     @Select("select chunk_index " +
             "from upload_chunk " +
@@ -44,10 +39,8 @@ public interface ChunkUploadMapper {
     List<Integer> listUploadedIndexes(@Param("uploadId") String uploadId);
 
     /**
-     * 查询指定上传任务的分片对象名列表，按分片序号升序排列。
-     *
-     * @param uploadId 上传任务 ID
-     * @return MinIO 分片对象名列表
+     * 查询 listObjectNames 相关逻辑。
+     * @return 列表结果
      */
     @Select("select object_name " +
             "from upload_chunk " +
@@ -57,12 +50,18 @@ public interface ChunkUploadMapper {
     List<String> listObjectNames(@Param("uploadId") String uploadId);
 
     /**
-     * 新增分片上传记录。
-     *
-     * @param uploadChunk 分片记录实体
+     * 新增 insert 相关逻辑。
      * @return 影响行数
      */
     @Insert("insert into upload_chunk(upload_id, chunk_index, chunk_md5, size, object_name, status, createtime, updatetime) " +
             "values(#{uploadId}, #{chunkIndex}, #{chunkMd5}, #{size}, #{objectName}, #{status}, #{createtime}, #{updatetime})")
     int insert(UploadChunk uploadChunk);
+
+    /**
+     * 新增 insertIgnore 相关逻辑。
+     * @return 影响行数
+     */
+    @Insert("insert ignore into upload_chunk(upload_id, chunk_index, chunk_md5, size, object_name, status, createtime, updatetime) " +
+            "values(#{uploadId}, #{chunkIndex}, #{chunkMd5}, #{size}, #{objectName}, #{status}, #{createtime}, #{updatetime})")
+    int insertIgnore(UploadChunk uploadChunk);
 }

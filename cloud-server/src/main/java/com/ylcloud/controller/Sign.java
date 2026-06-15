@@ -18,19 +18,19 @@ public class Sign {
     private final SignService signService;
 
     /**
-     * 创建注册控制器。
+     * 初始化 Sign 对象。
      *
-     * @param signService 注册业务服务
+     * @param signService 注册服务
      */
     public Sign(SignService signService) {
         this.signService = signService;
     }
 
     /**
-     * 注册新用户并初始化用户根目录。
+     * 执行 sign 函数的业务处理。
      *
      * @param userRegisterDTO 注册参数
-     * @return 通用成功响应
+     * @return 处理结果
      */
     @PostMapping("/sign")
     public Result sign(@RequestBody @Valid UserRegisterDTO userRegisterDTO) {

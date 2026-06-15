@@ -1,13 +1,12 @@
 package com.ylcloud.DTO;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.Data;
 
-/**
- * 文件历史版本开关请求参数。
- * <p>
- * 用于单个空间文件时允许传入 null，表示继承空间默认设置。
- */
 @Data
 public class VersionSettingDTO {
+    @Min(value = 0, message = "文件历史版本开关只能为 0、1 或 null")
+    @Max(value = 1, message = "文件历史版本开关只能为 0、1 或 null")
     private Integer versionEnabled;
 }

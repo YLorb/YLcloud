@@ -39,6 +39,16 @@ public class SpaceFileService {
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
 
+    /**
+     * 初始化 SpaceFileService 对象。
+     *
+     * @param spaceFileMapper 方法入参
+     * @param fileInfoMapper 方法入参
+     * @param spaceService 空间服务
+     * @param spacePermissionService 方法入参
+     * @param spaceRagService 空间 RAG 服务
+     * @param minioclientUtil 方法入参
+     */
     public SpaceFileService(SpaceFileMapper spaceFileMapper,
                             FileInfoMapper fileInfoMapper,
                             SpaceService spaceService,
@@ -53,12 +63,27 @@ public class SpaceFileService {
         this.minioclientUtil = minioclientUtil;
     }
 
+    /**
+     * 查询 listFiles 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param parentId 父级 ID
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
     public List<SpaceFileVO> listFiles(Long spaceId, Long parentId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
         Long realParentId = normalizeParentId(spaceId,parentId);
         return toVOList(spaceFileMapper.listByParentId(spaceId,realParentId));
     }
 
+    /**
+     * 执行 tree 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
     public List<SpaceFileVO> tree(Long spaceId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
         Long rootId = normalizeParentId(spaceId,null);
@@ -68,20 +93,29 @@ public class SpaceFileService {
         return List.of(rootVO);
     }
 
+    /**
+     * 创建 createFolder 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public SpaceFileVO createFolder(Long spaceId, SpaceFolderCreateDTO dto, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
+        String folderName = requireSafeFileName(dto.getName());
         Long parentId = normalizeParentId(spaceId,dto.getParentId());
         SpaceFile parent = requireDirectory(spaceId,parentId);
-        requireNoSameName(spaceId,parentId,dto.getName(),1);
+        requireNoSameName(spaceId,parentId,folderName,1);
 
         LocalDateTime now = LocalDateTime.now();
         SpaceFile folder = new SpaceFile();
         folder.setSpaceId(spaceId);
-        folder.setFileName(dto.getName());
+        folder.setFileName(folderName);
         folder.setDir(1);
         folder.setParentId(parentId);
-        folder.setPath(buildPath(parent,dto.getName(),true));
+        folder.setPath(buildPath(parent,folderName,true));
         folder.setStatus(StatusConstant.ENABLE);
         folder.setCreatedBy(userId);
         folder.setCreatetime(now);
@@ -90,6 +124,14 @@ public class SpaceFileService {
         return toVO(folder);
     }
 
+    /**
+     * 执行 importUserFile 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public SpaceFileVO importUserFile(Long spaceId, SpaceFileImportDTO dto, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -100,6 +142,7 @@ public class SpaceFileService {
             throw new BaseException("只能导入当前用户可读取的文件");
         }
         String fileName = dto.getName() == null || dto.getName().isBlank() ? userFile.getFileName() : dto.getName();
+        fileName = requireSafeFileName(fileName);
         requireNoSameName(spaceId,parentId,fileName,0);
 
         LocalDateTime now = LocalDateTime.now();
@@ -120,6 +163,14 @@ public class SpaceFileService {
         return toVO(spaceFile);
     }
 
+    /**
+     * 移除 removeFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param fileId 文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean removeFile(Long spaceId, Long fileId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -130,24 +181,33 @@ public class SpaceFileService {
         if(file.getParentId() == 0L) {
             throw new BaseException("不能删除空间根目录");
         }
-        int rows = spaceFileMapper.disable(spaceId,fileId,LocalDateTime.now());
+        removeTree(spaceId,file,userId);
+        return true;
+    }
+
+    private void removeTree(Long spaceId, SpaceFile file, Long userId) {
+        if(file.getDir() == 1) {
+            for(SpaceFile child : spaceFileMapper.listByParentId(spaceId,file.getId())) {
+                removeTree(spaceId,child,userId);
+            }
+        }
+        int rows = spaceFileMapper.disable(spaceId,file.getId(),LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("空间文件删除失败");
         }
         if(file.getDir() == 0 && file.getFileUuid() != null) {
             fileInfoMapper.updateFileCount(file.getFileUuid(),-1);
-            spaceRagService.handleFileRemoved(spaceId,fileId,userId);
+            spaceRagService.handleFileRemoved(spaceId,file.getId(),userId);
         }
-        return true;
     }
 
     /**
-     * 获取空间文件预览信息。
+     * 预览 previewFile 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param fileId 空间文件节点 ID
-     * @param userId 当前用户 ID
-     * @return 文件预览信息
+     * @param fileId 文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     public FilePreviewVO previewFile(Long spaceId, Long fileId, Long userId) {
         SpaceFile spaceFile = requirePreviewableSpaceFile(spaceId,fileId,userId);
@@ -172,12 +232,12 @@ public class SpaceFileService {
     }
 
     /**
-     * 输出空间文件预览流。
+     * 预览 previewFileStream 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param fileId 空间文件节点 ID
-     * @param userId 当前用户 ID
-     * @param response HTTP 响应
+     * @param fileId 文件 ID
+     * @param userId 用户 ID
+     * @param response 响应对象
      */
     public void previewFileStream(Long spaceId, Long fileId, Long userId, HttpServletResponse response) {
         SpaceFile spaceFile = requirePreviewableSpaceFile(spaceId,fileId,userId);
@@ -198,12 +258,12 @@ public class SpaceFileService {
     }
 
     /**
-     * 下载空间文件。
+     * 下载 downloadFile 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param fileId 空间文件节点 ID
-     * @param userId 当前用户 ID
-     * @param response HTTP 响应
+     * @param fileId 文件 ID
+     * @param userId 用户 ID
+     * @param response 响应对象
      */
     public void downloadFile(Long spaceId, Long fileId, Long userId, HttpServletResponse response) {
         SpaceFile spaceFile = requirePreviewableSpaceFile(spaceId,fileId,userId);
@@ -222,6 +282,13 @@ public class SpaceFileService {
         }
     }
 
+    /**
+     * 规范化 normalizeParentId 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param parentId 父级 ID
+     * @return 处理结果
+     */
     private Long normalizeParentId(Long spaceId, Long parentId) {
         if(parentId != null && parentId != 0L) {
             return parentId;
@@ -233,6 +300,13 @@ public class SpaceFileService {
         return space.getRootDirId();
     }
 
+    /**
+     * 校验 requireDirectory 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param fileId 文件 ID
+     * @return 处理结果
+     */
     private SpaceFile requireDirectory(Long spaceId, Long fileId) {
         SpaceFile file = spaceFileMapper.getById(spaceId,fileId);
         if(file == null || file.getDir() != 1) {
@@ -241,6 +315,14 @@ public class SpaceFileService {
         return file;
     }
 
+    /**
+     * 校验 requirePreviewableSpaceFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param fileId 文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private SpaceFile requirePreviewableSpaceFile(Long spaceId, Long fileId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
         SpaceFile spaceFile = spaceFileMapper.getById(spaceId,fileId);
@@ -253,6 +335,12 @@ public class SpaceFileService {
         return spaceFile;
     }
 
+    /**
+     * 校验 requireFileInfo 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @return 处理结果
+     */
     private File requireFileInfo(SpaceFile spaceFile) {
         File file = fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
         if(file == null) {
@@ -261,6 +349,12 @@ public class SpaceFileService {
         return file;
     }
 
+    /**
+     * 执行 readTextPreview 函数的业务处理。
+     *
+     * @param file 文件对象
+     * @return 处理结果
+     */
     private String readTextPreview(File file) {
         if(file.getSize() != null && file.getSize() > MAX_TEXT_PREVIEW_SIZE) {
             throw new BaseException("文本文件过大，不支持直接预览");
@@ -272,10 +366,23 @@ public class SpaceFileService {
         }
     }
 
+    /**
+     * 执行 isStreamPreviewType 函数的业务处理。
+     *
+     * @param previewType 方法入参
+     * @return 处理结果
+     */
     private boolean isStreamPreviewType(String previewType) {
         return "image".equals(previewType) || "pdf".equals(previewType) || "video".equals(previewType) || "audio".equals(previewType);
     }
 
+    /**
+     * 解析 resolvePreviewType 相关逻辑。
+     *
+     * @param contentType 方法入参
+     * @param fileName 文件名
+     * @return 处理结果
+     */
     private String resolvePreviewType(String contentType, String fileName) {
         if(contentType.startsWith("image/")) return "image";
         if("application/pdf".equals(contentType)) return "pdf";
@@ -287,6 +394,13 @@ public class SpaceFileService {
         return "unsupported";
     }
 
+    /**
+     * 解析 resolveContentType 相关逻辑。
+     *
+     * @param fileName 文件名
+     * @param storedType 方法入参
+     * @return 处理结果
+     */
     private String resolveContentType(String fileName, String storedType) {
         String lowerName = fileName == null ? "" : fileName.toLowerCase();
         String lowerType = storedType == null ? "" : storedType.toLowerCase();
@@ -311,6 +425,13 @@ public class SpaceFileService {
         return "application/octet-stream";
     }
 
+    /**
+     * 判断 hasExtension 相关逻辑。
+     *
+     * @param fileName 文件名
+     * @param extensions 方法入参
+     * @return 处理结果
+     */
     private boolean hasExtension(String fileName, String... extensions) {
         if(fileName == null) {
             return false;
@@ -324,12 +445,27 @@ public class SpaceFileService {
         return false;
     }
 
+    /**
+     * 校验 requireNoSameName 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param parentId 父级 ID
+     * @param fileName 文件名
+     * @param dir 方法入参
+     */
     private void requireNoSameName(Long spaceId, Long parentId, String fileName, Integer dir) {
         if(spaceFileMapper.countSameName(spaceId,parentId,fileName,dir) > 0) {
             throw new BaseException("目标目录已存在同名节点");
         }
     }
 
+    /**
+     * 构建 buildChildren 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param parentId 父级 ID
+     * @return 列表结果
+     */
     private List<SpaceFileVO> buildChildren(Long spaceId, Long parentId) {
         List<SpaceFileVO> children = new ArrayList<>();
         for(SpaceFile child : spaceFileMapper.listByParentId(spaceId,parentId)) {
@@ -342,12 +478,24 @@ public class SpaceFileService {
         return children;
     }
 
+    /**
+     * 转换 toVOList 相关逻辑。
+     *
+     * @param files 方法入参
+     * @return 列表结果
+     */
     private List<SpaceFileVO> toVOList(List<SpaceFile> files) {
         List<SpaceFileVO> result = new ArrayList<>();
         files.forEach(file -> result.add(toVO(file)));
         return result;
     }
 
+    /**
+     * 转换 toVO 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @return 处理结果
+     */
     private SpaceFileVO toVO(SpaceFile spaceFile) {
         SpaceFileVO vo = new SpaceFileVO();
         vo.setId(spaceFile.getId());
@@ -373,6 +521,15 @@ public class SpaceFileService {
         return vo;
     }
 
+    /**
+     * 更新 updateVersionEnabled 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param fileId 文件 ID
+     * @param versionEnabled 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public SpaceFileVO updateVersionEnabled(Long spaceId, Long fileId, Integer versionEnabled, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -390,6 +547,13 @@ public class SpaceFileService {
         return toVO(spaceFileMapper.getById(spaceId,fileId));
     }
 
+    /**
+     * 查询 listVersionEnabledFiles 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
     public List<SpaceFileVO> listVersionEnabledFiles(Long spaceId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
         List<SpaceFileVO> result = new ArrayList<>();
@@ -401,6 +565,12 @@ public class SpaceFileService {
         return result;
     }
 
+    /**
+     * 解析 resolveEffectiveVersionEnabled 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @return 处理结果
+     */
     public Boolean resolveEffectiveVersionEnabled(SpaceFile spaceFile) {
         if(spaceFile.getVersionEnabled() != null) {
             return StatusConstant.ENABLE.equals(spaceFile.getVersionEnabled());
@@ -409,6 +579,28 @@ public class SpaceFileService {
         return StatusConstant.ENABLE.equals(space.getVersionEnabled());
     }
 
+    private String requireSafeFileName(String fileName) {
+        if(fileName == null) {
+            throw new BaseException("文件名不能为空");
+        }
+        String normalized = fileName.trim();
+        if(normalized.isEmpty() || normalized.length() > 255) {
+            throw new BaseException("文件名不能为空且不能超过 255 个字符");
+        }
+        if(normalized.contains("/") || normalized.contains("\\") || normalized.contains("..")) {
+            throw new BaseException("文件名包含非法路径字符");
+        }
+        return normalized;
+    }
+
+    /**
+     * 构建 buildPath 相关逻辑。
+     *
+     * @param parent 方法入参
+     * @param name 名称
+     * @param dir 方法入参
+     * @return 处理结果
+     */
     private String buildPath(SpaceFile parent, String name, boolean dir) {
         String parentPath = parent.getPath() == null ? "/" : parent.getPath();
         if(!parentPath.endsWith("/")) {

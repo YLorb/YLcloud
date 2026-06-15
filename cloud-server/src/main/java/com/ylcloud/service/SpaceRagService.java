@@ -77,6 +77,25 @@ public class SpaceRagService {
     private final DocumentTextExtractor documentTextExtractor;
     private final RagTaskExecutorService ragTaskExecutorService;
 
+    /**
+     * 初始化 SpaceRagService 对象。
+     *
+     * @param spaceRagMapper 方法入参
+     * @param spaceRagDocumentMapper 方法入参
+     * @param fileRagChunkMapper 方法入参
+     * @param spaceRagChunkRefMapper 方法入参
+     * @param spaceRagTaskMapper 方法入参
+     * @param spaceRagQueryLogMapper 方法入参
+     * @param spaceFileMapper 方法入参
+     * @param fileInfoMapper 方法入参
+     * @param spacePermissionService 方法入参
+     * @param qdrantVectorStoreService 方法入参
+     * @param ragChatService 方法入参
+     * @param ragRerankService 方法入参
+     * @param ragProperties RAG 配置属性
+     * @param documentTextExtractor 方法入参
+     * @param ragTaskExecutorService 方法入参
+     */
     public SpaceRagService(SpaceRagMapper spaceRagMapper,
                            SpaceRagDocumentMapper spaceRagDocumentMapper,
                            FileRagChunkMapper fileRagChunkMapper,
@@ -110,11 +129,11 @@ public class SpaceRagService {
     }
 
     /**
-     * 查询空间 RAG 配置。
+     * 查询 getConfig 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param userId 当前用户 ID
-     * @return 空间 RAG 配置
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     public SpaceRagConfigVO getConfig(Long spaceId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
@@ -122,12 +141,12 @@ public class SpaceRagService {
     }
 
     /**
-     * 更新空间 RAG 配置。
+     * 更新 updateConfig 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param dto 更新参数
-     * @param userId 当前用户 ID
-     * @return 更新后的空间 RAG 配置
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public SpaceRagConfigVO updateConfig(Long spaceId, SpaceRagConfigUpdateDTO dto, Long userId) {
@@ -156,12 +175,12 @@ public class SpaceRagService {
     }
 
     /**
-     * 查询空间 RAG。
+     * 执行 query 函数的业务处理。
      *
      * @param spaceId 空间 ID
-     * @param dto 查询参数
-     * @param userId 当前用户 ID
-     * @return 查询结果
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public SpaceRagQueryVO query(Long spaceId, SpaceRagQueryDTO dto, Long userId) {
@@ -195,11 +214,11 @@ public class SpaceRagService {
     }
 
     /**
-     * 查询空间内已进入 RAG 的文档。
+     * 查询 listDocuments 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param userId 当前用户 ID
-     * @return RAG 文档列表
+     * @param userId 用户 ID
+     * @return 列表结果
      */
     public List<SpaceRagDocumentVO> listDocuments(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -211,11 +230,11 @@ public class SpaceRagService {
     }
 
     /**
-     * 查询空间 RAG 任务。
+     * 查询 listTasks 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param userId 当前用户 ID
-     * @return RAG 任务列表
+     * @param userId 用户 ID
+     * @return 列表结果
      */
     public List<SpaceRagTaskVO> listTasks(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -226,6 +245,14 @@ public class SpaceRagService {
         return result;
     }
 
+    /**
+     * 重试 retryTask 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param taskId 任务 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean retryTask(Long spaceId, Long taskId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -245,11 +272,25 @@ public class SpaceRagService {
         throw new BaseException("当前 RAG 任务缺少可重试的文件范围");
     }
 
+    /**
+     * 重试 retryFailedTasks 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean retryFailedTasks(Long spaceId, Long userId) {
         return repairSpaceVectors(spaceId,userId);
     }
 
+    /**
+     * 修复 repairSpaceVectors 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean repairSpaceVectors(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -262,6 +303,14 @@ public class SpaceRagService {
         return true;
     }
 
+    /**
+     * 修复 repairFileVectors 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean repairFileVectors(Long spaceId, Long spaceFileId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -269,12 +318,12 @@ public class SpaceRagService {
     }
 
     /**
-     * 搜索空间中的 RAG 文档。
+     * 搜索 searchDocuments 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param dto 搜索参数
-     * @param userId 当前用户 ID
-     * @return 文档搜索结果
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 列表结果
      */
     public List<SpaceDocumentSearchVO> searchDocuments(Long spaceId, SpaceDocumentSearchDTO dto, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
@@ -327,11 +376,11 @@ public class SpaceRagService {
     }
 
     /**
-     * 重建整个空间的 RAG 引用索引。
+     * 重建 rebuildSpace 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param userId 当前用户 ID
-     * @return 是否成功
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public Boolean rebuildSpace(Long spaceId, Long userId) {
@@ -346,12 +395,12 @@ public class SpaceRagService {
     }
 
     /**
-     * 重建单个空间文件的 RAG 引用索引。
+     * 重建 rebuildFile 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param spaceFileId 空间文件节点 ID
-     * @param userId 当前用户 ID
-     * @return 是否成功
+     * @param spaceFileId 空间文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public Boolean rebuildFile(Long spaceId, Long spaceFileId, Long userId) {
@@ -375,10 +424,10 @@ public class SpaceRagService {
     }
 
     /**
-     * 空间导入文件后，建立空间到全局文件 chunk 的引用。
+     * 执行 handleFileImported 函数的业务处理。
      *
-     * @param spaceFile 空间文件节点
-     * @param userId 当前用户 ID
+     * @param spaceFile 空间文件对象
+     * @param userId 用户 ID
      */
     @Transactional
     public void handleFileImported(SpaceFile spaceFile, Long userId) {
@@ -398,6 +447,13 @@ public class SpaceRagService {
         dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),document.getId(),userId));
     }
 
+    /**
+     * 执行 executeFileRagTask 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param documentId 文档 ID
+     * @param userId 用户 ID
+     */
     public void executeFileRagTask(Long taskId, Long documentId, Long userId) {
         LocalDateTime started = LocalDateTime.now();
         try {
@@ -420,10 +476,25 @@ public class SpaceRagService {
         }
     }
 
+    /**
+     * 执行 executeSpaceRagTask 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     */
     public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId) {
         executeSpaceRagTask(taskId,spaceId,userId,false);
     }
 
+    /**
+     * 执行 executeSpaceRagTask 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @param clearSpaceVectors 是否清理空间向量
+     */
     public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId, boolean clearSpaceVectors) {
         LocalDateTime started = LocalDateTime.now();
         try {
@@ -462,11 +533,11 @@ public class SpaceRagService {
     }
 
     /**
-     * 空间删除文件后，仅禁用该空间对全局文件 chunk 的引用。
+     * 执行 handleFileRemoved 函数的业务处理。
      *
      * @param spaceId 空间 ID
-     * @param spaceFileId 空间文件节点 ID
-     * @param userId 当前用户 ID
+     * @param spaceFileId 空间文件 ID
+     * @param userId 用户 ID
      */
     @Transactional
     public void handleFileRemoved(Long spaceId, Long spaceFileId, Long userId) {
@@ -479,6 +550,12 @@ public class SpaceRagService {
         finishTask(task,SpaceConstant.RAG_TASK_SUCCESS,null,started);
     }
 
+    /**
+     * 重建 rebuildDocument 相关逻辑。
+     *
+     * @param document 文档对象
+     * @param userId 用户 ID
+     */
     private void rebuildDocument(SpaceRagDocument document, Long userId) {
         SpaceFile spaceFile = requireFile(document.getSpaceId(),document.getSpaceFileId());
         SpaceRagConfig config = requireConfig(document.getSpaceId());
@@ -511,6 +588,13 @@ public class SpaceRagService {
         spaceRagDocumentMapper.updateIndexResult(document.getId(),SpaceConstant.RAG_INDEX_SUCCESS,refCount,null,LocalDateTime.now());
     }
 
+    /**
+     * 确保 ensureFileChunks 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param config 配置对象
+     * @return 列表结果
+     */
     private List<FileRagChunk> ensureFileChunks(SpaceFile spaceFile, SpaceRagConfig config) {
         File file = fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
         if(file == null || file.getHash() == null || file.getHash().isBlank()) {
@@ -549,6 +633,14 @@ public class SpaceRagService {
         return result;
     }
 
+    /**
+     * 解析 resolveDocumentText 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param file 文件对象
+     * @param extracted 方法入参
+     * @return 处理结果
+     */
     private String resolveDocumentText(SpaceFile spaceFile, File file, ExtractedDocumentText extracted) {
         if(extracted != null && extracted.isSuccess() && extracted.getText() != null && !extracted.getText().isBlank()) {
             return extracted.getText();
@@ -562,6 +654,13 @@ public class SpaceRagService {
         throw new BaseException(message == null ? "文档解析失败" : message);
     }
 
+    /**
+     * 构建 buildChunkMetadata 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param extracted 方法入参
+     * @return 处理结果
+     */
     private String buildChunkMetadata(SpaceFile spaceFile, ExtractedDocumentText extracted) {
         String parser = extracted == null ? "unknown" : extracted.getParser();
         boolean fallback = extracted != null && extracted.isFallback();
@@ -577,6 +676,13 @@ public class SpaceRagService {
         return builder.toString();
     }
 
+    /**
+     * 创建 createDocument 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private SpaceRagDocument createDocument(SpaceFile spaceFile, Long userId) {
         SpaceRagDocument exists = spaceRagDocumentMapper.getBySpaceFileId(spaceFile.getSpaceId(),spaceFile.getId());
         if(exists != null) {
@@ -601,6 +707,12 @@ public class SpaceRagService {
         return document;
     }
 
+    /**
+     * 校验 requireConfig 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @return 处理结果
+     */
     private SpaceRagConfig requireConfig(Long spaceId) {
         SpaceRagConfig config = spaceRagMapper.getBySpaceId(spaceId);
         if(config == null) {
@@ -609,6 +721,13 @@ public class SpaceRagService {
         return config;
     }
 
+    /**
+     * 校验 requireFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @return 处理结果
+     */
     private SpaceFile requireFile(Long spaceId, Long spaceFileId) {
         SpaceFile spaceFile = spaceFileMapper.getById(spaceId,spaceFileId);
         if(spaceFile == null || spaceFile.getDir() == 1) {
@@ -617,6 +736,13 @@ public class SpaceRagService {
         return spaceFile;
     }
 
+    /**
+     * 构建 buildDocumentText 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param file 文件对象
+     * @return 处理结果
+     */
     private String buildDocumentText(SpaceFile spaceFile, File file) {
         StringBuilder builder = new StringBuilder();
         builder.append("文件名称：").append(spaceFile.getFileName()).append('\n');
@@ -631,6 +757,15 @@ public class SpaceRagService {
         return builder.toString();
     }
 
+    /**
+     * 搜索 searchChunks 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param question 问题内容
+     * @param limit 限制数量
+     * @param config 配置对象
+     * @return 列表结果
+     */
     private List<FileRagChunk> searchChunks(Long spaceId, String question, int limit, SpaceRagConfig config) {
         List<FileRagChunk> spaceChunks = fileRagChunkMapper.listActiveBySpace(spaceId);
         int vectorLimit = Math.max(limit,ragProperties.getVectorTopN() == null ? 30 : ragProperties.getVectorTopN());
@@ -660,6 +795,13 @@ public class SpaceRagService {
         return List.of();
     }
 
+    /**
+     * 构建 buildCitations 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param chunks 文件分片列表
+     * @return 列表结果
+     */
     private List<SpaceRagCitationVO> buildCitations(Long spaceId, List<FileRagChunk> chunks) {
         List<SpaceRagCitationVO> citations = new ArrayList<>();
         if(chunks == null || chunks.isEmpty()) {
@@ -685,6 +827,14 @@ public class SpaceRagService {
         return citations;
     }
 
+    /**
+     * 执行 splitText 函数的业务处理。
+     *
+     * @param text 文本内容
+     * @param chunkSize 方法入参
+     * @param chunkOverlap 方法入参
+     * @return 列表结果
+     */
     private List<String> splitText(String text, int chunkSize, int chunkOverlap) {
         List<String> chunks = new ArrayList<>();
         if(text == null || text.isBlank()) {
@@ -702,6 +852,16 @@ public class SpaceRagService {
         return chunks;
     }
 
+    /**
+     * 创建 createTask 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param documentId 文档 ID
+     * @param taskType 任务类型
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private SpaceRagTask createTask(Long spaceId, Long spaceFileId, Long documentId, String taskType, Long userId) {
         LocalDateTime now = LocalDateTime.now();
         SpaceRagTask task = new SpaceRagTask();
@@ -720,22 +880,57 @@ public class SpaceRagService {
         return task;
     }
 
+    /**
+     * 执行 finishTask 函数的业务处理。
+     *
+     * @param task 任务对象
+     * @param status 状态
+     * @param errorMessage 错误信息
+     * @param startedTime 开始时间
+     */
     private void finishTask(SpaceRagTask task, String status, String errorMessage, LocalDateTime startedTime) {
         spaceRagTaskMapper.updateResult(task.getId(),status,errorMessage,startedTime,LocalDateTime.now(),LocalDateTime.now());
     }
 
+    /**
+     * 执行 finishTask 函数的业务处理。
+     *
+     * @param taskId 任务 ID
+     * @param status 状态
+     * @param errorMessage 错误信息
+     * @param startedTime 开始时间
+     */
     private void finishTask(Long taskId, String status, String errorMessage, LocalDateTime startedTime) {
         spaceRagTaskMapper.updateResult(taskId,status,errorMessage,startedTime,LocalDateTime.now(),LocalDateTime.now());
     }
 
+    /**
+     * 标记 markTaskRunning 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param startedTime 开始时间
+     */
     private void markTaskRunning(Long taskId, LocalDateTime startedTime) {
         spaceRagTaskMapper.updateResult(taskId,SpaceConstant.RAG_TASK_RUNNING,null,startedTime,null,LocalDateTime.now());
     }
 
+    /**
+     * 更新 updateTaskProgress 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param totalCount 方法入参
+     * @param successCount 方法入参
+     * @param failedCount 方法入参
+     */
     private void updateTaskProgress(Long taskId, int totalCount, int successCount, int failedCount) {
         spaceRagTaskMapper.updateProgress(taskId,totalCount,successCount,failedCount,LocalDateTime.now());
     }
 
+    /**
+     * 派发 dispatchAfterCommit 相关逻辑。
+     *
+     * @param runnable 待执行任务
+     */
     private void dispatchAfterCommit(Runnable runnable) {
         if(TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -749,6 +944,18 @@ public class SpaceRagService {
         runnable.run();
     }
 
+    /**
+     * 保存 saveQueryLog 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @param question 问题内容
+     * @param answer 方法入参
+     * @param hitChunkIds 方法入参
+     * @param modelName 方法入参
+     * @param success 方法入参
+     * @param errorMessage 错误信息
+     */
     private void saveQueryLog(Long spaceId, Long userId, String question, String answer, String hitChunkIds, String modelName, boolean success, String errorMessage) {
         SpaceRagQueryLog log = new SpaceRagQueryLog();
         log.setSpaceId(spaceId);
@@ -766,6 +973,12 @@ public class SpaceRagService {
         spaceRagQueryLogMapper.insert(log);
     }
 
+    /**
+     * 转换 toConfigVO 相关逻辑。
+     *
+     * @param config 配置对象
+     * @return 处理结果
+     */
     private SpaceRagConfigVO toConfigVO(SpaceRagConfig config) {
         SpaceRagConfigVO vo = new SpaceRagConfigVO();
         vo.setId(config.getId());
@@ -784,6 +997,12 @@ public class SpaceRagService {
         return vo;
     }
 
+    /**
+     * 转换 toDocumentVO 相关逻辑。
+     *
+     * @param document 文档对象
+     * @return 处理结果
+     */
     private SpaceRagDocumentVO toDocumentVO(SpaceRagDocument document) {
         SpaceRagDocumentVO vo = new SpaceRagDocumentVO();
         vo.setId(document.getId());
@@ -801,6 +1020,12 @@ public class SpaceRagService {
         return vo;
     }
 
+    /**
+     * 转换 toTaskVO 相关逻辑。
+     *
+     * @param task 任务对象
+     * @return 处理结果
+     */
     private SpaceRagTaskVO toTaskVO(SpaceRagTask task) {
         SpaceRagTaskVO vo = new SpaceRagTaskVO();
         vo.setId(task.getId());
@@ -821,6 +1046,12 @@ public class SpaceRagService {
         return vo;
     }
 
+    /**
+     * 执行 fillDocumentLinks 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param vo 方法入参
+     */
     private void fillDocumentLinks(Long spaceId, SpaceDocumentSearchVO vo) {
         String base = "/api/space/" + spaceId + "/files/" + vo.getSpaceFileId();
         vo.setPreviewUrl(base + "/preview");
@@ -828,10 +1059,23 @@ public class SpaceRagService {
         vo.setDownloadUrl(base + "/download");
     }
 
+    /**
+     * 执行 safeChunkSize 函数的业务处理。
+     *
+     * @param chunkSize 方法入参
+     * @return 影响行数
+     */
     private int safeChunkSize(Integer chunkSize) {
         return chunkSize == null || chunkSize <= 0 ? DEFAULT_CHUNK_SIZE : chunkSize;
     }
 
+    /**
+     * 执行 safeChunkOverlap 函数的业务处理。
+     *
+     * @param chunkOverlap 方法入参
+     * @param chunkSize 方法入参
+     * @return 影响行数
+     */
     private int safeChunkOverlap(Integer chunkOverlap, Integer chunkSize) {
         int realChunkSize = safeChunkSize(chunkSize);
         if(chunkOverlap == null || chunkOverlap < 0) {
@@ -840,14 +1084,34 @@ public class SpaceRagService {
         return Math.min(chunkOverlap,realChunkSize - 1);
     }
 
+    /**
+     * 执行 safeTopK 函数的业务处理。
+     *
+     * @param topK 召回数量
+     * @return 影响行数
+     */
     private int safeTopK(Integer topK) {
         return topK == null || topK <= 0 ? DEFAULT_TOP_K : topK;
     }
 
+    /**
+     * 执行 blankToCurrent 函数的业务处理。
+     *
+     * @param value 方法入参
+     * @param current 方法入参
+     * @return 处理结果
+     */
     private String blankToCurrent(String value, String current) {
         return value == null || value.isBlank() ? current : value;
     }
 
+    /**
+     * 执行 truncate 函数的业务处理。
+     *
+     * @param value 方法入参
+     * @param maxLength 方法入参
+     * @return 处理结果
+     */
     private String truncate(String value, int maxLength) {
         if(value == null || value.length() <= maxLength) {
             return value;
@@ -855,6 +1119,12 @@ public class SpaceRagService {
         return value.substring(0,maxLength);
     }
 
+    /**
+     * 执行 sha256 函数的业务处理。
+     *
+     * @param value 方法入参
+     * @return 处理结果
+     */
     private String sha256(String value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -869,6 +1139,12 @@ public class SpaceRagService {
         }
     }
 
+    /**
+     * 执行 escapeJson 函数的业务处理。
+     *
+     * @param value 方法入参
+     * @return 处理结果
+     */
     private String escapeJson(String value) {
         if(value == null) {
             return "";

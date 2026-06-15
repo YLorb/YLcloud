@@ -14,11 +14,8 @@ import org.apache.ibatis.annotations.Update;
 public interface MultifileMapper {
 
     /**
-     * 根据上传任务 ID 和用户 ID 查询上传任务。
-     *
-     * @param uploadId 上传任务 ID
-     * @param userId 用户 ID
-     * @return 上传任务信息，不存在时返回 null
+     * 查询 getByUploadId 相关逻辑。
+     * @return 处理结果
      */
     @Select("select id, upload_id as uploadId, user_id as userId, parent_id as parentId, " +
             "file_name as fileName, file_size as fileSize, file_md5 as fileMd5, file_hash as fileHash, " +
@@ -31,13 +28,8 @@ public interface MultifileMapper {
     UploadTask getByUploadId(@Param("uploadId") String uploadId, @Param("userId") Long userId);
 
     /**
-     * 查询同一用户、同一目录、同一文件 hash 的未完成上传任务。
-     *
-     * @param userId 用户 ID
-     * @param parentId 父目录 ID
-     * @param fileHash 完整文件 hash
-     * @param fileName 原始文件名
-     * @return 未完成上传任务，不存在时返回 null
+     * 查询 getActiveTask 相关逻辑。
+     * @return 处理结果
      */
     @Select("select id, upload_id as uploadId, user_id as userId, parent_id as parentId, " +
             "file_name as fileName, file_size as fileSize, file_md5 as fileMd5, file_hash as fileHash, " +
@@ -57,9 +49,7 @@ public interface MultifileMapper {
                              @Param("fileName") String fileName);
 
     /**
-     * 新增上传任务。
-     *
-     * @param uploadTask 上传任务实体
+     * 新增 insert 相关逻辑。
      * @return 影响行数
      */
     @Insert("insert into upload_task(upload_id, user_id, parent_id, file_name, file_size, file_md5, file_hash, " +
@@ -69,9 +59,7 @@ public interface MultifileMapper {
     int insert(UploadTask uploadTask);
 
     /**
-     * 上传成功一个分片后递增已上传分片数量。
-     *
-     * @param uploadId 上传任务 ID
+     * 执行 increaseUploadedChunks 函数的业务处理。
      * @return 影响行数
      */
     @Update("update upload_task " +
@@ -81,10 +69,7 @@ public interface MultifileMapper {
     int increaseUploadedChunks(@Param("uploadId") String uploadId);
 
     /**
-     * 标记上传任务已合并完成。
-     *
-     * @param uploadId 上传任务 ID
-     * @param fileUuid 合并后最终文件 UUID
+     * 标记 markMerged 相关逻辑。
      * @return 影响行数
      */
     @Update("update upload_task " +
@@ -93,9 +78,7 @@ public interface MultifileMapper {
     int markMerged(@Param("uploadId") String uploadId, @Param("fileUuid") String fileUuid);
 
     /**
-     * 标记上传任务失败。
-     *
-     * @param uploadId 上传任务 ID
+     * 标记 markFail 相关逻辑。
      * @return 影响行数
      */
     @Update("update upload_task " +

@@ -1,44 +1,37 @@
 package com.ylcloud.DTO;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/**
- * 分片上传初始化请求参数。
- */
 @Data
 public class MultifileDTO {
-    /**
-     * 原始文件名。
-     */
+    @NotBlank(message = "文件名不能为空")
+    @Size(max = 255, message = "文件名不能超过 255 个字符")
     private String fileName;
 
-    /**
-     * 完整文件的 MD5 值，用于最终文件校验。
-     */
+    @Pattern(regexp = "^[a-fA-F0-9]{32}$", message = "文件 MD5 格式不正确")
     private String fileMd5;
 
-    /**
-     * 完整文件的内容 hash，用于秒传判断。
-     */
+    @NotBlank(message = "文件 hash 不能为空")
+    @Size(max = 128, message = "文件 hash 不能超过 128 个字符")
     private String fileHash;
 
-    /**
-     * 完整文件大小，单位为字节。
-     */
+    @NotNull(message = "文件大小不能为空")
+    @Min(value = 1, message = "文件大小必须大于 0")
     private Long fileSize;
 
-    /**
-     * 单个分片大小，单位为字节；为空时后端使用默认分片大小。
-     */
+    @Min(value = 1, message = "分片大小必须大于 0")
     private Long chunkSize;
 
-    /**
-     * 文件总分片数；为空时后端根据文件大小和分片大小计算。
-     */
+    @Min(value = 1, message = "分片数量必须大于 0")
+    @Max(value = 10000, message = "分片数量过大")
     private Integer totalChunks;
 
-    /**
-     * 文件上传到的父目录 ID；为空或 0 时表示当前用户根目录。
-     */
+    @Min(value = 0, message = "父目录 ID 不能小于 0")
     private Long parentId;
 }

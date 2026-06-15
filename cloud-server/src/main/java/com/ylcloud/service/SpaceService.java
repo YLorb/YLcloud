@@ -32,6 +32,15 @@ public class SpaceService {
     private final SpaceRagMapper spaceRagMapper;
     private final SpacePermissionService spacePermissionService;
 
+    /**
+     * 初始化 SpaceService 对象。
+     *
+     * @param spaceMapper 方法入参
+     * @param spaceMemberMapper 方法入参
+     * @param spaceFileMapper 方法入参
+     * @param spaceRagMapper 方法入参
+     * @param spacePermissionService 方法入参
+     */
     public SpaceService(SpaceMapper spaceMapper,
                         SpaceMemberMapper spaceMemberMapper,
                         SpaceFileMapper spaceFileMapper,
@@ -45,11 +54,11 @@ public class SpaceService {
     }
 
     /**
-     * 为新用户创建默认个人空间。
+     * 创建 createDefaultPersonalSpace 相关逻辑。
      *
      * @param userId 用户 ID
      * @param username 用户名
-     * @return 默认个人空间
+     * @return 处理结果
      */
     @Transactional
     public Space createDefaultPersonalSpace(Long userId, String username) {
@@ -58,11 +67,11 @@ public class SpaceService {
     }
 
     /**
-     * 创建团队空间。
+     * 创建 createSpace 相关逻辑。
      *
-     * @param dto 创建空间请求参数
-     * @param userId 当前用户 ID
-     * @return 创建后的空间展示对象
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public SpaceVO createSpace(SpaceCreateDTO dto, Long userId) {
@@ -72,10 +81,23 @@ public class SpaceService {
         return vo;
     }
 
+    /**
+     * 查询 listMySpaces 相关逻辑。
+     *
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
     public List<SpaceVO> listMySpaces(Long userId) {
         return spaceMapper.listByUserId(userId);
     }
 
+    /**
+     * 查询 getSpace 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     public SpaceVO getSpace(Long spaceId, Long userId) {
         SpaceMember member = spacePermissionService.requireMember(spaceId,userId);
         Space space = requireSpace(spaceId);
@@ -84,6 +106,14 @@ public class SpaceService {
         return vo;
     }
 
+    /**
+     * 更新 updateSpace 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public SpaceVO updateSpace(Long spaceId, SpaceUpdateDTO dto, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -94,6 +124,13 @@ public class SpaceService {
         return getSpace(spaceId,userId);
     }
 
+    /**
+     * 删除 deleteSpace 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean deleteSpace(Long spaceId, Long userId) {
         spacePermissionService.requireOwner(spaceId,userId);
@@ -104,6 +141,12 @@ public class SpaceService {
         return true;
     }
 
+    /**
+     * 校验 requireSpace 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @return 处理结果
+     */
     public Space requireSpace(Long spaceId) {
         Space space = spaceMapper.getById(spaceId);
         if(space == null) {
@@ -112,6 +155,14 @@ public class SpaceService {
         return space;
     }
 
+    /**
+     * 更新 updateVersionEnabled 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param versionEnabled 方法入参
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     @Transactional
     public SpaceVO updateVersionEnabled(Long spaceId, Integer versionEnabled, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
@@ -125,6 +176,15 @@ public class SpaceService {
         return getSpace(spaceId,userId);
     }
 
+    /**
+     * 创建 createSpaceInternal 相关逻辑。
+     *
+     * @param ownerId 方法入参
+     * @param name 名称
+     * @param description 方法入参
+     * @param type 类型
+     * @return 处理结果
+     */
     private Space createSpaceInternal(Long ownerId, String name, String description, String type) {
         LocalDateTime now = LocalDateTime.now();
         Space space = new Space();
@@ -179,6 +239,12 @@ public class SpaceService {
         return space;
     }
 
+    /**
+     * 转换 toSpaceVO 相关逻辑。
+     *
+     * @param space 空间对象
+     * @return 处理结果
+     */
     private SpaceVO toSpaceVO(Space space) {
         SpaceVO vo = new SpaceVO();
         vo.setId(space.getId());

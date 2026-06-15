@@ -1,5 +1,6 @@
 package com.ylcloud.VO;
 
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
 
@@ -13,6 +14,7 @@ public class FileMergeReqVO {
     /**
      * 上传任务 ID。
      */
+    @NotBlank(message = "上传任务 ID 不能为空")
     private String uploadId;
 
     /**

@@ -1,45 +1,64 @@
 package com.ylcloud.service;
 
-import com.ylcloud.Exception.BaseException;
 import com.ylcloud.DTO.UserLoginDTO;
+import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.UserLoginVO;
+import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.context.BaseContext;
-import com.ylcloud.mapper.LoginMapper;
 import com.ylcloud.entity.User;
+import com.ylcloud.mapper.LoginMapper;
 import com.ylcloud.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
 public class LoginService {
+    private final LoginMapper loginMapper;
+    private final JwtUtil jwtUtil;
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    @Autowired
-    private LoginMapper loginMapper;
+    public LoginService(LoginMapper loginMapper, JwtUtil jwtUtil) {
+        this.loginMapper = loginMapper;
+        this.jwtUtil = jwtUtil;
+    }
 
-    @Autowired
-    private JwtUtil jwtutil;
-
-    /**
-     * 校验用户登录凭证并生成登录返回对象。
-     *
-     * @param userLoginDTO 登录参数
-     * @return 登录用户信息和令牌
-     */
     public UserLoginVO login(UserLoginDTO userLoginDTO) {
         User user = loginMapper.getByUsername(userLoginDTO.getUsername());
+        if(user == null || !StatusConstant.ENABLE.equals(user.getStatus())) {
+            throw new BaseException("用户不存在或已被禁用");
+        }
+        if(!passwordMatches(userLoginDTO.getPassword(),user)) {
+            throw new BaseException("密码错误");
+        }
+
         UserLoginVO userLoginVO = new UserLoginVO();
-        if(user == null) {
-            throw new BaseException("用户不存在！");
-        }
-        else if(!userLoginDTO.getPassword().equals(user.getPassword())) {
-            throw new BaseException("密码错误！");
-        }
         BeanUtils.copyProperties(user,userLoginVO);
         BaseContext.setCurrentId(user.getId());
-        userLoginVO.setToken(jwtutil.createToken(user.getUsername(),user.getId()));
+        userLoginVO.setToken(jwtUtil.createToken(user.getUsername(),user.getId()));
         return userLoginVO;
+    }
+
+    private boolean passwordMatches(String rawPassword, User user) {
+        String storedPassword = user.getPassword();
+        if(storedPassword == null || storedPassword.isBlank()) {
+            return false;
+        }
+        if(isBcryptHash(storedPassword)) {
+            return passwordEncoder.matches(rawPassword,storedPassword);
+        }
+        boolean matched = rawPassword.equals(storedPassword);
+        if(matched) {
+            loginMapper.updatePassword(user.getId(),passwordEncoder.encode(rawPassword));
+            log.info("legacy password upgraded userId={}",user.getId());
+        }
+        return matched;
+    }
+
+    private boolean isBcryptHash(String password) {
+        return password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$");
     }
 }

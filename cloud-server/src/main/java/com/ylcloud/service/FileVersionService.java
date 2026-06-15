@@ -45,6 +45,17 @@ public class FileVersionService {
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
 
+    /**
+     * 初始化 FileVersionService 对象。
+     *
+     * @param fileVersionMapper 方法入参
+     * @param fileInfoMapper 方法入参
+     * @param spaceFileMapper 方法入参
+     * @param spacePermissionService 方法入参
+     * @param spaceFileService 空间文件服务
+     * @param spaceRagService 空间 RAG 服务
+     * @param minioclientUtil 方法入参
+     */
     public FileVersionService(FileVersionMapper fileVersionMapper,
                               FileInfoMapper fileInfoMapper,
                               SpaceFileMapper spaceFileMapper,
@@ -62,14 +73,14 @@ public class FileVersionService {
     }
 
     /**
-     * 上传空间文件的新历史版本。
+     * 上传 uploadSpaceFileVersion 相关逻辑。
      *
      * @param spaceId 空间 ID
      * @param spaceFileId 空间文件 ID
-     * @param uploadFile 新版本文件
-     * @param changeNote 版本说明
-     * @param userId 当前用户 ID
-     * @return 新版本信息
+     * @param uploadFile 上传文件
+     * @param changeNote 变更说明
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public FileVersionVO uploadSpaceFileVersion(Long spaceId, Long spaceFileId, MultipartFile uploadFile, String changeNote, Long userId) {
@@ -112,12 +123,12 @@ public class FileVersionService {
     }
 
     /**
-     * 查询空间文件历史版本。
+     * 查询 listSpaceFileVersions 相关逻辑。
      *
      * @param spaceId 空间 ID
      * @param spaceFileId 空间文件 ID
-     * @param userId 当前用户 ID
-     * @return 历史版本列表
+     * @param userId 用户 ID
+     * @return 列表结果
      */
     public List<FileVersionVO> listSpaceFileVersions(Long spaceId, Long spaceFileId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
@@ -130,13 +141,13 @@ public class FileVersionService {
     }
 
     /**
-     * 获取历史版本预览信息。
+     * 预览 previewVersion 相关逻辑。
      *
      * @param spaceId 空间 ID
      * @param spaceFileId 空间文件 ID
      * @param versionRecordId 版本记录 ID
-     * @param userId 当前用户 ID
-     * @return 预览信息
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     public FilePreviewVO previewVersion(Long spaceId, Long spaceFileId, Long versionRecordId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
@@ -162,7 +173,13 @@ public class FileVersionService {
     }
 
     /**
-     * 输出历史版本预览流。
+     * 预览 previewVersionStream 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param versionRecordId 版本记录 ID
+     * @param userId 用户 ID
+     * @param response 响应对象
      */
     public void previewVersionStream(Long spaceId, Long spaceFileId, Long versionRecordId, Long userId, HttpServletResponse response) {
         spacePermissionService.requireMember(spaceId,userId);
@@ -184,7 +201,13 @@ public class FileVersionService {
     }
 
     /**
-     * 下载历史版本。
+     * 下载 downloadVersion 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param versionRecordId 版本记录 ID
+     * @param userId 用户 ID
+     * @param response 响应对象
      */
     public void downloadVersion(Long spaceId, Long spaceFileId, Long versionRecordId, Long userId, HttpServletResponse response) {
         spacePermissionService.requireMember(spaceId,userId);
@@ -198,14 +221,14 @@ public class FileVersionService {
     }
 
     /**
-     * 将历史版本恢复为新的当前版本。
+     * 恢复 restoreVersion 相关逻辑。
      *
      * @param spaceId 空间 ID
      * @param spaceFileId 空间文件 ID
      * @param versionRecordId 版本记录 ID
-     * @param changeNote 恢复说明
-     * @param userId 当前用户 ID
-     * @return 新版本信息
+     * @param changeNote 变更说明
+     * @param userId 用户 ID
+     * @return 处理结果
      */
     @Transactional
     public FileVersionVO restoreVersion(Long spaceId, Long spaceFileId, Long versionRecordId, String changeNote, Long userId) {
@@ -233,6 +256,13 @@ public class FileVersionService {
         return toVO(spaceId,spaceFileId,version);
     }
 
+    /**
+     * 调度 scheduleRagRebuildAfterCommit 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param userId 用户 ID
+     */
     private void scheduleRagRebuildAfterCommit(Long spaceId, Long spaceFileId, Long userId) {
         Runnable task = () -> {
             try {
@@ -254,6 +284,13 @@ public class FileVersionService {
         task.run();
     }
 
+    /**
+     * 校验 requireVersionableSpaceFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @return 处理结果
+     */
     private SpaceFile requireVersionableSpaceFile(Long spaceId, Long spaceFileId) {
         SpaceFile spaceFile = spaceFileMapper.getById(spaceId,spaceFileId);
         if(spaceFile == null || spaceFile.getDir() == 1 || spaceFile.getFileUuid() == null) {
@@ -262,6 +299,13 @@ public class FileVersionService {
         return spaceFile;
     }
 
+    /**
+     * 校验 requireVersion 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param versionRecordId 版本记录 ID
+     * @return 处理结果
+     */
     private FileVersion requireVersion(SpaceFile spaceFile, Long versionRecordId) {
         FileVersion version = fileVersionMapper.getByIdAndFileUuid(versionRecordId,spaceFile.getFileUuid());
         if(version == null) {
@@ -270,6 +314,20 @@ public class FileVersionService {
         return version;
     }
 
+    /**
+     * 创建 createVersion 相关逻辑。
+     *
+     * @param fileUuid 文件 UUID
+     * @param minioVersionId 方法入参
+     * @param fileName 文件名
+     * @param hash 文件哈希
+     * @param md5 文件 MD5
+     * @param type 类型
+     * @param size 方法入参
+     * @param changeNote 变更说明
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
     private FileVersion createVersion(String fileUuid, String minioVersionId, String fileName, String hash, String md5, String type, Long size, String changeNote, Long userId) {
         fileVersionMapper.clearCurrent(fileUuid);
         FileVersion version = new FileVersion();
@@ -290,6 +348,18 @@ public class FileVersionService {
         return version;
     }
 
+    /**
+     * 更新 updateCurrentFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param fileUuid 文件 UUID
+     * @param fileName 文件名
+     * @param type 类型
+     * @param size 方法入参
+     * @param md5 文件 MD5
+     * @param hash 文件哈希
+     */
     private void updateCurrentFile(Long spaceId, Long spaceFileId, String fileUuid, String fileName, String type, Long size, String md5, String hash) {
         int rows = fileInfoMapper.updatePhysicalFileInfo(fileUuid,fileName,type,size,md5,hash,LocalDateTime.now());
         if(rows == 0) {
@@ -298,6 +368,9 @@ public class FileVersionService {
         spaceFileMapper.updateFileName(spaceId,spaceFileId,fileName,LocalDateTime.now());
     }
 
+    /**
+     * 确保 ensureMinioVersioningEnabled 相关逻辑。
+     */
     private void ensureMinioVersioningEnabled() {
         try {
             if(!minioclientUtil.isDefaultBucketVersioningEnabled()) {
@@ -310,6 +383,14 @@ public class FileVersionService {
         }
     }
 
+    /**
+     * 转换 toVO 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param version 方法入参
+     * @return 处理结果
+     */
     private FileVersionVO toVO(Long spaceId, Long spaceFileId, FileVersion version) {
         FileVersionVO vo = new FileVersionVO();
         vo.setId(version.getId());
@@ -332,6 +413,12 @@ public class FileVersionService {
         return vo;
     }
 
+    /**
+     * 执行 readVersionText 函数的业务处理。
+     *
+     * @param version 方法入参
+     * @return 处理结果
+     */
     private String readVersionText(FileVersion version) {
         if(version.getFileSize() != null && version.getFileSize() > MAX_TEXT_PREVIEW_SIZE) {
             throw new BaseException("文本文件过大，不支持直接预览");
@@ -343,6 +430,12 @@ public class FileVersionService {
         }
     }
 
+    /**
+     * 查询 getFileType 相关逻辑。
+     *
+     * @param fileName 文件名
+     * @return 处理结果
+     */
     private String getFileType(String fileName) {
         if(fileName == null || !fileName.contains(".")) {
             return "";
@@ -350,10 +443,23 @@ public class FileVersionService {
         return fileName.substring(fileName.lastIndexOf("."));
     }
 
+    /**
+     * 执行 isStreamPreviewType 函数的业务处理。
+     *
+     * @param previewType 方法入参
+     * @return 处理结果
+     */
     private boolean isStreamPreviewType(String previewType) {
         return "image".equals(previewType) || "pdf".equals(previewType) || "video".equals(previewType) || "audio".equals(previewType);
     }
 
+    /**
+     * 解析 resolvePreviewType 相关逻辑。
+     *
+     * @param contentType 方法入参
+     * @param fileName 文件名
+     * @return 处理结果
+     */
     private String resolvePreviewType(String contentType, String fileName) {
         if(contentType.startsWith("image/")) return "image";
         if("application/pdf".equals(contentType)) return "pdf";
@@ -365,6 +471,13 @@ public class FileVersionService {
         return "unsupported";
     }
 
+    /**
+     * 解析 resolveContentType 相关逻辑。
+     *
+     * @param fileName 文件名
+     * @param storedType 方法入参
+     * @return 处理结果
+     */
     private String resolveContentType(String fileName, String storedType) {
         String lowerName = fileName == null ? "" : fileName.toLowerCase();
         String lowerType = storedType == null ? "" : storedType.toLowerCase();
@@ -389,6 +502,13 @@ public class FileVersionService {
         return "application/octet-stream";
     }
 
+    /**
+     * 判断 hasExtension 相关逻辑。
+     *
+     * @param fileName 文件名
+     * @param extensions 方法入参
+     * @return 处理结果
+     */
     private boolean hasExtension(String fileName, String... extensions) {
         if(fileName == null) {
             return false;

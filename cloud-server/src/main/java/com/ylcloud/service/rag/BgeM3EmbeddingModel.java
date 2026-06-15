@@ -15,11 +15,23 @@ public class BgeM3EmbeddingModel implements EmbeddingModel {
     private final RagModelClient ragModelClient;
     private final RagProperties properties;
 
+    /**
+     * 初始化 BgeM3EmbeddingModel 对象。
+     *
+     * @param ragModelClient RAG 模型客户端
+     * @param properties 配置属性
+     */
     public BgeM3EmbeddingModel(RagModelClient ragModelClient, RagProperties properties) {
         this.ragModelClient = ragModelClient;
         this.properties = properties;
     }
 
+    /**
+     * 生成向量 embedAll 相关逻辑。
+     *
+     * @param textSegments 方法入参
+     * @return 处理结果
+     */
     @Override
     public Response<List<Embedding>> embedAll(List<TextSegment> textSegments) {
         List<String> texts = new ArrayList<>();
@@ -34,11 +46,19 @@ public class BgeM3EmbeddingModel implements EmbeddingModel {
         return Response.from(embeddings);
     }
 
+    /**
+     * 执行 dimension 函数的业务处理。
+     * @return 影响行数
+     */
     @Override
     public int dimension() {
         return properties.getEmbeddingDimension();
     }
 
+    /**
+     * 执行 modelName 函数的业务处理。
+     * @return 处理结果
+     */
     @Override
     public String modelName() {
         return properties.getModelService().getEmbeddingModel();

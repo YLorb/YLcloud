@@ -1,7 +1,10 @@
 package com.ylcloud.utils;
 
-import io.jsonwebtoken.*;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -10,58 +13,46 @@ import java.util.Date;
 
 @Component
 public class JwtUtil {
-    // 密钥
-    private static final String SECRET = "yl-orb-secret-key-ylorb-setcret-key";
-    private static final long EXPIRATION = 1000 * 60 * 60;
+    private final SecretKey key;
+    private final long expiration;
 
-    private static final SecretKey KEY = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
-
-
-    /*
-        创建 jwt token
-     */
-    public String createToken(String username,Long userId) {
-        return Jwts.builder()
-                .setSubject(username)  // 主题
-                .claim("userId",userId) // 自定义声明 TODO:暂时移除这个声明,同时移除相应的实参
-                .setIssuedAt(new Date()) // 签发时间
-                .setExpiration(new Date(System.currentTimeMillis() +  EXPIRATION)) // 过期时间
-                .signWith(KEY,SignatureAlgorithm.HS256)  // 使用密钥签名
-                .compact(); // 生成紧凑的 jwt 字符串
+    public JwtUtil(@Value("${ylcloud.jwt.secret}") String secret,
+                   @Value("${ylcloud.jwt.expiration-ms:3600000}") long expiration) {
+        if(secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalArgumentException("ylcloud.jwt.secret must be at least 32 bytes");
+        }
+        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.expiration = expiration;
     }
 
-    /**
-     * 解析 token
-     */
+    public String createToken(String username, Long userId) {
+        return Jwts.builder()
+                .setSubject(username)
+                .claim("userId",userId)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
     public Claims parseToken(String token) {
         return Jwts.parserBuilder()
-                .setSigningKey(KEY)                      // 设置签名密钥
+                .setSigningKey(key)
                 .build()
-                .parseClaimsJws(token)                   // 解析 JWT
-                .getBody();                              // 获取声明内容
+                .parseClaimsJws(token)
+                .getBody();
     }
 
-    /**
-     * 验证 Token 是否有效
-     */
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder()
-                    .setSigningKey(KEY)
-                    .build()
-                    .parseClaimsJws(token);
+            parseToken(token);
             return true;
         } catch (Exception e) {
             return false;
         }
     }
 
-    /**
-     * 从 Token 中获取用户名
-     */
     public String getUsernameFromToken(String token) {
-        Claims claims = parseToken(token);
-        return claims.getSubject();
+        return parseToken(token).getSubject();
     }
-
 }

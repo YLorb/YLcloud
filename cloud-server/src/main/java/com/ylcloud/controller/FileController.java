@@ -22,20 +22,20 @@ public class FileController {
     private FileService fileService;
 
     /**
-     * 创建文件控制器。
+     * 初始化 FileController 对象。
      *
-     * @param fileService 文件业务服务
+     * @param fileService 文件服务
      */
     public FileController(FileService fileService) {
         this.fileService = fileService;
     }
 
     /**
-     * 上传文件到指定父目录。
+     * 上传 upload 相关逻辑。
      *
-     * @param file 上传的文件对象
-     * @param parentId 父目录 ID，默认根目录
-     * @return 上传后的文件信息
+     * @param file 文件对象
+     * @param parentId 父级 ID
+     * @return 接口响应结果
      */
     @PostMapping("/upload")
     public Result<FileVO> upload(@RequestParam("file") MultipartFile file,
@@ -44,11 +44,11 @@ public class FileController {
     }
 
     /**
-     * 下载当前用户指定目录下的文件。
+     * 下载 download 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID
-     * @param response HTTP 响应对象
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param response 响应对象
      */
     @GetMapping("/download/{fileUuid}")
     public void download(@PathVariable String fileUuid, @RequestParam Long parentId, HttpServletResponse response) {
@@ -56,11 +56,11 @@ public class FileController {
     }
 
     /**
-     * 创建或复用文件分享链接。
+     * 执行 share 函数的业务处理。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID，默认根目录
-     * @return 分享访问路径
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @return 接口响应结果
      */
     @PostMapping("/share/{fileUuid}")
     public Result<String> share(@PathVariable String fileUuid,
@@ -69,12 +69,12 @@ public class FileController {
     }
 
     /**
-     * 重命名文件或目录。
+     * 重命名 rename 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID，默认根目录
-     * @param newName 新文件名
-     * @return 重命名后的文件信息
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param newName 新名称
+     * @return 接口响应结果
      */
     @PutMapping("/rename/{fileUuid}")
     public Result<FileVO> rename(@PathVariable String fileUuid,
@@ -84,11 +84,11 @@ public class FileController {
     }
 
     /**
-     * 软删除文件或目录，文件会进入回收站。
+     * 删除 delete 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID，默认根目录
-     * @return 删除是否成功
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @return 接口响应结果
      */
     @DeleteMapping("/{fileUuid}")
     public Result<Boolean> delete(@PathVariable String fileUuid,
@@ -97,9 +97,8 @@ public class FileController {
     }
 
     /**
-     * 查询当前用户回收站中的顶层文件或目录。
-     *
-     * @return 回收站文件列表
+     * 查询 listRecycleFiles 相关逻辑。
+     * @return 接口响应结果
      */
     @GetMapping("/recycle")
     public Result<List<FileVO>> listRecycleFiles() {
@@ -107,10 +106,10 @@ public class FileController {
     }
 
     /**
-     * 从回收站恢复文件或目录。
+     * 恢复 restoreRecycleFile 相关逻辑。
      *
-     * @param fileId 用户文件关系 ID
-     * @return 恢复是否成功
+     * @param fileId 文件 ID
+     * @return 接口响应结果
      */
     @PutMapping("/recycle/{fileId}/restore")
     public Result<Boolean> restoreRecycleFile(@PathVariable Long fileId) {
@@ -118,10 +117,10 @@ public class FileController {
     }
 
     /**
-     * 彻底删除回收站中的文件或目录。
+     * 删除 deleteRecycleFilePermanently 相关逻辑。
      *
-     * @param fileId 用户文件关系 ID
-     * @return 彻底删除是否成功
+     * @param fileId 文件 ID
+     * @return 接口响应结果
      */
     @DeleteMapping("/recycle/{fileId}")
     public Result<Boolean> deleteRecycleFilePermanently(@PathVariable Long fileId) {
@@ -129,11 +128,11 @@ public class FileController {
     }
 
     /**
-     * 获取文件预览信息。
+     * 预览 previewFile 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID，默认根目录
-     * @return 文件预览信息
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @return 接口响应结果
      */
     @GetMapping("/preview/{fileUuid}")
     public Result<FilePreviewVO> previewFile(@PathVariable String fileUuid,
@@ -142,11 +141,11 @@ public class FileController {
     }
 
     /**
-     * 输出文件预览流。
+     * 预览 previewFileStream 相关逻辑。
      *
-     * @param fileUuid 文件唯一标识
-     * @param parentId 文件所在父目录 ID，默认根目录
-     * @param response HTTP 响应对象
+     * @param fileUuid 文件 UUID
+     * @param parentId 父级 ID
+     * @param response 响应对象
      */
     @GetMapping("/preview/{fileUuid}/stream")
     public void previewFileStream(@PathVariable String fileUuid,
@@ -156,13 +155,13 @@ public class FileController {
     }
 
     /**
-     * 新建文件或目录。
+     * 执行 makefile 函数的业务处理。
      *
-     * @param isDir 是否目录，1 表示目录，0 表示文件
-     * @param parentId 父目录 ID，默认根目录
-     * @param name 文件或目录名称
-     * @param type 文件类型
-     * @return 新建后的文件信息
+     * @param isDir 方法入参
+     * @param parentId 父级 ID
+     * @param name 名称
+     * @param type 类型
+     * @return 接口响应结果
      */
     @PostMapping("/{isDir}")
     public Result<FileVO> makefile(@PathVariable int isDir,
@@ -173,10 +172,10 @@ public class FileController {
     }
 
     /**
-     * 查询指定父目录下的文件列表。
+     * 查询 listFiles 相关逻辑。
      *
-     * @param parentId 父目录 ID，默认根目录
-     * @return 文件列表
+     * @param parentId 父级 ID
+     * @return 接口响应结果
      */
     @GetMapping("/list")
     public Result<List<FileVO>> listFiles(@RequestParam(value = "parentId",defaultValue = "0") Long parentId) {
@@ -186,9 +185,8 @@ public class FileController {
     }
 
     /**
-     * 检查默认对象存储桶是否存在。
-     *
-     * @return 存储桶是否存在
+     * 执行 bucket_exists 函数的业务处理。
+     * @return 接口响应结果
      */
     @GetMapping("/bucket")
     public Result<Boolean> bucket_exists() {
@@ -196,11 +194,11 @@ public class FileController {
     }
 
     /**
-     * 移动文件或目录到目标目录。
+     * 执行 movefiles 函数的业务处理。
      *
-     * @param sourceplace 源文件或目录 ID
-     * @param targetplace 目标目录 ID
-     * @return 移动是否成功
+     * @param sourceplace 方法入参
+     * @param targetplace 方法入参
+     * @return 接口响应结果
      */
     @PutMapping("/move")
     public Result<Boolean> movefiles(@RequestParam Long sourceplace, @RequestParam Long targetplace) {
@@ -208,11 +206,11 @@ public class FileController {
     }
 
     /**
-     * 复制文件或目录到目标目录。
+     * 复制 copyfiles 相关逻辑。
      *
-     * @param sourceplace 源文件或目录 ID
-     * @param targetplace 目标目录 ID
-     * @return 复制是否成功
+     * @param sourceplace 方法入参
+     * @param targetplace 方法入参
+     * @return 接口响应结果
      */
     @PutMapping("/copy")
     public Result<Boolean> copyfiles(@RequestParam Long sourceplace, @RequestParam Long targetplace) {

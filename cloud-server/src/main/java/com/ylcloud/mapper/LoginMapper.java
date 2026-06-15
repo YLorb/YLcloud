@@ -6,22 +6,29 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface LoginMapper {
 
     /**
-     * 根据用户名查询用户，并返回用户信息
-     * @param username
-     * @return
+     * 查询 getByUsername 相关逻辑。
+     * @return 处理结果
      */
     @Select("select user_id as id, username, password, nickname, root_id as rootID, email, avatar, status, role, " +
             "create_time as createTime, update_time as updateTime " +
             "from users where username = #{username}")
     User getByUsername(String username);
 
+    /**
+     * 查询 getById 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select user_id as id, username, password, nickname, root_id as rootID, email, avatar, status, role, " +
             "create_time as createTime, update_time as updateTime " +
             "from users where user_id = #{userId}")
     User getById(@Param("userId") Long userId);
+
+    @Update("update users set password = #{password}, update_time = now() where user_id = #{userId}")
+    int updatePassword(@Param("userId") Long userId, @Param("password") String password);
 }

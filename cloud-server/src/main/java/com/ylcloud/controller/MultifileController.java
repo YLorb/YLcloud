@@ -8,6 +8,7 @@ import com.ylcloud.VO.FileVO;
 import com.ylcloud.VO.InitifileVO;
 import com.ylcloud.context.BaseContext;
 import com.ylcloud.service.MultifileService;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,25 +31,25 @@ public class MultifileController {
     private MultifileService multifileService;
 
     /**
-     * 初始化分片上传任务，支持秒传和断点续传任务复用。
+     * 初始化 init 相关逻辑。
      *
      * @param multifileDTO 分片上传初始化参数
-     * @return 初始化结果，包含上传任务 ID、秒传标记和已上传分片列表
+     * @return 接口响应结果
      */
     @PostMapping("/init")
-    public Result<InitifileVO> init(@RequestBody MultifileDTO multifileDTO) {
+    public Result<InitifileVO> init(@RequestBody @Valid MultifileDTO multifileDTO) {
         Long userId = BaseContext.getCurrentId();
         return Result.success(multifileService.initfile(multifileDTO,userId));
     }
 
     /**
-     * 上传单个文件分片。
+     * 上传 uploadChunk 相关逻辑。
      *
-     * @param file 当前分片文件
-     * @param uploadId 上传任务 ID
-     * @param chunkIndex 当前分片序号，从 0 开始
-     * @param chunkMd5 当前分片 MD5，可为空；传入时后端会校验
-     * @return 上传是否成功
+     * @param file 文件对象
+     * @param uploadId 方法入参
+     * @param chunkIndex 方法入参
+     * @param chunkMd5 方法入参
+     * @return 接口响应结果
      */
     @PostMapping("/chunk")
     public Result<Boolean> uploadChunk(@RequestParam("file") MultipartFile file,
@@ -60,10 +61,10 @@ public class MultifileController {
     }
 
     /**
-     * 查询分片上传进度，用于前端断点续传。
+     * 执行 status 函数的业务处理。
      *
-     * @param uploadId 上传任务 ID
-     * @return 已上传分片信息
+     * @param uploadId 方法入参
+     * @return 接口响应结果
      */
     @GetMapping("/status/{uploadId}")
     public Result<ChunkStatusVO> status(@PathVariable String uploadId) {
@@ -72,13 +73,13 @@ public class MultifileController {
     }
 
     /**
-     * 合并已经上传完成的所有分片。
+     * 合并 merge 相关逻辑。
      *
-     * @param reqVO 分片合并请求参数
-     * @return 合并后的文件信息
+     * @param reqVO 请求参数
+     * @return 接口响应结果
      */
     @PostMapping("/merge")
-    public Result<FileVO> merge(@RequestBody FileMergeReqVO reqVO) {
+    public Result<FileVO> merge(@RequestBody @Valid FileMergeReqVO reqVO) {
         Long userId = BaseContext.getCurrentId();
         return Result.success(multifileService.merge(reqVO.getUploadId(),userId));
     }

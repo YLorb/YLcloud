@@ -17,11 +17,25 @@ public class RagRerankService {
     private final RagModelClient ragModelClient;
     private final RagProperties properties;
 
+    /**
+     * 初始化 RagRerankService 对象。
+     *
+     * @param ragModelClient RAG 模型客户端
+     * @param properties 配置属性
+     */
     public RagRerankService(RagModelClient ragModelClient, RagProperties properties) {
         this.ragModelClient = ragModelClient;
         this.properties = properties;
     }
 
+    /**
+     * 重排序 rerank 相关逻辑。
+     *
+     * @param query 查询内容
+     * @param chunks 文件分片列表
+     * @param finalTopK 最终召回数量
+     * @return 列表结果
+     */
     public List<FileRagChunk> rerank(String query, List<FileRagChunk> chunks, int finalTopK) {
         if(!Boolean.TRUE.equals(properties.getRerank().getEnabled()) || chunks == null || chunks.size() <= 1) {
             return limit(chunks,finalTopK);
@@ -47,6 +61,13 @@ public class RagRerankService {
         }
     }
 
+    /**
+     * 执行 limit 函数的业务处理。
+     *
+     * @param chunks 文件分片列表
+     * @param limit 限制数量
+     * @return 列表结果
+     */
     private List<FileRagChunk> limit(List<FileRagChunk> chunks, int limit) {
         if(chunks == null || chunks.isEmpty()) {
             return List.of();

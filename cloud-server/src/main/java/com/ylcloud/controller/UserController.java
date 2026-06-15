@@ -11,9 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     /**
-     * 获取当前登录用户 ID。
-     *
-     * @return 当前登录用户 ID
+     * 执行 currentUser 函数的业务处理。
+     * @return 接口响应结果
      */
     @GetMapping("/current")
     public Result<Long> currentUser() {

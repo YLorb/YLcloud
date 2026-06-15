@@ -17,16 +17,28 @@ import java.time.LocalDateTime;
 @Mapper
 public interface SpaceRagMapper {
 
+    /**
+     * 新增 insert 相关逻辑。
+     * @return 影响行数
+     */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into space_rag_config(space_id, embedding_model, chat_model, vector_collection, chunk_size, chunk_overlap, top_k, score_threshold, enabled, status, createtime, updatetime) " +
             "values(#{spaceId}, #{embeddingModel}, #{chatModel}, #{vectorCollection}, #{chunkSize}, #{chunkOverlap}, #{topK}, #{scoreThreshold}, #{enabled}, #{status}, #{createtime}, #{updatetime})")
     int insert(SpaceRagConfig config);
 
+    /**
+     * 查询 getBySpaceId 相关逻辑。
+     * @return 处理结果
+     */
     @Select("select id, space_id as spaceId, embedding_model as embeddingModel, chat_model as chatModel, vector_collection as vectorCollection, " +
             "chunk_size as chunkSize, chunk_overlap as chunkOverlap, top_k as topK, score_threshold as scoreThreshold, enabled, status, createtime, updatetime " +
             "from space_rag_config where space_id = #{spaceId} and status = 1")
     SpaceRagConfig getBySpaceId(@Param("spaceId") Long spaceId);
 
+    /**
+     * 更新 updateConfig 相关逻辑。
+     * @return 影响行数
+     */
     @Update("update space_rag_config set embedding_model = #{embeddingModel}, chat_model = #{chatModel}, " +
             "chunk_size = #{chunkSize}, chunk_overlap = #{chunkOverlap}, top_k = #{topK}, " +
             "score_threshold = #{scoreThreshold}, enabled = #{enabled}, updatetime = #{updateTime} " +

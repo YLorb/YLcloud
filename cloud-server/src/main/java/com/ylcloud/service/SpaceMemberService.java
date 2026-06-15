@@ -22,16 +22,37 @@ public class SpaceMemberService {
     private final SpaceMemberMapper spaceMemberMapper;
     private final SpacePermissionService spacePermissionService;
 
+    /**
+     * 初始化 SpaceMemberService 对象。
+     *
+     * @param spaceMemberMapper 方法入参
+     * @param spacePermissionService 方法入参
+     */
     public SpaceMemberService(SpaceMemberMapper spaceMemberMapper, SpacePermissionService spacePermissionService) {
         this.spaceMemberMapper = spaceMemberMapper;
         this.spacePermissionService = spacePermissionService;
     }
 
+    /**
+     * 查询 listMembers 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
     public List<SpaceMemberVO> listMembers(Long spaceId, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
         return spaceMemberMapper.listBySpaceId(spaceId);
     }
 
+    /**
+     * 新增 addMember 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param operatorId 操作人 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean addMember(Long spaceId, SpaceMemberAddDTO dto, Long operatorId) {
         spacePermissionService.requireAdmin(spaceId,operatorId);
@@ -58,6 +79,15 @@ public class SpaceMemberService {
         return true;
     }
 
+    /**
+     * 更新 updateRole 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param targetUserId 目标用户 ID
+     * @param dto 请求参数
+     * @param operatorId 操作人 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean updateRole(Long spaceId, Long targetUserId, SpaceMemberRoleDTO dto, Long operatorId) {
         spacePermissionService.requireOwner(spaceId,operatorId);
@@ -79,6 +109,14 @@ public class SpaceMemberService {
         return true;
     }
 
+    /**
+     * 移除 removeMember 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param targetUserId 目标用户 ID
+     * @param operatorId 操作人 ID
+     * @return 处理结果
+     */
     @Transactional
     public Boolean removeMember(Long spaceId, Long targetUserId, Long operatorId) {
         SpaceMember operator = spacePermissionService.requireAdmin(spaceId,operatorId);
@@ -99,6 +137,12 @@ public class SpaceMemberService {
         return true;
     }
 
+    /**
+     * 规范化 normalizeRole 相关逻辑。
+     *
+     * @param role 角色
+     * @return 处理结果
+     */
     private String normalizeRole(String role) {
         if(role == null || role.isBlank()) {
             return SpaceConstant.ROLE_MEMBER;

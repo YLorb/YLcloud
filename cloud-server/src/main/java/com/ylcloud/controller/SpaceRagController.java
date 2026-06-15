@@ -31,15 +31,20 @@ import java.util.List;
 public class SpaceRagController {
     private final SpaceRagService spaceRagService;
 
+    /**
+     * 初始化 SpaceRagController 对象。
+     *
+     * @param spaceRagService 空间 RAG 服务
+     */
     public SpaceRagController(SpaceRagService spaceRagService) {
         this.spaceRagService = spaceRagService;
     }
 
     /**
-     * 查询空间 RAG 配置。
+     * 查询 getConfig 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @return RAG 配置
+     * @return 接口响应结果
      */
     @GetMapping("/config")
     public Result<SpaceRagConfigVO> getConfig(@PathVariable Long spaceId) {
@@ -47,11 +52,11 @@ public class SpaceRagController {
     }
 
     /**
-     * 更新空间 RAG 配置。
+     * 更新 updateConfig 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param dto 更新参数
-     * @return 更新后的 RAG 配置
+     * @param dto 请求参数
+     * @return 接口响应结果
      */
     @PutMapping("/config")
     public Result<SpaceRagConfigVO> updateConfig(@PathVariable Long spaceId,
@@ -60,11 +65,11 @@ public class SpaceRagController {
     }
 
     /**
-     * 查询空间 RAG。
+     * 执行 query 函数的业务处理。
      *
      * @param spaceId 空间 ID
-     * @param dto 查询参数
-     * @return 查询结果
+     * @param dto 请求参数
+     * @return 接口响应结果
      */
     @PostMapping("/query")
     public Result<SpaceRagQueryVO> query(@PathVariable Long spaceId,
@@ -73,10 +78,10 @@ public class SpaceRagController {
     }
 
     /**
-     * 重建整个空间的 RAG 索引。
+     * 重建 rebuildSpace 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @return 是否成功
+     * @return 接口响应结果
      */
     @PostMapping("/rebuild")
     public Result<Boolean> rebuildSpace(@PathVariable Long spaceId) {
@@ -84,11 +89,11 @@ public class SpaceRagController {
     }
 
     /**
-     * 重建单个空间文件的 RAG 索引。
+     * 重建 rebuildFile 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param spaceFileId 空间文件节点 ID
-     * @return 是否成功
+     * @param spaceFileId 空间文件 ID
+     * @return 接口响应结果
      */
     @PostMapping("/files/{spaceFileId}/rebuild")
     public Result<Boolean> rebuildFile(@PathVariable Long spaceId,
@@ -97,10 +102,10 @@ public class SpaceRagController {
     }
 
     /**
-     * 查询空间 RAG 文档索引列表。
+     * 查询 listDocuments 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @return 文档索引列表
+     * @return 接口响应结果
      */
     @GetMapping("/documents")
     public Result<List<SpaceRagDocumentVO>> listDocuments(@PathVariable Long spaceId) {
@@ -108,11 +113,11 @@ public class SpaceRagController {
     }
 
     /**
-     * 搜索空间 RAG 文档。
+     * 搜索 searchDocuments 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @param dto 搜索参数
-     * @return 文档搜索结果
+     * @param dto 请求参数
+     * @return 接口响应结果
      */
     @GetMapping("/documents/search")
     public Result<List<SpaceDocumentSearchVO>> searchDocuments(@PathVariable Long spaceId,
@@ -121,32 +126,58 @@ public class SpaceRagController {
     }
 
     /**
-     * 查询空间 RAG 索引任务列表。
+     * 查询 listTasks 相关逻辑。
      *
      * @param spaceId 空间 ID
-     * @return 索引任务列表
+     * @return 接口响应结果
      */
     @GetMapping("/tasks")
     public Result<List<SpaceRagTaskVO>> listTasks(@PathVariable Long spaceId) {
         return Result.success(spaceRagService.listTasks(spaceId,BaseContext.getCurrentId()));
     }
 
+    /**
+     * 重试 retryTask 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param taskId 任务 ID
+     * @return 接口响应结果
+     */
     @PostMapping("/tasks/{taskId}/retry")
     public Result<Boolean> retryTask(@PathVariable Long spaceId,
                                      @PathVariable Long taskId) {
         return Result.success(spaceRagService.retryTask(spaceId,taskId,BaseContext.getCurrentId()));
     }
 
+    /**
+     * 重试 retryFailedTasks 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @return 接口响应结果
+     */
     @PostMapping("/tasks/retry-failed")
     public Result<Boolean> retryFailedTasks(@PathVariable Long spaceId) {
         return Result.success(spaceRagService.retryFailedTasks(spaceId,BaseContext.getCurrentId()));
     }
 
+    /**
+     * 修复 repairSpaceVectors 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @return 接口响应结果
+     */
     @PostMapping("/vectors/repair")
     public Result<Boolean> repairSpaceVectors(@PathVariable Long spaceId) {
         return Result.success(spaceRagService.repairSpaceVectors(spaceId,BaseContext.getCurrentId()));
     }
 
+    /**
+     * 修复 repairFileVectors 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @return 接口响应结果
+     */
     @PostMapping("/files/{spaceFileId}/vectors/repair")
     public Result<Boolean> repairFileVectors(@PathVariable Long spaceId,
                                              @PathVariable Long spaceFileId) {

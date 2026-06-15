@@ -1,13 +1,12 @@
 package com.ylcloud.DTO;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
-/**
- * 修改空间成员角色请求参数。
- */
 @Data
 public class SpaceMemberRoleDTO {
     @NotBlank(message = "成员角色不能为空")
+    @Pattern(regexp = "^(ADMIN|EDITOR|VIEWER|MEMBER)$", message = "成员角色不合法")
     private String role;
 }

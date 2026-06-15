@@ -37,6 +37,12 @@ public class QdrantVectorStoreService {
     private final EmbeddingModel embeddingModel;
     private final QdrantEmbeddingStore embeddingStore;
 
+    /**
+     * 初始化 QdrantVectorStoreService 对象。
+     *
+     * @param properties 配置属性
+     * @param embeddingModel 方法入参
+     */
     public QdrantVectorStoreService(RagProperties properties, EmbeddingModel embeddingModel) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
@@ -50,6 +56,14 @@ public class QdrantVectorStoreService {
                 .build();
     }
 
+    /**
+     * 执行 upsertSpaceChunks 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param documentId 文档 ID
+     * @param chunks 文件分片列表
+     */
     public void upsertSpaceChunks(Long spaceId, Long spaceFileId, Long documentId, List<FileRagChunk> chunks) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || chunks == null || chunks.isEmpty()) {
             return;
@@ -79,6 +93,16 @@ public class QdrantVectorStoreService {
         }
     }
 
+    /**
+     * 搜索 search 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param question 问题内容
+     * @param candidates 方法入参
+     * @param limit 限制数量
+     * @param minScore 最小分数
+     * @return 列表结果
+     */
     public List<FileRagChunk> search(Long spaceId, String question, List<FileRagChunk> candidates, int limit, Double minScore) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || question == null || question.isBlank()
                 || candidates == null || candidates.isEmpty()) {
@@ -108,6 +132,12 @@ public class QdrantVectorStoreService {
         }
     }
 
+    /**
+     * 删除 deleteBySpaceFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     */
     public void deleteBySpaceFile(Long spaceId, Long spaceFileId) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null || spaceFileId == null) {
             return;
@@ -119,6 +149,11 @@ public class QdrantVectorStoreService {
         }
     }
 
+    /**
+     * 删除 deleteBySpace 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     */
     public void deleteBySpace(Long spaceId) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) {
             return;
@@ -130,6 +165,11 @@ public class QdrantVectorStoreService {
         }
     }
 
+    /**
+     * 删除 deleteBySpaceStrict 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     */
     public void deleteBySpaceStrict(Long spaceId) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) {
             return;
@@ -137,6 +177,15 @@ public class QdrantVectorStoreService {
         embeddingStore.removeAll(new IsEqualTo(SPACE_ID,spaceId));
     }
 
+    /**
+     * 执行 metadata 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param documentId 文档 ID
+     * @param chunk 文件分片
+     * @return 处理结果
+     */
     private Metadata metadata(Long spaceId, Long spaceFileId, Long documentId, FileRagChunk chunk) {
         Metadata metadata = new Metadata();
         metadata.put(CHUNK_ID,chunk.getId());
@@ -149,10 +198,23 @@ public class QdrantVectorStoreService {
         return metadata;
     }
 
+    /**
+     * 执行 activeSpaceFilter 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @return 处理结果
+     */
     private Filter activeSpaceFilter(Long spaceId) {
         return new And(new IsEqualTo(SPACE_ID,spaceId),new IsEqualTo(STATUS,StatusConstant.ENABLE));
     }
 
+    /**
+     * 查找 findChunk 相关逻辑。
+     *
+     * @param chunks 文件分片列表
+     * @param chunkId 方法入参
+     * @return 处理结果
+     */
     private FileRagChunk findChunk(List<FileRagChunk> chunks, Long chunkId) {
         if(chunkId == null) {
             return null;
@@ -165,6 +227,13 @@ public class QdrantVectorStoreService {
         return null;
     }
 
+    /**
+     * 执行 vectorId 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param chunkId 方法入参
+     * @return 处理结果
+     */
     private String vectorId(Long spaceId, Long chunkId) {
         return UUID.nameUUIDFromBytes(("space-" + spaceId + "-chunk-" + chunkId).getBytes()).toString();
     }
