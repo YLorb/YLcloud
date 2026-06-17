@@ -1,4 +1,6 @@
 import os
+import hashlib
+import math
 from threading import Lock
 from typing import Optional
 
@@ -18,6 +20,8 @@ MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR")
 USE_FP16 = os.getenv("USE_FP16", "true").lower() == "true"
 OPENAI_COMPATIBLE_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
 OPENAI_COMPATIBLE_API_KEY = os.getenv("OPENAI_COMPATIBLE_API_KEY")
+OFFLINE_FALLBACK = os.getenv("OFFLINE_FALLBACK", "false").lower() == "true"
+FALLBACK_DIMENSION = int(os.getenv("FALLBACK_DIMENSION", "512"))
 
 if MODEL_CACHE_DIR:
     os.environ.setdefault("HF_HOME", MODEL_CACHE_DIR)
@@ -30,6 +34,8 @@ reranker_lock = Lock()
 
 
 def get_embedding_model():
+    if OFFLINE_FALLBACK:
+        return None
     global embedding_model
     if embedding_model is None:
         with embedding_lock:
@@ -39,6 +45,8 @@ def get_embedding_model():
 
 
 def get_reranker():
+    if OFFLINE_FALLBACK:
+        return None
     global reranker
     if reranker is None:
         with reranker_lock:
@@ -108,7 +116,15 @@ def health():
 
 @app.post("/embed", response_model=EmbedResponse)
 def embed(request: EmbedRequest):
-    output = get_embedding_model().encode(
+    model = get_embedding_model()
+    if model is None:
+        vectors = [fallback_embedding(text, FALLBACK_DIMENSION) for text in request.texts]
+        return EmbedResponse(
+            model=f"offline-fallback:{EMBEDDING_MODEL_NAME}",
+            dimension=FALLBACK_DIMENSION,
+            vectors=vectors,
+        )
+    output = model.encode(
         request.texts,
         batch_size=8,
         max_length=8192,
@@ -127,10 +143,23 @@ def embed(request: EmbedRequest):
 @app.post("/rerank", response_model=RerankResponse)
 def rerank(request: RerankRequest):
     pairs = [[request.query, document] for document in request.documents]
+    model = get_reranker()
+    if model is None:
+        results = [
+            RerankResult(index=index, score=fallback_rerank_score(request.query, document))
+            for index, document in enumerate(request.documents)
+        ]
+        results.sort(key=lambda result: result.score, reverse=True)
+        if request.topK is not None and request.topK > 0:
+            results = results[:request.topK]
+        return RerankResponse(
+            model=f"offline-fallback:{RERANK_MODEL_NAME}",
+            results=results,
+        )
     try:
-        scores = get_reranker().compute_score(pairs, normalize=True)
+        scores = model.compute_score(pairs, normalize=True)
     except TypeError:
-        scores = get_reranker().compute_score(pairs)
+        scores = model.compute_score(pairs)
     if not isinstance(scores, list):
         try:
             scores = scores.tolist()
@@ -147,6 +176,38 @@ def rerank(request: RerankRequest):
         model=RERANK_MODEL_NAME,
         results=results,
     )
+
+
+def fallback_embedding(text: str, dimension: int) -> list[float]:
+    vector = [0.0] * dimension
+    if not text:
+        return vector
+    for token in fallback_tokens(text):
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:4], "big") % dimension
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[index] += sign
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm > 0:
+        vector = [value / norm for value in vector]
+    return vector
+
+
+def fallback_rerank_score(query: str, document: str) -> float:
+    query_tokens = set(fallback_tokens(query))
+    document_tokens = set(fallback_tokens(document))
+    if not query_tokens or not document_tokens:
+        return 0.0
+    overlap = len(query_tokens & document_tokens)
+    return overlap / math.sqrt(len(query_tokens) * len(document_tokens))
+
+
+def fallback_tokens(text: str) -> list[str]:
+    lowered = text.lower()
+    words = [part for part in lowered.replace("\n", " ").split(" ") if part]
+    if words:
+        return words
+    return [char for char in lowered if not char.isspace()]
 
 
 @app.post("/chat", response_model=ChatResponse)

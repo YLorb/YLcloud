@@ -57,7 +57,7 @@ ylcloud:
       enabled: true
       top-k: 5
     chat:
-      enabled: ${YLCLOUD_RAG_CHAT_ENABLED:false}
+      enabled: ${YLCLOUD_RAG_CHAT_ENABLED:true}
       max-context-chars: 12000
       max-chunk-chars: 1800
       max-answer-tokens: 1024
@@ -78,11 +78,11 @@ ylcloud:
         - doc
         - docx
   llm:
-    enabled: ${YLCLOUD_LLM_ENABLED:false}
-    provider: ${YLCLOUD_LLM_PROVIDER:disabled}
-    base-url: ${YLCLOUD_LLM_BASE_URL:}
+    enabled: ${YLCLOUD_LLM_ENABLED:true}
+    provider: ${YLCLOUD_LLM_PROVIDER:openai-compatible}
+    base-url: ${YLCLOUD_LLM_BASE_URL:https://api.deepseek.com}
     api-key: ${YLCLOUD_LLM_API_KEY:}
-    model: ${YLCLOUD_LLM_MODEL:}
+    model: ${YLCLOUD_LLM_MODEL:deepseek-chat}
     connect-timeout-ms: ${YLCLOUD_LLM_CONNECT_TIMEOUT_MS:3000}
     read-timeout-ms: ${YLCLOUD_LLM_READ_TIMEOUT_MS:60000}
     max-tokens: ${YLCLOUD_LLM_MAX_TOKENS:1024}

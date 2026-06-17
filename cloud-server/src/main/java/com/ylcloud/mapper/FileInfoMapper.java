@@ -59,7 +59,7 @@ public interface FileInfoMapper {
             "and user_id = #{userId} " +
             "and parent_id = #{parentId} " +
             "and status = 1")
-    UserFileDTO getByFileUuid(@Param("fileUuid") String fileUuid, @Param("parentId") Long parentId,@Param("userId") Long userId);
+    UserFileDTO getByFileUuidAndParent(@Param("fileUuid") String fileUuid, @Param("parentId") Long parentId,@Param("userId") Long userId);
 
     /**
      * 查询 getByFileIdAny 相关逻辑。
@@ -138,7 +138,7 @@ public interface FileInfoMapper {
             "and fi.status = 1 " +
             "and uf.status = 1 " +
             "limit 1")
-    File getFileByHash(@Param("hash") String hash,
+    File getFileByHashInParent(@Param("hash") String hash,
                        @Param("parentId") Long parentId,
                        @Param("userId") Long userId);
 
@@ -492,7 +492,7 @@ public interface FileInfoMapper {
             "where ID = #{id} " +
             "and file_uuid = #{fileUuid} " +
             "and user_id = #{userId}")
-    void updateParent(@Param("id") Long id,@Param("fileUuid") String fileUuid,@Param("parentId") Long parentId,@Param("userId") Long userId);
+    void updateParentWithUuid(@Param("id") Long id,@Param("fileUuid") String fileUuid,@Param("parentId") Long parentId,@Param("userId") Long userId);
 
     /**
      * 更新 updateFileCount 相关逻辑。

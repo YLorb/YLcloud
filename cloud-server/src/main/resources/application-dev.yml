@@ -29,9 +29,9 @@ ylcloud:
     qdrant:
       collection-name: ${YLCLOUD_RAG_QDRANT_COLLECTION_NAME:ylcloud_rag_bge_small_zh_v15}
     chat:
-      enabled: ${YLCLOUD_RAG_CHAT_ENABLED:false}
+      enabled: ${YLCLOUD_RAG_CHAT_ENABLED:true}
   llm:
-    enabled: ${YLCLOUD_LLM_ENABLED:false}
+    enabled: ${YLCLOUD_LLM_ENABLED:true}
     provider: ${YLCLOUD_LLM_PROVIDER:openai-compatible}
     base-url: ${YLCLOUD_LLM_BASE_URL:https://api.deepseek.com}
     api-key: ${YLCLOUD_LLM_API_KEY:}

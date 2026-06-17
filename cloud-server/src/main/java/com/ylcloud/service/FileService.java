@@ -236,7 +236,7 @@ public class FileService {
         Long realParentId = normalizeParentId(parentId,user.getId());
         UserFileDTO userFileDTO = Admin(user) ?
                 fileInfoMapper.getByFileUuidAny(fileUuid,realParentId) :
-                fileInfoMapper.getByFileUuid(fileUuid,realParentId,user.getId());
+                fileInfoMapper.getByFileUuidAndParent(fileUuid,realParentId,user.getId());
         requirePermission(userFileDTO,permission);
         return userFileDTO;
     }
@@ -311,7 +311,7 @@ public class FileService {
     private File File_Info(String fileUuid, Long parentId, Long userId) {
         UserFileDTO userFileDTO = parentId == null ?
                 fileInfoMapper.getByFileUuid(fileUuid,userId) :
-                fileInfoMapper.getByFileUuid(fileUuid,parentId,userId);
+                fileInfoMapper.getByFileUuidAndParent(fileUuid,parentId,userId);
         if(userFileDTO == null) {
             throw new BaseException("文件不存在或没有读取权限");
         }
@@ -571,7 +571,7 @@ public class FileService {
             return toFileVO(file);
         }
         else {
-            UserFileDTO same = fileInfoMapper.getByFileUuid(existingFile.getFileUuid(),parentId, ownerId);
+            UserFileDTO same = fileInfoMapper.getByFileUuidAndParent(existingFile.getFileUuid(),parentId, ownerId);
             if(same != null) {
                 log.warn("同目录下已有相同文件");
                 throw new RuntimeException("已存在相同文件");
@@ -1515,7 +1515,7 @@ public class FileService {
         }
         else {
             files.setParentId( normalizeParentId( filet.getId(),filet.getUserId() ) );
-            fileInfoMapper.updateParent(files.getId(),files.getFileUuid(),files.getParentId(),files.getUserId());
+            fileInfoMapper.updateParentWithUuid(files.getId(),files.getFileUuid(),files.getParentId(),files.getUserId());
             Queue<UserFileDTO> queue = new LinkedList<>();
             queue.offer(fileInfoMapper.getByFileUuid(files.getFileUuid(),files.getUserId()));
             while(!queue.isEmpty()) {

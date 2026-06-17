@@ -22,7 +22,8 @@ public interface SpaceRagChunkRefMapper {
      */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into space_rag_chunk_ref(space_id, document_id, space_file_id, file_chunk_id, status, createtime, updatetime) " +
-            "values(#{spaceId}, #{documentId}, #{spaceFileId}, #{fileChunkId}, #{status}, #{createtime}, #{updatetime})")
+            "values(#{spaceId}, #{documentId}, #{spaceFileId}, #{fileChunkId}, #{status}, #{createtime}, #{updatetime}) " +
+            "on duplicate key update space_file_id = values(space_file_id), status = values(status), updatetime = values(updatetime)")
     int insert(SpaceRagChunkRef ref);
 
     /**
