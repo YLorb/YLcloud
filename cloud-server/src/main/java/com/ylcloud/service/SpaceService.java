@@ -5,6 +5,7 @@ import com.ylcloud.DTO.SpaceUpdateDTO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.SpaceVO;
 import com.ylcloud.constant.SpaceConstant;
+import com.ylcloud.config.RagProperties;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.Space;
 import com.ylcloud.entity.SpaceFile;
@@ -31,6 +32,7 @@ public class SpaceService {
     private final SpaceFileMapper spaceFileMapper;
     private final SpaceRagMapper spaceRagMapper;
     private final SpacePermissionService spacePermissionService;
+    private final RagProperties ragProperties;
 
     /**
      * 初始化 SpaceService 对象。
@@ -45,12 +47,14 @@ public class SpaceService {
                         SpaceMemberMapper spaceMemberMapper,
                         SpaceFileMapper spaceFileMapper,
                         SpaceRagMapper spaceRagMapper,
-                        SpacePermissionService spacePermissionService) {
+                        SpacePermissionService spacePermissionService,
+                        RagProperties ragProperties) {
         this.spaceMapper = spaceMapper;
         this.spaceMemberMapper = spaceMemberMapper;
         this.spaceFileMapper = spaceFileMapper;
         this.spaceRagMapper = spaceRagMapper;
         this.spacePermissionService = spacePermissionService;
+        this.ragProperties = ragProperties;
     }
 
     /**
@@ -224,8 +228,8 @@ public class SpaceService {
 
         SpaceRagConfig ragConfig = new SpaceRagConfig();
         ragConfig.setSpaceId(space.getId());
-        ragConfig.setEmbeddingModel("langchain4j-ready");
-        ragConfig.setChatModel("langchain4j-ready");
+        ragConfig.setEmbeddingModel(ragProperties.getModelService().getEmbeddingModel());
+        ragConfig.setChatModel(ragProperties.getModelService().getChatModel());
         ragConfig.setVectorCollection("space_" + space.getId() + "_rag");
         ragConfig.setChunkSize(1000);
         ragConfig.setChunkOverlap(100);

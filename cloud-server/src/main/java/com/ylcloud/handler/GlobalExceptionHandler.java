@@ -3,6 +3,8 @@ package com.ylcloud.handler;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.Result;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -16,9 +18,20 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BaseException.class)
-    public Result<?> handleBaseException(BaseException ex) {
-        log.warn("业务异常: {}", ex.getMessage());
-        return Result.error(ex.getMessage());
+    public ResponseEntity<Result<?>> handleBaseException(BaseException ex) {
+        String message = ex.getMessage();
+        log.warn("业务异常: {}", message);
+        if(isPermissionDenied(message)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Result.error(403,message));
+        }
+        return ResponseEntity.ok(Result.error(message));
+    }
+
+    private boolean isPermissionDenied(String message) {
+        if(message == null) {
+            return false;
+        }
+        return message.contains("权限") || message.contains("无权") || message.startsWith("只有");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

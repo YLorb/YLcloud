@@ -24,6 +24,22 @@ public interface FileInfoMapper {
     UserFileDTO getByFileId(@Param("fileId") Long fileId, @Param("userId") Long userId);
 
     /**
+     * 查询 getUserFileByPhysicalFileId 相关逻辑。
+     * @return 处理结果
+     */
+    @Select("select uf.ID as id, uf.file_name as fileName, uf.file_uuid as fileUuid, uf.is_dir as dir, " +
+            "uf.status, uf.user_id as userId, uf.parent_id as parentId, uf.path, uf.createtime, uf.updatetime " +
+            "from user_file uf " +
+            "join file_info fi on fi.file_uuid = uf.file_uuid " +
+            "where fi.file_id = #{fileId} " +
+            "and uf.user_id = #{userId} " +
+            "and uf.status = 1 " +
+            "and fi.status = 1 " +
+            "order by uf.updatetime desc " +
+            "limit 1")
+    UserFileDTO getUserFileByPhysicalFileId(@Param("fileId") Long fileId, @Param("userId") Long userId);
+
+    /**
      * 查询 getByFileIdActiveOrRecycle 相关逻辑。
      * @return 处理结果
      */

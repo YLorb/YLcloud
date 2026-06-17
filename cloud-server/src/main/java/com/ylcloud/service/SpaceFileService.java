@@ -137,7 +137,10 @@ public class SpaceFileService {
         spacePermissionService.requireAdmin(spaceId,userId);
         Long parentId = normalizeParentId(spaceId,dto.getParentId());
         SpaceFile parent = requireDirectory(spaceId,parentId);
-        UserFileDTO userFile = fileInfoMapper.getByFileId(dto.getUserFileId(),userId);
+        UserFileDTO userFile = fileInfoMapper.getUserFileByPhysicalFileId(dto.getUserFileId(),userId);
+        if(userFile == null) {
+            userFile = fileInfoMapper.getByFileId(dto.getUserFileId(),userId);
+        }
         if(userFile == null || userFile.getDir() == 1) {
             throw new BaseException("只能导入当前用户可读取的文件");
         }
