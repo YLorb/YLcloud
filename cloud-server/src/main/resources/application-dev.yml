@@ -19,3 +19,20 @@ ylcloud:
     accessKey: ${YLCLOUD_MINIO_ACCESS_KEY:minioadmin}
     secretKey: ${YLCLOUD_MINIO_SECRET_KEY:minioadmin}
     bucket-name: ${YLCLOUD_MINIO_BUCKET:localbucket1}
+  rag:
+    embedding-dimension: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:512}
+    model-service:
+      base-url: ${YLCLOUD_RAG_MODEL_SERVICE_BASE_URL:http://127.0.0.1:8001}
+      embedding-model: ${YLCLOUD_RAG_EMBEDDING_MODEL:BAAI/bge-small-zh-v1.5}
+      rerank-model: ${YLCLOUD_RAG_RERANK_MODEL:BAAI/bge-reranker-base}
+      chat-model: ${YLCLOUD_LLM_MODEL:deepseek-chat}
+    qdrant:
+      collection-name: ${YLCLOUD_RAG_QDRANT_COLLECTION_NAME:ylcloud_rag_bge_small_zh_v15}
+    chat:
+      enabled: ${YLCLOUD_RAG_CHAT_ENABLED:false}
+  llm:
+    enabled: ${YLCLOUD_LLM_ENABLED:false}
+    provider: ${YLCLOUD_LLM_PROVIDER:openai-compatible}
+    base-url: ${YLCLOUD_LLM_BASE_URL:https://api.deepseek.com}
+    api-key: ${YLCLOUD_LLM_API_KEY:}
+    model: ${YLCLOUD_LLM_MODEL:deepseek-chat}

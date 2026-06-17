@@ -1,4 +1,5 @@
 import os
+from threading import Lock
 from typing import Optional
 
 import httpx
@@ -22,8 +23,28 @@ if MODEL_CACHE_DIR:
     os.environ.setdefault("HF_HOME", MODEL_CACHE_DIR)
     os.environ.setdefault("TRANSFORMERS_CACHE", MODEL_CACHE_DIR)
 
-embedding_model = BGEM3FlagModel(EMBEDDING_MODEL_NAME, use_fp16=USE_FP16)
-reranker = FlagReranker(RERANK_MODEL_NAME, use_fp16=USE_FP16)
+embedding_model = None
+reranker = None
+embedding_lock = Lock()
+reranker_lock = Lock()
+
+
+def get_embedding_model():
+    global embedding_model
+    if embedding_model is None:
+        with embedding_lock:
+            if embedding_model is None:
+                embedding_model = BGEM3FlagModel(EMBEDDING_MODEL_NAME, use_fp16=USE_FP16)
+    return embedding_model
+
+
+def get_reranker():
+    global reranker
+    if reranker is None:
+        with reranker_lock:
+            if reranker is None:
+                reranker = FlagReranker(RERANK_MODEL_NAME, use_fp16=USE_FP16)
+    return reranker
 
 
 class EmbedRequest(BaseModel):
@@ -78,6 +99,8 @@ def health():
         "rerankModel": RERANK_MODEL_NAME,
         "chatModel": CHAT_MODEL_NAME,
         "chatEnabled": bool(OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_API_KEY),
+        "embeddingLoaded": embedding_model is not None,
+        "rerankerLoaded": reranker is not None,
         "cacheDir": MODEL_CACHE_DIR,
         "useFp16": USE_FP16,
     }
@@ -85,7 +108,7 @@ def health():
 
 @app.post("/embed", response_model=EmbedResponse)
 def embed(request: EmbedRequest):
-    output = embedding_model.encode(
+    output = get_embedding_model().encode(
         request.texts,
         batch_size=8,
         max_length=8192,
@@ -96,7 +119,7 @@ def embed(request: EmbedRequest):
     vectors = output["dense_vecs"]
     return EmbedResponse(
         model=EMBEDDING_MODEL_NAME,
-        dimension=1024,
+        dimension=len(vectors[0]) if len(vectors) > 0 else 0,
         vectors=vectors.tolist(),
     )
 
@@ -104,7 +127,15 @@ def embed(request: EmbedRequest):
 @app.post("/rerank", response_model=RerankResponse)
 def rerank(request: RerankRequest):
     pairs = [[request.query, document] for document in request.documents]
-    scores = reranker.compute_score(pairs, normalize=True)
+    try:
+        scores = get_reranker().compute_score(pairs, normalize=True)
+    except TypeError:
+        scores = get_reranker().compute_score(pairs)
+    if not isinstance(scores, list):
+        try:
+            scores = scores.tolist()
+        except AttributeError:
+            scores = [scores]
     results = [
         RerankResult(index=index, score=float(score))
         for index, score in enumerate(scores)
