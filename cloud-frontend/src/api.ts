@@ -47,7 +47,7 @@ export function clearSession() {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken();
-  if (token) headers.set("Authorization", token);
+  if (token) headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
@@ -69,7 +69,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 async function download(path: string, filename: string) {
   const headers = new Headers();
   const token = getToken();
-  if (token) headers.set("Authorization", token);
+  if (token) headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
 
   const response = await fetch(path, { headers });
   if (!response.ok) {
