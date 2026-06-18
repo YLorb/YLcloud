@@ -65,6 +65,21 @@ services:
       timeout: 10s
       retries: 5
 
+  document-parser-service:
+    build:
+      context: ./document-parser-service
+    container_name: ylcloud-document-parser-service
+    environment:
+      OCR_LANG: ${YLCLOUD_RAG_OCR_LANG:-chi_sim+eng}
+      VLM_PARSE_ENDPOINT: ${YLCLOUD_RAG_VLM_PARSE_ENDPOINT:-}
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   ylcloud-app:
     image: eclipse-temurin:17-jre
     container_name: ylcloud-app
@@ -88,6 +103,7 @@ services:
       YLCLOUD_MINIO_SECRET_KEY: ylcloud_minio_pwd
       YLCLOUD_MINIO_BUCKET: localbucket1
       YLCLOUD_RAG_MODEL_SERVICE_BASE_URL: http://model-service:8001
+      YLCLOUD_RAG_PARSER_SERVICE_BASE_URL: http://document-parser-service:8002
       YLCLOUD_RAG_EMBEDDING_DIMENSION: 512
       YLCLOUD_RAG_EMBEDDING_MODEL: BAAI/bge-small-zh-v1.5
       YLCLOUD_RAG_RERANK_MODEL: BAAI/bge-reranker-base

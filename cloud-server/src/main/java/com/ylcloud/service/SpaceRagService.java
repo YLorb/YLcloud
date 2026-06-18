@@ -30,13 +30,17 @@ import com.ylcloud.mapper.SpaceRagDocumentMapper;
 import com.ylcloud.mapper.SpaceRagMapper;
 import com.ylcloud.mapper.SpaceRagQueryLogMapper;
 import com.ylcloud.mapper.SpaceRagTaskMapper;
-import com.ylcloud.service.rag.DocumentTextExtractor;
-import com.ylcloud.service.rag.ExtractedDocumentText;
 import com.ylcloud.service.rag.QdrantVectorStoreService;
+import com.ylcloud.service.rag.ExtractedDocumentText;
 import com.ylcloud.service.rag.RagChatResult;
 import com.ylcloud.service.rag.RagChatService;
 import com.ylcloud.service.rag.RagRerankService;
 import com.ylcloud.service.rag.RagTaskExecutorService;
+import com.ylcloud.service.rag.parser.DocumentParser;
+import com.ylcloud.service.rag.parser.ParsedDocument;
+import com.ylcloud.service.rag.parser.StructuredChunk;
+import com.ylcloud.service.rag.parser.StructuredChunker;
+import com.ylcloud.service.rag.retriever.RagMultiRouteRetriever;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -73,8 +77,10 @@ public class SpaceRagService {
     private final QdrantVectorStoreService qdrantVectorStoreService;
     private final RagChatService ragChatService;
     private final RagRerankService ragRerankService;
+    private final RagMultiRouteRetriever ragMultiRouteRetriever;
     private final RagProperties ragProperties;
-    private final DocumentTextExtractor documentTextExtractor;
+    private final DocumentParser documentParser;
+    private final StructuredChunker structuredChunker;
     private final RagTaskExecutorService ragTaskExecutorService;
 
     /**
@@ -92,8 +98,10 @@ public class SpaceRagService {
      * @param qdrantVectorStoreService 方法入参
      * @param ragChatService 方法入参
      * @param ragRerankService 方法入参
+     * @param ragMultiRouteRetriever 方法入参
      * @param ragProperties RAG 配置属性
-     * @param documentTextExtractor 方法入参
+     * @param documentParser 方法入参
+     * @param structuredChunker 方法入参
      * @param ragTaskExecutorService 方法入参
      */
     public SpaceRagService(SpaceRagMapper spaceRagMapper,
@@ -108,8 +116,10 @@ public class SpaceRagService {
                            QdrantVectorStoreService qdrantVectorStoreService,
                            RagChatService ragChatService,
                            RagRerankService ragRerankService,
+                           RagMultiRouteRetriever ragMultiRouteRetriever,
                            RagProperties ragProperties,
-                           DocumentTextExtractor documentTextExtractor,
+                           DocumentParser documentParser,
+                           StructuredChunker structuredChunker,
                            RagTaskExecutorService ragTaskExecutorService) {
         this.spaceRagMapper = spaceRagMapper;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
@@ -123,8 +133,10 @@ public class SpaceRagService {
         this.qdrantVectorStoreService = qdrantVectorStoreService;
         this.ragChatService = ragChatService;
         this.ragRerankService = ragRerankService;
+        this.ragMultiRouteRetriever = ragMultiRouteRetriever;
         this.ragProperties = ragProperties;
-        this.documentTextExtractor = documentTextExtractor;
+        this.documentParser = documentParser;
+        this.structuredChunker = structuredChunker;
         this.ragTaskExecutorService = ragTaskExecutorService;
     }
 
@@ -604,22 +616,24 @@ public class SpaceRagService {
         if(!exists.isEmpty()) {
             return exists;
         }
-        ExtractedDocumentText extracted = documentTextExtractor.extract(spaceFile,file);
-        String text = resolveDocumentText(spaceFile,file,extracted);
+        ParsedDocument parsed = documentParser.parse(spaceFile,file);
+        if(parsed == null || !parsed.isSuccess()) {
+            String message = parsed == null ? "文档解析失败" : parsed.getErrorMessage();
+            throw new BaseException(message == null ? "文档解析失败" : message);
+        }
         int chunkSize = safeChunkSize(config.getChunkSize());
         int chunkOverlap = safeChunkOverlap(config.getChunkOverlap(),config.getChunkSize());
-        List<String> contents = splitText(text,chunkSize,chunkOverlap);
+        List<StructuredChunk> chunks = structuredChunker.chunk(parsed,chunkSize,chunkOverlap);
         List<FileRagChunk> result = new ArrayList<>();
-        int index = 0;
-        for(String content : contents) {
+        for(StructuredChunk structuredChunk : chunks) {
             FileRagChunk chunk = new FileRagChunk();
             chunk.setFileUuid(spaceFile.getFileUuid());
             chunk.setFileHash(file.getHash());
-            chunk.setChunkIndex(index++);
-            chunk.setContent(content);
-            chunk.setContentHash(sha256(content));
-            chunk.setTokenCount(content.length());
-            chunk.setMetadata(buildChunkMetadata(spaceFile,extracted));
+            chunk.setChunkIndex(structuredChunk.getChunkIndex());
+            chunk.setContent(structuredChunk.getContent());
+            chunk.setContentHash(structuredChunk.getContentHash());
+            chunk.setTokenCount(structuredChunk.getTokenCount());
+            chunk.setMetadata(structuredChunk.getMetadataJson());
             chunk.setVectorId(null);
             chunk.setEmbeddingModel(config.getEmbeddingModel());
             chunk.setChunkSize(chunkSize);
@@ -768,29 +782,15 @@ public class SpaceRagService {
      */
     private List<FileRagChunk> searchChunks(Long spaceId, String question, int limit, SpaceRagConfig config) {
         List<FileRagChunk> spaceChunks = fileRagChunkMapper.listActiveBySpace(spaceId);
-        int vectorLimit = Math.max(limit,ragProperties.getVectorTopN() == null ? 30 : ragProperties.getVectorTopN());
-        List<FileRagChunk> semanticChunks = qdrantVectorStoreService.search(
+        List<FileRagChunk> candidates = ragMultiRouteRetriever.retrieve(
                 spaceId,
                 question,
                 spaceChunks,
-                vectorLimit,
+                limit,
                 config.getScoreThreshold() == null ? null : config.getScoreThreshold().doubleValue()
         );
-        if(!semanticChunks.isEmpty()) {
-            return ragRerankService.rerank(question,semanticChunks,limit);
-        }
-        List<FileRagChunk> chunks = fileRagChunkMapper.searchBySpaceAndKeyword(spaceId,question,limit);
-        if(!chunks.isEmpty()) {
-            return chunks;
-        }
-        for(String keyword : question.split("\\s+")) {
-            if(keyword.isBlank()) {
-                continue;
-            }
-            chunks = fileRagChunkMapper.searchBySpaceAndKeyword(spaceId,keyword,limit);
-            if(!chunks.isEmpty()) {
-                return chunks;
-            }
+        if(!candidates.isEmpty()) {
+            return ragRerankService.rerank(question,candidates,limit);
         }
         return List.of();
     }

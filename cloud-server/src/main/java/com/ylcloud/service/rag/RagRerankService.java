@@ -43,7 +43,7 @@ public class RagRerankService {
         try {
             List<String> documents = new ArrayList<>();
             for(FileRagChunk chunk : chunks) {
-                documents.add(chunk.getContent());
+                documents.add(rerankDocument(chunk));
             }
             List<RerankResult> results = ragModelClient.rerank(query,documents,Math.min(finalTopK,chunks.size()));
             if(results.isEmpty()) {
@@ -73,5 +73,14 @@ public class RagRerankService {
             return List.of();
         }
         return new ArrayList<>(chunks.subList(0,Math.min(limit,chunks.size())));
+    }
+
+    private String rerankDocument(FileRagChunk chunk) {
+        StringBuilder builder = new StringBuilder();
+        if(chunk.getMetadata() != null && !chunk.getMetadata().isBlank()) {
+            builder.append("Metadata: ").append(chunk.getMetadata()).append("\n");
+        }
+        builder.append("Content:\n").append(chunk.getContent() == null ? "" : chunk.getContent());
+        return builder.toString();
     }
 }

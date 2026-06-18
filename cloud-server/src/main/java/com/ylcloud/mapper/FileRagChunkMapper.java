@@ -61,6 +61,23 @@ public interface FileRagChunkMapper {
                                                @Param("limit") Integer limit);
 
     /**
+     * Search chunks by structural metadata and document metadata.
+     */
+    @Select("select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
+            "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.vector_id as vectorId, " +
+            "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
+            "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
+            "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "join space_rag_document d on d.id = r.document_id " +
+            "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 and d.status = 1 " +
+            "and (c.metadata like concat('%', #{keyword}, '%') or d.file_name like concat('%', #{keyword}, '%') " +
+            "or d.file_type like concat('%', #{keyword}, '%')) " +
+            "order by c.updatetime desc limit #{limit}")
+    List<FileRagChunk> searchBySpaceAndMetadata(@Param("spaceId") Long spaceId,
+                                                @Param("keyword") String keyword,
+                                                @Param("limit") Integer limit);
+
+    /**
      * 查询 listRecentBySpace 相关逻辑。
      * @return 列表结果
      */

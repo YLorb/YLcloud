@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+httpx
+pillow
+pypdf
+python-docx
+pytesseract
+PyMuPDF

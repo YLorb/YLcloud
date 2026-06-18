@@ -15,7 +15,9 @@ import io.minio.ObjectWriteResponse;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveBucketArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.Result;
+import io.minio.http.Method;
 import io.minio.messages.Bucket;
 import io.minio.messages.Item;
 import io.minio.messages.VersioningConfiguration;
@@ -183,6 +185,16 @@ public class MinioclientUtil {
         return minioClient.getObject(GetObjectArgs.builder()
                 .bucket(defaultBucket)
                 .object(fileUuid)
+                .build());
+    }
+
+    public String getPresignedObjectUrl(String fileUuid, int expirySeconds) throws Exception {
+        int expiry = expirySeconds <= 0 ? 300 : expirySeconds;
+        return minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                .method(Method.GET)
+                .bucket(defaultBucket)
+                .object(fileUuid)
+                .expiry(expiry)
                 .build());
     }
 

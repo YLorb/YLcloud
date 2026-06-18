@@ -66,6 +66,17 @@ public class RagProperties {
     @Data
     public static class Extraction {
         private Boolean enabled = true;
+        private Boolean structuredEnabled = true;
+        private Boolean ocrEnabled = true;
+        private Boolean vlmEnabled = false;
+        private String parserVersion = "structured-v1";
+        private String parserServiceBaseUrl = "http://127.0.0.1:8002";
+        private Integer minTextCharsBeforeOcr = 300;
+        private Double minOcrConfidenceBeforeVlm = 0.75;
+        private Integer maxVlmPages = 20;
+        private Integer maxOcrPages = 100;
+        private Integer parserObjectUrlTtlSeconds = 300;
+        private Boolean preserveTableMarkdown = true;
         private Long maxFileSize = 52428800L;
         private Integer maxTextLength = 500000;
         private Boolean fallbackToMetadata = true;

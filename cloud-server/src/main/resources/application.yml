@@ -67,6 +67,17 @@ ylcloud:
       system-prompt: 你是云端知识库问答助手。只能根据提供的知识库上下文回答；如果上下文没有答案，明确说明无法从当前知识库回答。回答应简洁、准确，并在相关句子后使用引用编号。
     extraction:
       enabled: true
+      structured-enabled: true
+      ocr-enabled: true
+      vlm-enabled: false
+      parser-version: structured-v1
+      parser-service-base-url: ${YLCLOUD_RAG_PARSER_SERVICE_BASE_URL:http://127.0.0.1:8002}
+      min-text-chars-before-ocr: 300
+      min-ocr-confidence-before-vlm: 0.75
+      max-vlm-pages: 20
+      max-ocr-pages: 100
+      parser-object-url-ttl-seconds: 300
+      preserve-table-markdown: true
       max-file-size: 52428800
       max-text-length: 500000
       fallback-to-metadata: true
