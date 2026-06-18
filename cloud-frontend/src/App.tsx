@@ -1,5 +1,6 @@
 import {
   ArchiveRestore,
+  Bot,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -17,18 +18,22 @@ import {
   Loader2,
   LogOut,
   MoreHorizontal,
+  Network,
   RefreshCw,
   Search,
+  Settings2,
   Trash2,
   UploadCloud,
   UserRound,
+  UsersRound,
   X
 } from "lucide-react";
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, clearSession, getStoredUser, setSession } from "./api";
-import type { FileItem, FilePreview, User } from "./types";
+import type { FileItem, FilePreview, RagConfig, RagDocument, RagQuery, RagTask, Space, SpaceFile, SpaceMember, User } from "./types";
 
 type AuthMode = "login" | "sign";
+type MainView = "files" | "spaces";
 type Category = "all" | "images" | "documents" | "videos" | "recycle";
 type Notice = { type: "success" | "error" | "info"; text: string } | null;
 type Crumb = { id: number; name: string };
@@ -366,7 +371,324 @@ function PreviewModal({ preview, file, onClose }: { preview: FilePreview | null;
   );
 }
 
+
+function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [active, setActive] = useState<Space | null>(null);
+  const [files, setFiles] = useState<SpaceFile[]>([]);
+  const [members, setMembers] = useState<SpaceMember[]>([]);
+  const [ragConfig, setRagConfig] = useState<RagConfig | null>(null);
+  const [documents, setDocuments] = useState<RagDocument[]>([]);
+  const [tasks, setTasks] = useState<RagTask[]>([]);
+  const [ragQuery, setRagQuery] = useState<RagQuery | null>(null);
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function loadSpaces() {
+    setLoading(true);
+    try {
+      const next = await api.listSpaces();
+      setSpaces(next || []);
+      setActive((current) => current || next?.[0] || null);
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "空间列表加载失败" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadSpaceDetail(space: Space | null) {
+    if (!space) {
+      setFiles([]);
+      setMembers([]);
+      setRagConfig(null);
+      setDocuments([]);
+      setTasks([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const [nextFiles, nextMembers, nextConfig, nextDocuments, nextTasks] = await Promise.all([
+        api.listSpaceFiles(space.id, null),
+        api.listMembers(space.id),
+        api.ragConfig(space.id),
+        api.listRagDocuments(space.id),
+        api.listRagTasks(space.id)
+      ]);
+      setFiles(nextFiles || []);
+      setMembers(nextMembers || []);
+      setRagConfig(nextConfig);
+      setDocuments(nextDocuments || []);
+      setTasks(nextTasks || []);
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "空间详情加载失败" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadSpaces();
+  }, []);
+
+  useEffect(() => {
+    void loadSpaceDetail(active);
+  }, [active?.id]);
+
+  async function createSpace(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const description = String(form.get("description") || "").trim();
+    if (!name) return;
+    try {
+      const created = await api.createSpace({ name, description });
+      setSpaces((items) => [created, ...items]);
+      setActive(created);
+      event.currentTarget.reset();
+      showNotice({ type: "success", text: "空间已创建" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "创建空间失败" });
+    }
+  }
+
+  async function saveRagConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!active) return;
+    const form = new FormData(event.currentTarget);
+    const enabled = form.get("enabled") === "on" ? 1 : 0;
+    const chunkSize = Number(form.get("chunkSize"));
+    const chunkOverlap = Number(form.get("chunkOverlap"));
+    const topK = Number(form.get("topK"));
+    try {
+      const next = await api.updateRagConfig(active.id, {
+        enabled,
+        chunkSize: Number.isFinite(chunkSize) && chunkSize > 0 ? chunkSize : ragConfig?.chunkSize,
+        chunkOverlap: Number.isFinite(chunkOverlap) && chunkOverlap >= 0 ? chunkOverlap : ragConfig?.chunkOverlap,
+        topK: Number.isFinite(topK) && topK > 0 ? topK : ragConfig?.topK
+      });
+      setRagConfig(next);
+      showNotice({ type: "success", text: "RAG 配置已保存" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "RAG 配置保存失败" });
+    }
+  }
+
+  async function rebuildSpaceRag() {
+    if (!active) return;
+    try {
+      await api.rebuildSpaceRag(active.id);
+      await loadSpaceDetail(active);
+      showNotice({ type: "success", text: "已提交空间重建任务" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "提交重建失败" });
+    }
+  }
+
+  async function repairSpaceVectors() {
+    if (!active) return;
+    try {
+      await api.repairSpaceVectors(active.id);
+      await loadSpaceDetail(active);
+      showNotice({ type: "success", text: "已提交向量修复任务" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "提交修复失败" });
+    }
+  }
+
+  async function askRag(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!active || !question.trim()) return;
+    setLoading(true);
+    try {
+      setRagQuery(await api.queryRag(active.id, question.trim(), ragConfig?.topK));
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "RAG 问答失败" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="spaces-view">
+      <aside className="spaces-list">
+        <div className="section-heading">
+          <h2>团队空间</h2>
+          <span>{spaces.length} 个空间</span>
+        </div>
+        <form className="compact-form" onSubmit={createSpace}>
+          <input name="name" placeholder="新空间名称" />
+          <input name="description" placeholder="描述" />
+          <button className="primary-button" type="submit">创建</button>
+        </form>
+        <div className="space-card-list">
+          {spaces.map((space) => (
+            <button
+              className={`space-card ${active?.id === space.id ? "active" : ""}`}
+              key={space.id}
+              type="button"
+              onClick={() => setActive(space)}
+            >
+              <strong>{space.name}</strong>
+              <span>{space.description || "暂无描述"}</span>
+              <small>{space.role || "MEMBER"} · RAG {space.ragStatus ? "已启用" : "未启用"}</small>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <div className="spaces-main">
+        {!active ? (
+          <div className="empty-state compact-empty">
+            <div className="empty-icon"><Network size={32} /></div>
+            <h3>还没有空间</h3>
+            <p>创建空间后即可管理成员、空间文件和 RAG 索引。</p>
+          </div>
+        ) : (
+          <>
+            <div className="space-header">
+              <div>
+                <h2>{active.name}</h2>
+                <p>{active.description || "空间文件、成员、版本与 RAG 检索管理"}</p>
+              </div>
+              <div className="toolbar-actions">
+                <button className="soft-button" type="button" onClick={() => void loadSpaceDetail(active)}>
+                  <RefreshCw size={17} />
+                  刷新
+                </button>
+                <button className="soft-button" type="button" onClick={() => void rebuildSpaceRag()}>
+                  <Bot size={17} />
+                  重建索引
+                </button>
+                <button className="soft-button" type="button" onClick={() => void repairSpaceVectors()}>
+                  <Settings2 size={17} />
+                  修复向量
+                </button>
+              </div>
+            </div>
+
+            <div className="space-metrics">
+              <div><strong>{files.length}</strong><span>空间文件</span></div>
+              <div><strong>{members.length}</strong><span>成员</span></div>
+              <div><strong>{documents.length}</strong><span>RAG 文档</span></div>
+              <div><strong>{tasks.length}</strong><span>任务</span></div>
+            </div>
+
+            <div className="space-grid">
+              <section className="space-panel">
+                <div className="section-heading">
+                  <h3>空间文件</h3>
+                  <span>{loading ? "同步中" : `${files.length} 项`}</span>
+                </div>
+                <div className="compact-list">
+                  {files.map((file) => (
+                    <div className="compact-row" key={file.id}>
+                      <span className={`file-mark ${file.dir ? "folder" : ""}`}>{file.dir ? <Folder size={18} /> : <FileText size={18} />}</span>
+                      <div>
+                        <strong>{file.name}</strong>
+                        <small>{file.dir ? "文件夹" : file.type || "文件"} · {formatSize(file.size)}</small>
+                      </div>
+                    </div>
+                  ))}
+                  {!files.length && <p className="muted-line">暂无空间文件</p>}
+                </div>
+              </section>
+
+              <section className="space-panel">
+                <div className="section-heading">
+                  <h3>RAG 设置</h3>
+                  <span>{ragConfig?.enabled ? "已启用" : "未启用"}</span>
+                </div>
+                <form className="rag-config-form" onSubmit={saveRagConfig}>
+                  <label className="inline-check">
+                    <input name="enabled" type="checkbox" defaultChecked={Boolean(ragConfig?.enabled)} />
+                    启用 RAG
+                  </label>
+                  <input name="chunkSize" type="number" min="1" defaultValue={ragConfig?.chunkSize ?? 1000} aria-label="分块大小" />
+                  <input name="chunkOverlap" type="number" min="0" defaultValue={ragConfig?.chunkOverlap ?? 100} aria-label="重叠长度" />
+                  <input name="topK" type="number" min="1" defaultValue={ragConfig?.topK ?? 5} aria-label="召回数量" />
+                  <button className="primary-button" type="submit">保存配置</button>
+                </form>
+                <dl className="config-facts">
+                  <div><dt>集合</dt><dd>{ragConfig?.vectorCollection || "-"}</dd></div>
+                  <div><dt>阈值</dt><dd>{ragConfig?.scoreThreshold ?? "-"}</dd></div>
+                </dl>
+              </section>
+
+              <section className="space-panel">
+                <div className="section-heading">
+                  <h3>RAG 文档</h3>
+                  <span>{documents.length} 条</span>
+                </div>
+                <div className="compact-list">
+                  {documents.slice(0, 8).map((doc) => (
+                    <div className="compact-row" key={doc.id}>
+                      <span className="file-mark"><FileText size={18} /></span>
+                      <div>
+                        <strong>{doc.fileName}</strong>
+                        <small>{doc.indexStatus || "-"} · {doc.chunkCount ?? 0} chunks</small>
+                      </div>
+                    </div>
+                  ))}
+                  {!documents.length && <p className="muted-line">暂无索引文档</p>}
+                </div>
+              </section>
+
+              <section className="space-panel">
+                <div className="section-heading">
+                  <h3>空间成员</h3>
+                  <span>{members.length} 人</span>
+                </div>
+                <div className="compact-list">
+                  {members.map((member) => (
+                    <div className="compact-row" key={`${member.spaceId}-${member.userId}`}>
+                      <span className="file-mark"><UsersRound size={18} /></span>
+                      <div>
+                        <strong>用户 {member.userId}</strong>
+                        <small>{member.role || "MEMBER"}</small>
+                      </div>
+                    </div>
+                  ))}
+                  {!members.length && <p className="muted-line">暂无成员信息</p>}
+                </div>
+              </section>
+            </div>
+
+            <section className="rag-console">
+              <div className="section-heading">
+                <h3>空间智能问答</h3>
+                <span>{tasks.filter((task) => task.taskStatus === "RUNNING").length} 个运行中任务</span>
+              </div>
+              <form onSubmit={askRag}>
+                <input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="询问当前空间知识库" />
+                <button className="primary-button" type="submit" disabled={loading || !question.trim()}>
+                  {loading && <Loader2 className="spin" size={16} />}
+                  提问
+                </button>
+              </form>
+              {ragQuery && (
+                <div className="rag-answer">
+                  <strong>回答</strong>
+                  <p>{ragQuery.answer || "暂无回答"}</p>
+                  {!!ragQuery.citations?.length && (
+                    <div className="citation-list">
+                      {ragQuery.citations.map((citation, index) => (
+                        <span key={`${citation.chunkId}-${index}`}>{citation.fileName || `引用 ${index + 1}`}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [mainView, setMainView] = useState<MainView>("files");
   const [category, setCategory] = useState<Category>("all");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selected, setSelected] = useState<FileItem | null>(null);
@@ -556,13 +878,20 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
           <span>YL Cloud</span>
         </div>
 
-        <nav className="side-nav" aria-label="文件分类">
+        <nav className="side-nav" aria-label="功能导航">
+          <button className={mainView === "spaces" ? "active" : ""} type="button" onClick={() => setMainView("spaces")}>
+            <Network size={18} />
+            团队空间
+          </button>
           {categoryMeta.map((item) => (
             <button
-              className={category === item.key ? "active" : ""}
+              className={mainView === "files" && category === item.key ? "active" : ""}
               key={item.key}
               type="button"
-              onClick={() => void switchCategory(item.key)}
+              onClick={() => {
+                setMainView("files");
+                void switchCategory(item.key);
+              }}
             >
               {item.icon}
               {item.label}
@@ -584,8 +913,8 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
       <section className="content">
         <header className="topbar">
           <div>
-            <h1>{categoryMeta.find((item) => item.key === category)?.label || "全部文件"}</h1>
-            <p>现代化文件管理，适配当前 YLCloud 后端接口。</p>
+            <h1>{mainView === "spaces" ? "团队空间" : categoryMeta.find((item) => item.key === category)?.label || "全部文件"}</h1>
+            <p>{mainView === "spaces" ? "成员协作、版本管理和 RAG 问答。" : "现代化文件管理，适配当前 YLCloud 后端接口。"}</p>
           </div>
           <div className="topbar-right">
             <label className="search-box">
@@ -602,6 +931,10 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
           </div>
         </header>
 
+        {mainView === "spaces" ? (
+          <SpacesView showNotice={showNotice} />
+        ) : (
+          <>
         <section className="file-panel">
           <div className="panel-toolbar">
             <div>
@@ -724,6 +1057,8 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
             <p>选择一个文件或文件夹后，可在这里查看详情和快捷操作。</p>
           )}
         </section>
+          </>
+        )}
       </section>
 
       <NoticeBar notice={notice} onClose={() => setNotice(null)} />
