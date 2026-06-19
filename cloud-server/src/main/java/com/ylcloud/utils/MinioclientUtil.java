@@ -142,6 +142,16 @@ public class MinioclientUtil {
         log.info("涓婁紶瀹屾垚锛歿}",objectWriteResponse.object());
     }
 
+    public void putObject(InputStream inputStream, long size, String contentType, String objectName) throws Exception {
+        ObjectWriteResponse objectWriteResponse = minioClient.putObject(PutObjectArgs.builder()
+                .bucket(defaultBucket)
+                .object(objectName)
+                .stream(inputStream,size,-1)
+                .contentType(contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType)
+                .build());
+        log.info("涓婁紶瀹屾垚锛歿}",objectWriteResponse.object());
+    }
+
     /**
      * 鍒犻櫎鏂囦欢瀵硅薄銆?     *
      * @param file 鏂囦欢鍏冩暟鎹?     * @throws Exception 鍒犻櫎澶辫触鏃舵姏鍑?     */

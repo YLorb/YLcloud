@@ -47,10 +47,11 @@ import type {
 } from "./types";
 
 type AuthMode = "login" | "sign";
-type MainView = "files" | "spaces" | "settings";
+type MainView = "files" | "spaces" | "settings" | "chat";
 type Category = "all" | "images" | "documents" | "videos" | "recycle";
 type Notice = { type: "success" | "error" | "info"; text: string } | null;
 type Crumb = { id: number; name: string };
+type ChatMessage = { id: string; role: "user" | "assistant"; content: string };
 
 const categoryMeta: Array<{ key: Category; label: string; icon: ReactNode }> = [
   { key: "all", label: "全部文件", icon: <HardDrive size={18} /> },
@@ -259,20 +260,28 @@ function withStop(event: React.MouseEvent, action: () => void) {
 function FileTable({
   files,
   selected,
+  selectedIds,
   category,
   onSelect,
+  onToggleSelect,
+  onToggleAll,
   onOpen,
   onPreview,
   onDownload,
   onRename,
   onDelete,
   onRestore,
-  onDeleteForever
+  onDeleteForever,
+  onAddToKnowledge,
+  onContextMenu
 }: {
   files: FileItem[];
   selected: FileItem | null;
+  selectedIds: Set<number>;
   category: Category;
   onSelect: (item: FileItem) => void;
+  onToggleSelect: (item: FileItem) => void;
+  onToggleAll: () => void;
   onOpen: (item: FileItem) => void;
   onPreview: (item: FileItem) => void;
   onDownload: (item: FileItem) => void;
@@ -280,12 +289,28 @@ function FileTable({
   onDelete: (item: FileItem) => void;
   onRestore: (item: FileItem) => void;
   onDeleteForever: (item: FileItem) => void;
+  onAddToKnowledge: (items: FileItem[]) => void;
+  onContextMenu: (item: FileItem, x: number, y: number) => void;
 }) {
   if (!files.length) return <EmptyState category={category} />;
+
+  const selectableFiles = files.filter((item) => !item.isDir && category !== "recycle");
+  const allSelected = selectableFiles.length > 0 && selectableFiles.every((item) => selectedIds.has(item.fileId));
 
   return (
     <div className="table-card">
       <div className="file-row table-head">
+        <span className="select-cell">
+          {category !== "recycle" && (
+            <input
+              aria-label="选择当前列表文件"
+              checked={allSelected}
+              disabled={!selectableFiles.length}
+              type="checkbox"
+              onChange={onToggleAll}
+            />
+          )}
+        </span>
         <span>名称</span>
         <span>大小</span>
         <span>类型</span>
@@ -298,12 +323,28 @@ function FileTable({
           key={`${item.fileId}-${item.fileUuid}`}
           onClick={() => onSelect(item)}
           onDoubleClick={() => onOpen(item)}
+          onContextMenu={(event) => {
+            if (category === "recycle" || item.isDir) return;
+            event.preventDefault();
+            onContextMenu(item, event.clientX, event.clientY);
+          }}
           role="button"
           tabIndex={0}
           onKeyDown={(event) => {
             if (event.key === "Enter") onOpen(item);
           }}
         >
+          <span className="select-cell">
+            {category !== "recycle" && !item.isDir && (
+              <input
+                aria-label={`选择 ${item.name}`}
+                checked={selectedIds.has(item.fileId)}
+                type="checkbox"
+                onChange={() => onToggleSelect(item)}
+                onClick={(event) => event.stopPropagation()}
+              />
+            )}
+          </span>
           <span className="name-cell">
             <span className={`file-mark ${item.isDir ? "folder" : ""}`}>{fileIcon(item)}</span>
             <span className="name-text">{item.name}</span>
@@ -333,6 +374,9 @@ function FileTable({
                     </button>
                     <button type="button" onClick={(event) => withStop(event, () => onDownload(item))}>
                       下载
+                    </button>
+                    <button type="button" onClick={(event) => withStop(event, () => onAddToKnowledge([item]))}>
+                      添加到知识库
                     </button>
                   </>
                 )}
@@ -389,6 +433,411 @@ function PreviewModal({ preview, file, onClose }: { preview: FilePreview | null;
   );
 }
 
+function KnowledgeTargetModal({
+  files,
+  onClose,
+  onImported
+}: {
+  files: FileItem[];
+  onClose: () => void;
+  onImported: (message: string) => void;
+}) {
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [spaceId, setSpaceId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const importableFiles = files.filter((item) => !item.isDir);
+
+  useEffect(() => {
+    setLoading(true);
+    api.listSpaces()
+      .then((items) => {
+        const next = items || [];
+        setSpaces(next);
+        setSpaceId(next[0]?.id ? String(next[0].id) : "");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "知识库列表加载失败"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function submit() {
+    if (!spaceId || !importableFiles.length) return;
+    setLoading(true);
+    setError("");
+    try {
+      const targetId = Number(spaceId);
+      for (const file of importableFiles) {
+        await api.importSpaceFile(targetId, { userFileId: file.fileId, parentId: null, name: file.name });
+      }
+      onImported(`已添加 ${importableFiles.length} 个文件到知识库`);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "添加到知识库失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="dialog-modal compact-dialog" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <h3>添加到知识库</h3>
+            <p>选择一个有权限的团队空间，文件会导入对应知识库并进入索引流程。</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="dialog-body">
+          <label>
+            目标知识库
+            <select value={spaceId} onChange={(event) => setSpaceId(event.target.value)} disabled={loading || !spaces.length}>
+              {spaces.map((space) => (
+                <option key={space.id} value={space.id}>
+                  {space.name}（{space.role || "MEMBER"}）
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="selected-file-list">
+            {importableFiles.map((file) => (
+              <span key={file.fileId}>{file.name}</span>
+            ))}
+            {!importableFiles.length && <span>当前选择中没有可导入的文件</span>}
+          </div>
+          {error && <div className="form-error">{error}</div>}
+        </div>
+        <footer className="dialog-actions">
+          <button className="soft-button" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button className="primary-button" type="button" disabled={loading || !spaceId || !importableFiles.length} onClick={() => void submit()}>
+            {loading && <Loader2 className="spin" size={16} />}
+            添加 {importableFiles.length} 个文件
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function DriveFilePickerModal({
+  space,
+  onClose,
+  onImported
+}: {
+  space: Space;
+  onClose: () => void;
+  onImported: (count: number) => void;
+}) {
+  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: 0, name: "我的文件" }]);
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const parentId = crumbs[crumbs.length - 1]?.id ?? 0;
+  const selectedFiles = files.filter((file) => selectedIds.has(file.fileId) && !file.isDir);
+
+  async function load(nextParentId = parentId) {
+    setLoading(true);
+    setError("");
+    try {
+      setFiles(await api.listFiles(nextParentId));
+      setSelectedIds(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "网盘文件加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load(0);
+  }, []);
+
+  async function openFolder(file: FileItem) {
+    if (!file.isDir) return;
+    const next = [...crumbs, { id: file.fileId, name: file.name }];
+    setCrumbs(next);
+    await load(file.fileId);
+  }
+
+  async function jumpTo(index: number) {
+    const next = crumbs.slice(0, index + 1);
+    setCrumbs(next);
+    await load(next[next.length - 1].id);
+  }
+
+  async function submit() {
+    if (!selectedFiles.length) return;
+    setLoading(true);
+    setError("");
+    try {
+      for (const file of selectedFiles) {
+        await api.importSpaceFile(space.id, { userFileId: file.fileId, parentId: null, name: file.name });
+      }
+      onImported(selectedFiles.length);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导入文件失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="dialog-modal picker-dialog" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <h3>从网盘选择文件</h3>
+            <p>添加到「{space.name}」知识库</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="picker-tabs">
+          <button className="active" type="button">
+            我的文件
+          </button>
+          <button type="button" disabled>
+            项目文档
+          </button>
+        </div>
+        <div className="picker-crumbs">
+          {crumbs.map((crumb, index) => (
+            <button key={`${crumb.id}-${index}`} type="button" onClick={() => void jumpTo(index)}>
+              {crumb.name}
+              {index < crumbs.length - 1 && <ChevronRight size={14} />}
+            </button>
+          ))}
+        </div>
+        <div className="picker-body">
+          {error && <div className="form-error">{error}</div>}
+          {loading ? (
+            <div className="loading-state compact-loading">
+              <Loader2 className="spin" size={20} />
+              正在加载文件
+            </div>
+          ) : (
+            <div className="picker-list">
+              {files.map((file) => (
+                <div className="picker-row" key={file.fileId}>
+                  <input
+                    aria-label={`选择 ${file.name}`}
+                    checked={selectedIds.has(file.fileId)}
+                    disabled={file.isDir}
+                    type="checkbox"
+                    onChange={() => {
+                      setSelectedIds((current) => {
+                        const next = new Set(current);
+                        if (next.has(file.fileId)) next.delete(file.fileId);
+                        else next.add(file.fileId);
+                        return next;
+                      });
+                    }}
+                  />
+                  <button className="picker-file" type="button" onClick={() => void openFolder(file)}>
+                    <span className={`file-mark ${file.isDir ? "folder" : ""}`}>{fileIcon(file, 18)}</span>
+                    <span>
+                      <strong>{file.name}</strong>
+                      <small>{file.isDir ? "文件夹，可双击进入" : `${fileTypeLabel(file)} · ${formatSize(file.size)}`}</small>
+                    </span>
+                  </button>
+                </div>
+              ))}
+              {!files.length && <p className="muted-line">当前目录暂无文件</p>}
+            </div>
+          )}
+        </div>
+        <footer className="dialog-actions">
+          <button className="soft-button" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button className="primary-button" type="button" disabled={loading || !selectedFiles.length} onClick={() => void submit()}>
+            添加 {selectedFiles.length} 个文件
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function AddDocumentModal({
+  space,
+  onClose,
+  onImported,
+  onNotice
+}: {
+  space: Space;
+  onClose: () => void;
+  onImported: (count: number) => void;
+  onNotice: (notice: Notice) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const localUploadInput = useRef<HTMLInputElement>(null);
+  const folderUploadInput = useRef<HTMLInputElement>(null);
+
+  async function uploadLocalFiles(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files || []);
+    if (!selectedFiles.length) return;
+    setUploading(true);
+    try {
+      for (const file of selectedFiles) {
+        await api.uploadSpaceFile(space.id, file, null);
+      }
+      onNotice({ type: "success", text: `已上传 ${selectedFiles.length} 个文件到知识库` });
+      onImported(selectedFiles.length);
+      onClose();
+    } catch (err) {
+      onNotice({ type: "error", text: err instanceof Error ? err.message : "本地上传失败" });
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  }
+
+  async function uploadFolder(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files || []);
+    if (!selectedFiles.length) return;
+    const confirmed = window.confirm("正在上传文件夹内的文件，系统将递归读取文件夹内的所有文件并上传。是否继续？");
+    if (!confirmed) {
+      event.target.value = "";
+      return;
+    }
+    setUploading(true);
+    try {
+      const folderCache = new Map<string, number | null>([["", null]]);
+      async function ensureSpaceFolder(name: string, parentId: number | null, pathKey: string) {
+        if (folderCache.has(pathKey)) return folderCache.get(pathKey) ?? null;
+        const siblings = await api.listSpaceFiles(space.id, parentId);
+        const existing = siblings.find((item) => item.dir && item.name === name);
+        if (existing) {
+          folderCache.set(pathKey, existing.id);
+          return existing.id;
+        }
+        const created = await api.createSpaceFolder(space.id, { name, parentId });
+        folderCache.set(pathKey, created.id);
+        return created.id;
+      }
+      for (const file of selectedFiles) {
+        const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+        const segments = relativePath.split("/").filter(Boolean);
+        const fileName = segments.pop() || file.name;
+        let parentId: number | null = null;
+        let pathKey = "";
+        for (const segment of segments) {
+          pathKey = pathKey ? `${pathKey}/${segment}` : segment;
+          parentId = await ensureSpaceFolder(segment, parentId, pathKey);
+        }
+        await api.uploadSpaceFile(space.id, file, parentId, fileName);
+      }
+      onNotice({ type: "success", text: `已上传文件夹内 ${selectedFiles.length} 个文件` });
+      onImported(selectedFiles.length);
+      onClose();
+    } catch (err) {
+      onNotice({ type: "error", text: err instanceof Error ? err.message : "文件夹上传失败" });
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  }
+
+  async function importLink() {
+    const url = window.prompt("请输入网页链接");
+    if (!url?.trim()) return;
+    const name = window.prompt("可选：请输入保存的文档名称", "");
+    setUploading(true);
+    try {
+      await api.importSpaceWebLink(space.id, { url: url.trim(), parentId: null, name: name?.trim() || undefined });
+      onNotice({ type: "success", text: "网页链接已导入知识库" });
+      onImported(1);
+      onClose();
+    } catch (err) {
+      onNotice({ type: "error", text: err instanceof Error ? err.message : "网页链接导入失败" });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="modal-backdrop" onClick={onClose}>
+        <section className="dialog-modal compact-dialog" onClick={(event) => event.stopPropagation()}>
+          <header>
+            <div>
+              <h3>添加文档</h3>
+              <p>向「{space.name}」添加可索引文档。</p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="关闭">
+              <X size={18} />
+            </button>
+          </header>
+          <div className="add-document-grid">
+            <input ref={localUploadInput} type="file" multiple hidden onChange={(event) => void uploadLocalFiles(event)} />
+            <input
+              ref={folderUploadInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(event) => void uploadFolder(event)}
+              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+            />
+            <button type="button" onClick={() => setPickerOpen(true)}>
+              <span className="file-mark">
+                <HardDrive size={18} />
+              </span>
+              <strong>从网盘选择</strong>
+              <small>选择我的文件并导入当前知识库</small>
+            </button>
+            <button type="button" disabled={uploading} onClick={() => localUploadInput.current?.click()}>
+              <span className="file-mark">
+                <UploadCloud size={18} />
+              </span>
+              <strong>本地上传</strong>
+              <small>上传文件并直接加入当前 Space</small>
+            </button>
+            <button type="button" disabled={uploading} onClick={() => folderUploadInput.current?.click()}>
+              <span className="file-mark folder">
+                <FolderPlus size={18} />
+              </span>
+              <strong>上传文件夹</strong>
+              <small>确认后递归读取文件夹内文件</small>
+            </button>
+            <button type="button" disabled={uploading} onClick={() => void importLink()}>
+              <span className="file-mark">
+                <Network size={18} />
+              </span>
+              <strong>输入网页链接</strong>
+              <small>抓取网页内容并生成索引文档</small>
+            </button>
+          </div>
+          <footer className="dialog-actions">
+            <button className="soft-button" type="button" onClick={onClose}>
+              关闭
+            </button>
+          </footer>
+        </section>
+      </div>
+      {pickerOpen && (
+        <DriveFilePickerModal
+          space={space}
+          onClose={() => setPickerOpen(false)}
+          onImported={(count) => {
+            onImported(count);
+            setPickerOpen(false);
+            onClose();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [active, setActive] = useState<Space | null>(null);
@@ -400,6 +849,7 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
   const [ragQuery, setRagQuery] = useState<RagQuery | null>(null);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
+  const [addDocumentOpen, setAddDocumentOpen] = useState(false);
 
   async function loadSpaces() {
     setLoading(true);
@@ -577,6 +1027,10 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
                   <RefreshCw size={17} />
                   刷新
                 </button>
+                <button className="primary-button" type="button" onClick={() => setAddDocumentOpen(true)}>
+                  <FileText size={17} />
+                  添加文档
+                </button>
                 <button className="soft-button" type="button" onClick={() => void rebuildSpaceRag()}>
                   <Bot size={17} />
                   重建索引
@@ -727,6 +1181,138 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
             </section>
           </>
         )}
+      </div>
+      {active && addDocumentOpen && (
+        <AddDocumentModal
+          space={active}
+          onClose={() => setAddDocumentOpen(false)}
+          onImported={(count) => {
+            showNotice({ type: "success", text: `知识库已新增 ${count} 个文档` });
+            void loadSpaceDetail(active);
+          }}
+          onNotice={showNotice}
+        />
+      )}
+    </section>
+  );
+}
+
+function ChatView({ showNotice }: { showNotice: (notice: Notice) => void }) {
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [spaceId, setSpaceId] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      role: "assistant",
+      content: "选择一个知识库后即可开始提问；也可以保持不选择，用于后续接入通用对话能力。"
+    }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.listSpaces()
+      .then((items) => setSpaces(items || []))
+      .catch((err) => showNotice({ type: "error", text: err instanceof Error ? err.message : "知识库列表加载失败" }));
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = input.trim();
+    if (!question) return;
+    setMessages((current) => [...current, { id: `u-${Date.now()}`, role: "user", content: question }]);
+    setInput("");
+
+    if (!spaceId) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: "当前未选择知识库。通用空上下文对话接口暂未接入，请先选择一个知识库后提问。"
+        }
+      ]);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const answer = await api.queryRag(Number(spaceId), question);
+      const citations =
+        answer.citations?.length
+          ? `\n\n引用：${answer.citations.map((citation) => citation.fileName || `片段 ${citation.chunkId}`).join("、")}`
+          : "";
+      setMessages((current) => [
+        ...current,
+        { id: `a-${Date.now()}`, role: "assistant", content: `${answer.answer || "暂无回答"}${citations}` }
+      ]);
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "知识库问答失败" });
+      setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "assistant", content: "这次查询失败了，请稍后重试。" }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="chat-page">
+      <aside className="chat-sidebar">
+        <button
+          className="primary-button full"
+          type="button"
+          onClick={() =>
+            setMessages([
+              {
+                id: `welcome-${Date.now()}`,
+                role: "assistant",
+                content: "新对话已创建。请选择知识库，或保持不选择等待通用问答接口接入。"
+              }
+            ])
+          }
+        >
+          新建对话
+        </button>
+        <label>
+          知识库范围
+          <select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}>
+            <option value="">不选择</option>
+            {spaces.map((space) => (
+              <option key={space.id} value={space.id}>
+                {space.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="chat-scope-card">
+          <strong>{spaceId ? spaces.find((space) => String(space.id) === spaceId)?.name : "空上下文"}</strong>
+          <span>{spaceId ? "将调用当前知识库 RAG 接口回答。" : "通用对话接口暂未接入。"}</span>
+        </div>
+      </aside>
+
+      <div className="chat-main">
+        <div className="chat-messages">
+          {messages.map((message) => (
+            <article className={`chat-message ${message.role}`} key={message.id}>
+              <span>{message.role === "user" ? "你" : "AI"}</span>
+              <p>{message.content}</p>
+            </article>
+          ))}
+          {loading && (
+            <article className="chat-message assistant">
+              <span>AI</span>
+              <p>
+                <Loader2 className="spin inline-spinner" size={16} />
+                正在检索知识库
+              </p>
+            </article>
+          )}
+        </div>
+        <form className="chat-composer" onSubmit={submit}>
+          <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="向知识库提问" />
+          <button className="primary-button" type="submit" disabled={loading || !input.trim()}>
+            发送
+          </button>
+        </form>
       </div>
     </section>
   );
@@ -891,7 +1477,7 @@ function DriveApp({
   onNavigate: (path: string) => void;
   onLogout: () => void;
 }) {
-  const [mainView, setMainView] = useState<MainView>(path === "/settings" ? "settings" : "files");
+  const [mainView, setMainView] = useState<MainView>(path === "/settings" ? "settings" : path === "/chat" ? "chat" : "files");
   const [category, setCategory] = useState<Category>("all");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selected, setSelected] = useState<FileItem | null>(null);
@@ -902,20 +1488,26 @@ function DriveApp({
   const [error, setError] = useState("");
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [preview, setPreview] = useState<FilePreview | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [knowledgeFiles, setKnowledgeFiles] = useState<FileItem[]>([]);
+  const [contextMenu, setContextMenu] = useState<{ item: FileItem; x: number; y: number } | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const parentId = crumbs[crumbs.length - 1]?.id ?? 0;
   const isAdmin = user.role?.toUpperCase() === "ADMIN";
   const isSettingsPage = isAdmin && path === "/settings";
+  const isChatPage = path === "/chat";
   const siteName = publicSettings?.siteName || "YL Cloud";
-  const effectiveView: MainView = isSettingsPage ? "settings" : mainView === "settings" ? "files" : mainView;
+  const effectiveView: MainView = isSettingsPage ? "settings" : isChatPage ? "chat" : mainView === "settings" ? "files" : mainView;
 
   useEffect(() => {
     if (isSettingsPage) {
       setMainView("settings");
+    } else if (isChatPage) {
+      setMainView("chat");
     } else if (mainView === "settings") {
       setMainView("files");
     }
-  }, [isSettingsPage, mainView]);
+  }, [isSettingsPage, isChatPage, mainView]);
 
   const filteredFiles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -932,6 +1524,7 @@ function DriveApp({
     setLoading(true);
     setError("");
     setSelected(null);
+    setSelectedIds(new Set());
     try {
       const data = nextCategory === "recycle" ? await api.listRecycle() : await api.listFiles(nextParentId);
       setFiles(data || []);
@@ -960,6 +1553,7 @@ function DriveApp({
     setQuery("");
     setPreviewFile(null);
     setPreview(null);
+    setSelectedIds(new Set());
     if (next !== "recycle") setCrumbs([{ id: 0, name: "我的文件" }]);
     await loadFiles(0, next);
   }
@@ -1080,20 +1674,54 @@ function DriveApp({
     void jumpTo(crumbs.length - 2);
   }
 
+  function toggleSelectedFile(item: FileItem) {
+    if (item.isDir) return;
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.fileId)) next.delete(item.fileId);
+      else next.add(item.fileId);
+      return next;
+    });
+  }
+
+  function toggleAllFiles() {
+    const selectable = filteredFiles.filter((item) => !item.isDir && category !== "recycle");
+    setSelectedIds((current) => {
+      const allSelected = selectable.length > 0 && selectable.every((item) => current.has(item.fileId));
+      return allSelected ? new Set() : new Set(selectable.map((item) => item.fileId));
+    });
+  }
+
+  function openAddToKnowledge(items: FileItem[]) {
+    const importable = items.filter((item) => !item.isDir);
+    if (!importable.length) {
+      showNotice({ type: "info", text: "当前选择中没有可添加到知识库的文件" });
+      return;
+    }
+    setContextMenu(null);
+    setKnowledgeFiles(importable);
+  }
+
   function logout() {
     clearSession();
     onLogout();
   }
 
+  const batchFiles = filteredFiles.filter((item) => selectedIds.has(item.fileId) && !item.isDir);
+
   const topbarTitle =
     effectiveView === "settings"
       ? "系统设置"
+      : effectiveView === "chat"
+        ? "智能问答"
       : effectiveView === "spaces"
         ? "团队空间"
         : categoryMeta.find((item) => item.key === category)?.label || "全部文件";
   const topbarDescription =
     effectiveView === "settings"
       ? "管理站点信息、访问网址和模型服务配置。"
+      : effectiveView === "chat"
+        ? "像 ChatGPT 一样提问，可选择知识库作为检索范围。"
       : effectiveView === "spaces"
         ? "成员协作、版本管理和 RAG 问答。"
         : "现代化文件管理，适配当前 YLCloud 后端接口。";
@@ -1119,6 +1747,17 @@ function DriveApp({
           >
             <Network size={18} />
             团队空间
+          </button>
+          <button
+            className={effectiveView === "chat" ? "active" : ""}
+            type="button"
+            onClick={() => {
+              setMainView("chat");
+              onNavigate("/chat");
+            }}
+          >
+            <Bot size={18} />
+            智能问答
           </button>
           {categoryMeta.map((item) => (
             <button
@@ -1180,6 +1819,8 @@ function DriveApp({
 
         {effectiveView === "settings" ? (
           <SettingsPanel onNotice={showNotice} />
+        ) : effectiveView === "chat" ? (
+          <ChatView showNotice={showNotice} />
         ) : effectiveView === "spaces" ? (
           <SpacesView showNotice={showNotice} />
         ) : (
@@ -1231,6 +1872,20 @@ function DriveApp({
                 </div>
               </div>
 
+              {category !== "recycle" && selectedIds.size > 0 && (
+                <div className="selection-toolbar">
+                  <span>已选择 {batchFiles.length} 个文件</span>
+                  <div>
+                    <button className="soft-button" type="button" onClick={() => setSelectedIds(new Set())}>
+                      取消选择
+                    </button>
+                    <button className="primary-button" type="button" disabled={!batchFiles.length} onClick={() => openAddToKnowledge(batchFiles)}>
+                      添加到知识库
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {error && (
                 <div className="error-state">
                   <strong>加载失败</strong>
@@ -1251,8 +1906,11 @@ function DriveApp({
                   <FileTable
                     files={filteredFiles}
                     selected={selected}
+                    selectedIds={selectedIds}
                     category={category}
                     onSelect={setSelected}
+                    onToggleSelect={toggleSelectedFile}
+                    onToggleAll={toggleAllFiles}
                     onOpen={(item) => void openItem(item)}
                     onPreview={(item) => void previewItem(item)}
                     onDownload={(item) => void downloadFile(item)}
@@ -1260,6 +1918,8 @@ function DriveApp({
                     onDelete={(item) => void deleteFile(item)}
                     onRestore={(item) => void restoreFile(item)}
                     onDeleteForever={(item) => void deleteForever(item)}
+                    onAddToKnowledge={(items) => openAddToKnowledge(items)}
+                    onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
                   />
                 )
               )}
@@ -1287,6 +1947,12 @@ function DriveApp({
                           <Download size={16} />
                           下载
                         </button>
+                        {category !== "recycle" && (
+                          <button type="button" onClick={() => openAddToKnowledge([selected])}>
+                            <Bot size={16} />
+                            添加到知识库
+                          </button>
+                        )}
                       </>
                     )}
                     {category === "recycle" ? (
@@ -1310,6 +1976,26 @@ function DriveApp({
         )}
       </section>
 
+      {contextMenu && (
+        <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu">
+          <button type="button" onClick={() => openAddToKnowledge([contextMenu.item])}>
+            添加到知识库
+          </button>
+          <button type="button" onClick={() => setContextMenu(null)}>
+            关闭
+          </button>
+        </div>
+      )}
+      {!!knowledgeFiles.length && (
+        <KnowledgeTargetModal
+          files={knowledgeFiles}
+          onClose={() => setKnowledgeFiles([])}
+          onImported={(message) => {
+            showNotice({ type: "success", text: message });
+            setSelectedIds(new Set());
+          }}
+        />
+      )}
       <NoticeBar notice={notice} onClose={() => setNotice(null)} />
       <PreviewModal preview={preview} file={previewFile} onClose={() => setPreviewFile(null)} />
     </main>

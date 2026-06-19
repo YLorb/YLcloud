@@ -216,6 +216,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  uploadSpaceFile: (spaceId: number, file: File, parentId?: number | null, name?: string) => {
+    const body = new FormData();
+    body.set("file", file);
+    if (parentId !== undefined && parentId !== null) body.set("parentId", String(parentId));
+    if (name) body.set("name", name);
+    return request<SpaceFile>(`/api/space/${spaceId}/files/upload`, { method: "POST", body });
+  },
   removeSpaceFile: (spaceId: number, fileId: number) =>
     request<boolean>(`/api/space/${spaceId}/files/${fileId}`, { method: "DELETE" }),
   updateSpaceFileVersionSetting: (spaceId: number, fileId: number, versionEnabled: number) =>
@@ -264,6 +271,11 @@ export const api = {
     request<RagQuery>(`/api/space/${spaceId}/rag/query`, {
       method: "POST",
       body: JSON.stringify({ question, topK })
+    }),
+  importSpaceWebLink: (spaceId: number, payload: { url: string; parentId?: number | null; name?: string }) =>
+    request<SpaceFile>(`/api/space/${spaceId}/rag/links`, {
+      method: "POST",
+      body: JSON.stringify(payload)
     }),
   rebuildSpaceRag: (spaceId: number) =>
     request<boolean>(`/api/space/${spaceId}/rag/rebuild`, { method: "POST" }),

@@ -3,13 +3,16 @@ package com.ylcloud.controller;
 import com.ylcloud.DTO.SpaceDocumentSearchDTO;
 import com.ylcloud.DTO.SpaceRagConfigUpdateDTO;
 import com.ylcloud.DTO.SpaceRagQueryDTO;
+import com.ylcloud.DTO.SpaceWebLinkImportDTO;
 import com.ylcloud.Result;
 import com.ylcloud.VO.SpaceDocumentSearchVO;
+import com.ylcloud.VO.SpaceFileVO;
 import com.ylcloud.VO.SpaceRagConfigVO;
 import com.ylcloud.VO.SpaceRagDocumentVO;
 import com.ylcloud.VO.SpaceRagQueryVO;
 import com.ylcloud.VO.SpaceRagTaskVO;
 import com.ylcloud.context.BaseContext;
+import com.ylcloud.service.SpaceFileService;
 import com.ylcloud.service.SpaceRagService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,14 +33,17 @@ import java.util.List;
 @RequestMapping("/api/space/{spaceId}/rag")
 public class SpaceRagController {
     private final SpaceRagService spaceRagService;
+    private final SpaceFileService spaceFileService;
 
     /**
      * 初始化 SpaceRagController 对象。
      *
      * @param spaceRagService 空间 RAG 服务
+     * @param spaceFileService 空间文件服务
      */
-    public SpaceRagController(SpaceRagService spaceRagService) {
+    public SpaceRagController(SpaceRagService spaceRagService, SpaceFileService spaceFileService) {
         this.spaceRagService = spaceRagService;
+        this.spaceFileService = spaceFileService;
     }
 
     /**
@@ -75,6 +81,19 @@ public class SpaceRagController {
     public Result<SpaceRagQueryVO> query(@PathVariable Long spaceId,
                                          @RequestBody @Valid SpaceRagQueryDTO dto) {
         return Result.success(spaceRagService.query(spaceId,dto,BaseContext.getCurrentId()));
+    }
+
+    /**
+     * 导入网页链接为知识库文档。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @return 接口响应结果
+     */
+    @PostMapping("/links")
+    public Result<SpaceFileVO> importLink(@PathVariable Long spaceId,
+                                          @RequestBody @Valid SpaceWebLinkImportDTO dto) {
+        return Result.success(spaceFileService.importWebLink(spaceId,dto,BaseContext.getCurrentId()));
     }
 
     /**

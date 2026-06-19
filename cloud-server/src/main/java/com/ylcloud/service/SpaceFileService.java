@@ -3,6 +3,7 @@ package com.ylcloud.service;
 import com.ylcloud.DTO.FileDTO;
 import com.ylcloud.DTO.SpaceFileImportDTO;
 import com.ylcloud.DTO.SpaceFolderCreateDTO;
+import com.ylcloud.DTO.SpaceWebLinkImportDTO;
 import com.ylcloud.DTO.UserFileDTO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.FilePreviewVO;
@@ -13,17 +14,32 @@ import com.ylcloud.entity.Space;
 import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
+import com.ylcloud.utils.HashUtil;
+import com.ylcloud.utils.Md5Util;
 import com.ylcloud.utils.MinioclientUtil;
+import com.ylcloud.utils.UuidUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 空间文件树业务服务。
@@ -31,6 +47,7 @@ import java.util.List;
 @Service
 public class SpaceFileService {
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
+    private static final Pattern TITLE_PATTERN = Pattern.compile("(?is)<title[^>]*>(.*?)</title>");
 
     private final SpaceFileMapper spaceFileMapper;
     private final FileInfoMapper fileInfoMapper;
@@ -38,6 +55,12 @@ public class SpaceFileService {
     private final SpacePermissionService spacePermissionService;
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
+
+    @Value("${ylcloud.upload.max-file-size:2147483648}")
+    private Long maxFileSize;
+
+    @Value("${ylcloud.rag.web-link.max-size:5242880}")
+    private Long maxWebLinkSize;
 
     /**
      * 初始化 SpaceFileService 对象。
@@ -164,6 +187,58 @@ public class SpaceFileService {
         if(fileInfoMapper.updateFileCount(userFile.getFileUuid(),1) == 0) {
             throw new BaseException("文件引用计数更新失败");
         }
+        spaceRagService.handleFileImported(spaceFile,userId);
+        return toVO(spaceFile);
+    }
+
+    /**
+     * 上传本地文件到空间。
+     *
+     * @param spaceId 空间 ID
+     * @param uploadFile 上传文件
+     * @param parentId 父级目录 ID
+     * @param name 可选覆盖文件名
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public SpaceFileVO uploadFile(Long spaceId, MultipartFile uploadFile, Long parentId, String name, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        validateUploadFile(uploadFile);
+        String fileName = name == null || name.isBlank() ? uploadFile.getOriginalFilename() : name;
+        fileName = requireSafeFileName(fileName);
+        Long realParentId = normalizeParentId(spaceId,parentId);
+        SpaceFile parent = requireDirectory(spaceId,realParentId);
+        requireNoSameName(spaceId,realParentId,fileName,0);
+
+        StoredPhysicalFile stored = storeMultipartFile(uploadFile,fileName);
+        SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
+        spaceRagService.handleFileImported(spaceFile,userId);
+        return toVO(spaceFile);
+    }
+
+    /**
+     * 抓取网页链接并作为 Markdown 文档导入空间。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public SpaceFileVO importWebLink(Long spaceId, SpaceWebLinkImportDTO dto, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        URI uri = requireHttpUri(dto.getUrl());
+        WebPageSnapshot snapshot = fetchWebPage(uri);
+        String fileName = dto.getName() == null || dto.getName().isBlank() ? defaultLinkFileName(snapshot.title(),uri) : dto.getName();
+        fileName = requireSafeFileName(ensureMarkdownExtension(fileName));
+        Long parentId = normalizeParentId(spaceId,dto.getParentId());
+        SpaceFile parent = requireDirectory(spaceId,parentId);
+        requireNoSameName(spaceId,parentId,fileName,0);
+
+        String markdown = buildWebLinkMarkdown(uri,snapshot);
+        StoredPhysicalFile stored = storeGeneratedFile(fileName,markdown.getBytes(StandardCharsets.UTF_8),"text/markdown;charset=UTF-8");
+        SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         return toVO(spaceFile);
     }
@@ -586,6 +661,312 @@ public class SpaceFileService {
         return StatusConstant.ENABLE.equals(space.getVersionEnabled());
     }
 
+    private StoredPhysicalFile storeMultipartFile(MultipartFile uploadFile, String fileName) {
+        String md5;
+        String sha1;
+        String hash;
+        try {
+            md5 = Md5Util.md5(uploadFile.getInputStream());
+            sha1 = HashUtil.sha1(uploadFile.getInputStream());
+            hash = HashUtil.sha256(uploadFile.getInputStream());
+        } catch (IOException e) {
+            throw new RuntimeException("文件哈希计算失败",e);
+        }
+
+        File existingFile = fileInfoMapper.getFileByHash(hash);
+        if(existingFile != null) {
+            if(fileInfoMapper.updateFileCount(existingFile.getFileUuid(),1) == 0) {
+                throw new BaseException("文件引用计数更新失败");
+            }
+            return new StoredPhysicalFile(existingFile.getFileUuid());
+        }
+
+        String fileUuid = UuidUtil.randomUuid();
+        LocalDateTime now = LocalDateTime.now();
+        File file = File.builder()
+                .fileUuid(fileUuid)
+                .dir(false)
+                .name(fileName)
+                .type(getFileType(fileName))
+                .size(uploadFile.getSize())
+                .hash(hash)
+                .md5(md5)
+                .sha1(sha1)
+                .status(StatusConstant.ENABLE)
+                .count(1)
+                .createTime(now)
+                .updateTime(now)
+                .build();
+        try {
+            minioclientUtil.putObject(uploadFile,fileUuid);
+        } catch (Exception e) {
+            throw new RuntimeException("空间文件上传失败",e);
+        }
+        if(fileInfoMapper.insertFileInfo(file) == 0) {
+            throw new BaseException("文件元数据保存失败");
+        }
+        return new StoredPhysicalFile(fileUuid);
+    }
+
+    private StoredPhysicalFile storeGeneratedFile(String fileName, byte[] content, String contentType) {
+        if(content == null || content.length == 0) {
+            throw new BaseException("文件内容不能为空");
+        }
+        if(content.length > maxFileSize) {
+            throw new BaseException("文件大小超过限制");
+        }
+
+        String md5;
+        String sha1;
+        String hash;
+        try {
+            md5 = Md5Util.md5(new ByteArrayInputStream(content));
+            sha1 = HashUtil.sha1(new ByteArrayInputStream(content));
+            hash = HashUtil.sha256(new ByteArrayInputStream(content));
+        } catch (IOException e) {
+            throw new RuntimeException("文件哈希计算失败",e);
+        }
+
+        File existingFile = fileInfoMapper.getFileByHash(hash);
+        if(existingFile != null) {
+            if(fileInfoMapper.updateFileCount(existingFile.getFileUuid(),1) == 0) {
+                throw new BaseException("文件引用计数更新失败");
+            }
+            return new StoredPhysicalFile(existingFile.getFileUuid());
+        }
+
+        String fileUuid = UuidUtil.randomUuid();
+        LocalDateTime now = LocalDateTime.now();
+        File file = File.builder()
+                .fileUuid(fileUuid)
+                .dir(false)
+                .name(fileName)
+                .type(getFileType(fileName))
+                .size((long) content.length)
+                .hash(hash)
+                .md5(md5)
+                .sha1(sha1)
+                .status(StatusConstant.ENABLE)
+                .count(1)
+                .createTime(now)
+                .updateTime(now)
+                .build();
+        try {
+            minioclientUtil.putObject(new ByteArrayInputStream(content),content.length,contentType,fileUuid);
+        } catch (Exception e) {
+            throw new RuntimeException("空间文件上传失败",e);
+        }
+        if(fileInfoMapper.insertFileInfo(file) == 0) {
+            throw new BaseException("文件元数据保存失败");
+        }
+        return new StoredPhysicalFile(fileUuid);
+    }
+
+    private SpaceFile createSpaceFile(Long spaceId, SpaceFile parent, String fileUuid, String fileName, Long userId) {
+        LocalDateTime now = LocalDateTime.now();
+        SpaceFile spaceFile = new SpaceFile();
+        spaceFile.setSpaceId(spaceId);
+        spaceFile.setFileUuid(fileUuid);
+        spaceFile.setFileName(fileName);
+        spaceFile.setDir(0);
+        spaceFile.setParentId(parent.getId());
+        spaceFile.setPath(buildPath(parent,fileName,false));
+        spaceFile.setStatus(StatusConstant.ENABLE);
+        spaceFile.setCreatedBy(userId);
+        spaceFile.setCreatetime(now);
+        spaceFile.setUpdatetime(now);
+        if(spaceFileMapper.insert(spaceFile) == 0) {
+            throw new BaseException("空间文件保存失败");
+        }
+        return spaceFile;
+    }
+
+    private void validateUploadFile(MultipartFile uploadFile) {
+        if(uploadFile == null || uploadFile.isEmpty()) {
+            throw new BaseException("上传文件不能为空");
+        }
+        if(uploadFile.getSize() > maxFileSize) {
+            throw new BaseException("文件大小超过限制");
+        }
+        requireSafeFileName(uploadFile.getOriginalFilename());
+    }
+
+    private URI requireHttpUri(String url) {
+        try {
+            URI uri = URI.create(url.trim());
+            String scheme = uri.getScheme();
+            if(scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                throw new BaseException("只支持 http 或 https 链接");
+            }
+            if(uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new BaseException("网页链接缺少主机名");
+            }
+            requirePublicHost(uri.getHost());
+            return uri;
+        } catch (IllegalArgumentException e) {
+            throw new BaseException("网页链接格式不正确");
+        }
+    }
+
+    private void requirePublicHost(String host) {
+        try {
+            for(InetAddress address : InetAddress.getAllByName(host)) {
+                if(address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress() || address.isSiteLocalAddress()) {
+                    throw new BaseException("不允许导入内网或本机地址");
+                }
+            }
+        } catch (BaseException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BaseException("网页链接主机名解析失败");
+        }
+    }
+
+    private WebPageSnapshot fetchWebPage(URI uri) {
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofSeconds(8))
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build();
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                    .timeout(java.time.Duration.ofSeconds(15))
+                    .header("User-Agent","YLCloud-RAG-Link-Importer/1.0")
+                    .GET()
+                    .build();
+            HttpResponse<InputStream> response = client.send(request,HttpResponse.BodyHandlers.ofInputStream());
+            int status = response.statusCode();
+            if(status < 200 || status >= 300) {
+                throw new BaseException("网页请求失败，状态码 " + status);
+            }
+            String contentType = response.headers().firstValue("content-type").orElse("text/plain");
+            if(!isTextualContentType(contentType)) {
+                throw new BaseException("网页链接内容不是可索引文本");
+            }
+            byte[] body = readLimited(response.body(),maxWebLinkSize);
+            String raw = new String(body,resolveCharset(contentType));
+            String title = extractTitle(raw,uri);
+            String text = contentType.toLowerCase().contains("html") ? htmlToText(raw) : raw;
+            return new WebPageSnapshot(title,contentType,text);
+        } catch (BaseException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("网页链接导入失败",e);
+        }
+    }
+
+    private boolean isTextualContentType(String contentType) {
+        String lower = contentType == null ? "" : contentType.toLowerCase();
+        return lower.startsWith("text/")
+                || lower.contains("application/json")
+                || lower.contains("application/xml")
+                || lower.contains("application/xhtml+xml")
+                || lower.contains("application/javascript")
+                || lower.contains("application/x-ndjson");
+    }
+
+    private byte[] readLimited(InputStream inputStream, long maxBytes) throws IOException {
+        try(inputStream; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            long total = 0;
+            int read;
+            while((read = inputStream.read(buffer)) != -1) {
+                total += read;
+                if(total > maxBytes) {
+                    throw new BaseException("网页内容超过导入大小限制");
+                }
+                output.write(buffer,0,read);
+            }
+            return output.toByteArray();
+        }
+    }
+
+    private java.nio.charset.Charset resolveCharset(String contentType) {
+        if(contentType != null) {
+            String lower = contentType.toLowerCase();
+            int index = lower.indexOf("charset=");
+            if(index >= 0) {
+                String charset = contentType.substring(index + 8).trim().replace("\"","");
+                try {
+                    return java.nio.charset.Charset.forName(charset);
+                } catch (Exception ignored) {
+                    return StandardCharsets.UTF_8;
+                }
+            }
+        }
+        return StandardCharsets.UTF_8;
+    }
+
+    private String extractTitle(String raw, URI uri) {
+        Matcher matcher = TITLE_PATTERN.matcher(raw == null ? "" : raw);
+        if(matcher.find()) {
+            String title = htmlToText(matcher.group(1)).trim();
+            if(!title.isBlank()) {
+                return title;
+            }
+        }
+        return uri.getHost();
+    }
+
+    private String htmlToText(String html) {
+        if(html == null) {
+            return "";
+        }
+        return html
+                .replaceAll("(?is)<script[^>]*>.*?</script>"," ")
+                .replaceAll("(?is)<style[^>]*>.*?</style>"," ")
+                .replaceAll("(?i)<br\\s*/?>","\n")
+                .replaceAll("(?i)</p>","\n")
+                .replaceAll("(?i)</h[1-6]>","\n")
+                .replaceAll("(?is)<[^>]+>"," ")
+                .replace("&nbsp;"," ")
+                .replace("&amp;","&")
+                .replace("&lt;","<")
+                .replace("&gt;",">")
+                .replace("&quot;","\"")
+                .replace("&#39;","'")
+                .replaceAll("[ \\t\\x0B\\f\\r]+"," ")
+                .replaceAll("\\n\\s+","\n")
+                .replaceAll("\\n{3,}","\n\n")
+                .trim();
+    }
+
+    private String defaultLinkFileName(String title, URI uri) {
+        String base = title == null || title.isBlank() ? uri.getHost() : title;
+        return sanitizeFileName(base) + ".md";
+    }
+
+    private String sanitizeFileName(String value) {
+        String sanitized = value == null ? "web-link" : value.replaceAll("[\\\\/:*?\"<>|]"," ").replaceAll("\\s+"," ").trim();
+        if(sanitized.isBlank()) {
+            return "web-link";
+        }
+        return sanitized.length() > 120 ? sanitized.substring(0,120).trim() : sanitized;
+    }
+
+    private String ensureMarkdownExtension(String fileName) {
+        String lower = fileName.toLowerCase();
+        return lower.endsWith(".md") || lower.endsWith(".txt") ? fileName : fileName + ".md";
+    }
+
+    private String buildWebLinkMarkdown(URI uri, WebPageSnapshot snapshot) {
+        return "# " + snapshot.title() + "\n\n"
+                + "- Source: " + uri + "\n"
+                + "- Content-Type: " + snapshot.contentType() + "\n"
+                + "- Imported-At: " + LocalDateTime.now() + "\n\n"
+                + snapshot.text() + "\n";
+    }
+
+    private String getFileType(String fileName) {
+        if(fileName == null) {
+            return ".txt";
+        }
+        int dotIndex = fileName.lastIndexOf(".");
+        if(dotIndex < 0 || dotIndex == fileName.length() - 1) {
+            return ".txt";
+        }
+        return fileName.substring(dotIndex);
+    }
+
     private String requireSafeFileName(String fileName) {
         if(fileName == null) {
             throw new BaseException("文件名不能为空");
@@ -599,6 +980,10 @@ public class SpaceFileService {
         }
         return normalized;
     }
+
+    private record StoredPhysicalFile(String fileUuid) {}
+
+    private record WebPageSnapshot(String title, String contentType, String text) {}
 
     /**
      * 构建 buildPath 相关逻辑。

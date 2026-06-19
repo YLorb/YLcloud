@@ -99,6 +99,23 @@ public class SpaceFileController {
     }
 
     /**
+     * 上传 upload 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param file 文件对象
+     * @param parentId 父级目录 ID
+     * @param name 可选文件名
+     * @return 接口响应结果
+     */
+    @PostMapping("/upload")
+    public Result<SpaceFileVO> upload(@PathVariable Long spaceId,
+                                      @RequestParam("file") MultipartFile file,
+                                      @RequestParam(value = "parentId", required = false) Long parentId,
+                                      @RequestParam(value = "name", required = false) String name) {
+        return Result.success(spaceFileService.uploadFile(spaceId,file,parentId,name,BaseContext.getCurrentId()));
+    }
+
+    /**
      * 移除 remove 相关逻辑。
      *
      * @param spaceId 空间 ID
