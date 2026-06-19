@@ -13,8 +13,8 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface FileRagParseResultMapper {
 
-    @Select("select id, file_uuid as fileUuid, file_hash as fileHash, parser, parser_version as parserVersion, " +
-            "parse_status as parseStatus, full_text as fullText, blocks_json as blocksJson, error_message as errorMessage, " +
+    @Select("select id, file_uuid as `fileUuid`, file_hash as `fileHash`, parser, parser_version as `parserVersion`, " +
+            "parse_status as `parseStatus`, full_text as `fullText`, blocks_json as `blocksJson`, error_message as `errorMessage`, " +
             "status, createtime, updatetime from file_rag_parse_result " +
             "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and parser_version = #{parserVersion} and status = 1 " +
             "order by id desc limit 1")

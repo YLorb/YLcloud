@@ -85,6 +85,32 @@ ylcloud:
         - txt
         - md
         - markdown
+        - log
+        - csv
+        - json
+        - xml
+        - yaml
+        - yml
+        - properties
+        - java
+        - js
+        - ts
+        - jsx
+        - tsx
+        - py
+        - go
+        - rs
+        - c
+        - h
+        - cpp
+        - hpp
+        - cs
+        - php
+        - rb
+        - sh
+        - sql
+        - html
+        - css
         - pdf
         - doc
         - docx

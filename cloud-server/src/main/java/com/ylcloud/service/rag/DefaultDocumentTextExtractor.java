@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class DefaultDocumentTextExtractor implements DocumentTextExtractor {
@@ -141,7 +142,10 @@ public class DefaultDocumentTextExtractor implements DocumentTextExtractor {
      * @return 处理结果
      */
     private boolean isPlainText(String extension) {
-        return "txt".equals(extension) || "md".equals(extension) || "markdown".equals(extension);
+        return Set.of(
+                "txt","md","markdown","log","csv","json","xml","yaml","yml","properties",
+                "java","js","ts","jsx","tsx","py","go","rs","c","h","cpp","hpp","cs","php","rb","sh","sql","html","css"
+        ).contains(extension);
     }
 
     /**

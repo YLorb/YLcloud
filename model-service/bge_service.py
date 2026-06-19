@@ -1,6 +1,7 @@
 import os
 import hashlib
 import math
+import re
 from threading import Lock
 from typing import Optional
 
@@ -204,10 +205,11 @@ def fallback_rerank_score(query: str, document: str) -> float:
 
 def fallback_tokens(text: str) -> list[str]:
     lowered = text.lower()
-    words = [part for part in lowered.replace("\n", " ").split(" ") if part]
-    if words:
-        return words
-    return [char for char in lowered if not char.isspace()]
+    tokens: list[str] = []
+    tokens.extend(re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", lowered))
+    tokens.extend(part.strip(" \t\r\n,.;:!?，。；：！？、()（）[]【】\"“”‘’")
+                  for part in lowered.replace("\n", " ").split(" "))
+    return [token for token in dict.fromkeys(tokens) if token]
 
 
 @app.post("/chat", response_model=ChatResponse)

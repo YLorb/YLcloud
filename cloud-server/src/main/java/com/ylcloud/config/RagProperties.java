@@ -81,7 +81,9 @@ public class RagProperties {
         private Integer maxTextLength = 500000;
         private Boolean fallbackToMetadata = true;
         private List<String> supportedExtensions = new ArrayList<>(Arrays.asList(
-                "txt","md","markdown","pdf","doc","docx"
+                "txt","md","markdown","log","csv","json","xml","yaml","yml","properties",
+                "java","js","ts","jsx","tsx","py","go","rs","c","h","cpp","hpp","cs","php","rb","sh","sql","html","css",
+                "pdf","doc","docx"
         ));
     }
 }
