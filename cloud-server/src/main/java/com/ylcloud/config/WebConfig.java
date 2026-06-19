@@ -18,6 +18,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/**")
                 .excludePathPatterns("/api/sign")
                 .excludePathPatterns("/api/login")
+                .excludePathPatterns("/api/site/public-settings")
                 .excludePathPatterns("/api/share/**");
     }
 }

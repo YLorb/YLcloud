@@ -16,6 +16,8 @@ public class UserLoginVO {
 
     private String nickname;
 
+    private String role;
+
     // TODO：暂时使用 token 鉴权，后期使用 session 鉴权，避免频繁登录
     private String token;
 }

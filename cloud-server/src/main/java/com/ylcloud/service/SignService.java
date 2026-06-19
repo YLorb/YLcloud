@@ -15,19 +15,26 @@ import java.time.LocalDateTime;
 
 @Service
 public class SignService {
+    private static final String ROLE_USER = "USER";
+
     private final SignMapper signMapper;
     private final FileService fileService;
     private final SpaceService spaceService;
+    private final SiteSettingService siteSettingService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public SignService(SignMapper signMapper, FileService fileService, SpaceService spaceService) {
+    public SignService(SignMapper signMapper, FileService fileService, SpaceService spaceService, SiteSettingService siteSettingService) {
         this.signMapper = signMapper;
         this.fileService = fileService;
         this.spaceService = spaceService;
+        this.siteSettingService = siteSettingService;
     }
 
     @Transactional
     public void signup(UserRegisterDTO userRegisterDTO) {
+        if(!Boolean.TRUE.equals(siteSettingService.getBoolean(SiteSettingService.SITE_ALLOW_REGISTER,true))) {
+            throw new BaseException("当前站点未开放注册");
+        }
         if(signMapper.countByUsername(userRegisterDTO.getUsername()) > 0) {
             throw new BaseException("用户名已存在");
         }
@@ -36,6 +43,7 @@ public class SignService {
         BeanUtils.copyProperties(userRegisterDTO,user);
         user.setPassword(passwordEncoder.encode(userRegisterDTO.getPassword()));
         user.setStatus(StatusConstant.ENABLE);
+        user.setRole(ROLE_USER);
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         int rows = signMapper.insert(user);

@@ -21,6 +21,7 @@ import {
   Network,
   RefreshCw,
   Search,
+  Settings,
   Settings2,
   Trash2,
   UploadCloud,
@@ -30,10 +31,23 @@ import {
 } from "lucide-react";
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { api, clearSession, getStoredUser, setSession } from "./api";
-import type { FileItem, FilePreview, RagConfig, RagDocument, RagQuery, RagTask, Space, SpaceFile, SpaceMember, User } from "./types";
+import type {
+  FileItem,
+  FilePreview,
+  PublicSiteSettings,
+  RagConfig,
+  RagDocument,
+  RagQuery,
+  RagTask,
+  SiteSetting,
+  Space,
+  SpaceFile,
+  SpaceMember,
+  User
+} from "./types";
 
 type AuthMode = "login" | "sign";
-type MainView = "files" | "spaces";
+type MainView = "files" | "spaces" | "settings";
 type Category = "all" | "images" | "documents" | "videos" | "recycle";
 type Notice = { type: "success" | "error" | "info"; text: string } | null;
 type Crumb = { id: number; name: string };
@@ -66,7 +80,7 @@ function matchesCategory(item: FileItem, category: Category) {
 }
 
 function formatSize(size?: number) {
-  if (!size) return itemIsFolderSize(size);
+  if (!size) return "-";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = size;
   let index = 0;
@@ -75,10 +89,6 @@ function formatSize(size?: number) {
     index += 1;
   }
   return `${value.toFixed(index === 0 || value >= 10 ? 0 : 1)} ${units[index]}`;
-}
-
-function itemIsFolderSize(size?: number) {
-  return size === 0 ? "-" : "-";
 }
 
 function formatTime(value?: string) {
@@ -128,20 +138,28 @@ function NoticeBar({ notice, onClose }: { notice: Notice; onClose: () => void })
 
 function AuthPage({
   mode,
+  publicSettings,
   onNavigate,
   onSignedIn
 }: {
   mode: AuthMode;
+  publicSettings: PublicSiteSettings | null;
   onNavigate: (path: string) => void;
   onSignedIn: (user: User) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const isSign = mode === "sign";
+  const siteName = publicSettings?.siteName || "YL Cloud";
+  const allowRegister = publicSettings?.allowRegister ?? true;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    if (isSign && !allowRegister) {
+      setError("当前站点未开放注册");
+      return;
+    }
     setLoading(true);
     const form = new FormData(event.currentTarget);
     const username = String(form.get("username") || "").trim();
@@ -169,12 +187,12 @@ function AuthPage({
           <span className="brand-icon">
             <HardDrive size={24} />
           </span>
-          <span>YL Cloud</span>
+          <span>{siteName}</span>
         </div>
 
         <div className="auth-card-title">
           <h1>{isSign ? "创建账号" : "登录到网盘"}</h1>
-          <p>{isSign ? "注册后将自动登录并进入文件管理页面。" : "使用账号密码进入你的 YL Cloud。"} </p>
+          <p>{isSign ? "注册后将自动登录并进入文件管理页面。" : `使用账号密码进入你的 ${siteName}。`}</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -199,15 +217,15 @@ function AuthPage({
             />
           </label>
           {error && <div className="form-error">{error}</div>}
-          <button className="primary-button full" type="submit" disabled={loading}>
+          <button className="primary-button full" type="submit" disabled={loading || (isSign && !allowRegister)}>
             {loading && <Loader2 className="spin" size={16} />}
-            {isSign ? "注册并登录" : "进入网盘"}
+            {isSign && !allowRegister ? "注册已关闭" : isSign ? "注册并登录" : "进入网盘"}
           </button>
         </form>
 
         <p className="auth-switch">
           {isSign ? "已有账号？" : "还没有账号？"}
-          <button type="button" onClick={() => onNavigate(isSign ? "/login" : "/sign")}>
+          <button type="button" onClick={() => onNavigate(isSign ? "/login" : "/sign")} disabled={!isSign && !allowRegister}>
             {isSign ? "返回登录" : "立即注册"}
           </button>
         </p>
@@ -231,6 +249,11 @@ function EmptyState({ category }: { category: Category }) {
       <p>{desc}</p>
     </div>
   );
+}
+
+function withStop(event: React.MouseEvent, action: () => void) {
+  event.stopPropagation();
+  action();
 }
 
 function FileTable({
@@ -328,11 +351,6 @@ function FileTable({
   );
 }
 
-function withStop(event: React.MouseEvent, action: () => void) {
-  event.stopPropagation();
-  action();
-}
-
 function PreviewModal({ preview, file, onClose }: { preview: FilePreview | null; file: FileItem | null; onClose: () => void }) {
   if (!file) return null;
   const previewUrl = preview?.previewUrl;
@@ -370,7 +388,6 @@ function PreviewModal({ preview, file, onClose }: { preview: FilePreview | null;
     </div>
   );
 }
-
 
 function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
   const [spaces, setSpaces] = useState<Space[]>([]);
@@ -519,7 +536,9 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
         <form className="compact-form" onSubmit={createSpace}>
           <input name="name" placeholder="新空间名称" />
           <input name="description" placeholder="描述" />
-          <button className="primary-button" type="submit">创建</button>
+          <button className="primary-button" type="submit">
+            创建
+          </button>
         </form>
         <div className="space-card-list">
           {spaces.map((space) => (
@@ -540,7 +559,9 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
       <div className="spaces-main">
         {!active ? (
           <div className="empty-state compact-empty">
-            <div className="empty-icon"><Network size={32} /></div>
+            <div className="empty-icon">
+              <Network size={32} />
+            </div>
             <h3>还没有空间</h3>
             <p>创建空间后即可管理成员、空间文件和 RAG 索引。</p>
           </div>
@@ -568,10 +589,22 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
             </div>
 
             <div className="space-metrics">
-              <div><strong>{files.length}</strong><span>空间文件</span></div>
-              <div><strong>{members.length}</strong><span>成员</span></div>
-              <div><strong>{documents.length}</strong><span>RAG 文档</span></div>
-              <div><strong>{tasks.length}</strong><span>任务</span></div>
+              <div>
+                <strong>{files.length}</strong>
+                <span>空间文件</span>
+              </div>
+              <div>
+                <strong>{members.length}</strong>
+                <span>成员</span>
+              </div>
+              <div>
+                <strong>{documents.length}</strong>
+                <span>RAG 文档</span>
+              </div>
+              <div>
+                <strong>{tasks.length}</strong>
+                <span>任务</span>
+              </div>
             </div>
 
             <div className="space-grid">
@@ -607,11 +640,19 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
                   <input name="chunkSize" type="number" min="1" defaultValue={ragConfig?.chunkSize ?? 1000} aria-label="分块大小" />
                   <input name="chunkOverlap" type="number" min="0" defaultValue={ragConfig?.chunkOverlap ?? 100} aria-label="重叠长度" />
                   <input name="topK" type="number" min="1" defaultValue={ragConfig?.topK ?? 5} aria-label="召回数量" />
-                  <button className="primary-button" type="submit">保存配置</button>
+                  <button className="primary-button" type="submit">
+                    保存配置
+                  </button>
                 </form>
                 <dl className="config-facts">
-                  <div><dt>集合</dt><dd>{ragConfig?.vectorCollection || "-"}</dd></div>
-                  <div><dt>阈值</dt><dd>{ragConfig?.scoreThreshold ?? "-"}</dd></div>
+                  <div>
+                    <dt>集合</dt>
+                    <dd>{ragConfig?.vectorCollection || "-"}</dd>
+                  </div>
+                  <div>
+                    <dt>阈值</dt>
+                    <dd>{ragConfig?.scoreThreshold ?? "-"}</dd>
+                  </div>
                 </dl>
               </section>
 
@@ -623,7 +664,9 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
                 <div className="compact-list">
                   {documents.slice(0, 8).map((doc) => (
                     <div className="compact-row" key={doc.id}>
-                      <span className="file-mark"><FileText size={18} /></span>
+                      <span className="file-mark">
+                        <FileText size={18} />
+                      </span>
                       <div>
                         <strong>{doc.fileName}</strong>
                         <small>{doc.indexStatus || "-"} · {doc.chunkCount ?? 0} chunks</small>
@@ -642,7 +685,9 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
                 <div className="compact-list">
                   {members.map((member) => (
                     <div className="compact-row" key={`${member.spaceId}-${member.userId}`}>
-                      <span className="file-mark"><UsersRound size={18} /></span>
+                      <span className="file-mark">
+                        <UsersRound size={18} />
+                      </span>
                       <div>
                         <strong>用户 {member.userId}</strong>
                         <small>{member.role || "MEMBER"}</small>
@@ -687,8 +732,166 @@ function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
   );
 }
 
-function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [mainView, setMainView] = useState<MainView>("files");
+const settingGroupLabels: Record<string, string> = {
+  site: "站点信息",
+  file: "文件与分享",
+  ai: "AI / RAG"
+};
+
+function SettingsPanel({ onNotice }: { onNotice: (notice: Notice) => void }) {
+  const [settings, setSettings] = useState<SiteSetting[]>([]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [activeGroup, setActiveGroup] = useState("site");
+  const [error, setError] = useState("");
+
+  async function loadSettings() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await api.adminSettings();
+      setSettings(data);
+      const nextValues: Record<string, string> = {};
+      data.forEach((item) => {
+        nextValues[item.key] = item.secret ? "" : item.value ?? "";
+      });
+      setValues(nextValues);
+      if (data.length && !data.some((item) => item.groupName === activeGroup)) {
+        setActiveGroup(data[0].groupName);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "设置加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadSettings();
+  }, []);
+
+  const groups = useMemo(() => Array.from(new Set(settings.map((item) => item.groupName))), [settings]);
+  const visibleSettings = settings.filter((item) => item.groupName === activeGroup);
+
+  function updateValue(key: string, value: string) {
+    setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await api.updateAdminSettings(settings.map((item) => ({ key: item.key, value: values[item.key] ?? "" })));
+      await loadSettings();
+      onNotice({ type: "success", text: "系统设置已保存" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "保存设置失败";
+      setError(message);
+      onNotice({ type: "error", text: message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="settings-panel">
+      <div className="settings-head">
+        <div>
+          <h2>系统设置</h2>
+          <p>管理员可在这里维护站点信息、访问地址、注册开关和模型服务配置。</p>
+        </div>
+        <button className="icon-button" type="button" onClick={() => void loadSettings()} title="刷新设置">
+          <RefreshCw size={18} />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="loading-state">
+          <Loader2 className="spin" size={24} />
+          正在加载系统设置
+        </div>
+      ) : error && !settings.length ? (
+        <div className="error-state">
+          <strong>加载失败</strong>
+          <span>{error}</span>
+          <button type="button" onClick={() => void loadSettings()}>
+            重试
+          </button>
+        </div>
+      ) : (
+        <div className="settings-layout">
+          <nav className="settings-tabs" aria-label="设置分组">
+            {groups.map((group) => (
+              <button
+                className={activeGroup === group ? "active" : ""}
+                key={group}
+                type="button"
+                onClick={() => setActiveGroup(group)}
+              >
+                {settingGroupLabels[group] || group}
+              </button>
+            ))}
+          </nav>
+
+          <form className="settings-form" onSubmit={saveSettings}>
+            {error && <div className="form-error">{error}</div>}
+            {visibleSettings.map((item) => (
+              <label className="setting-field" key={item.key}>
+                <span>
+                  <strong>{item.label || item.key}</strong>
+                  <small>{item.description || item.key}</small>
+                </span>
+                {item.valueType === "boolean" ? (
+                  <input
+                    type="checkbox"
+                    checked={(values[item.key] ?? "").toLowerCase() === "true"}
+                    disabled={!item.editable}
+                    onChange={(event) => updateValue(item.key, event.target.checked ? "true" : "false")}
+                  />
+                ) : (
+                  <input
+                    type={item.secret ? "password" : item.valueType === "number" ? "number" : "text"}
+                    value={values[item.key] ?? ""}
+                    disabled={!item.editable}
+                    placeholder={item.secret ? `${item.maskedValue || "未配置"}，留空则不修改` : item.key}
+                    onChange={(event) => updateValue(item.key, event.target.value)}
+                  />
+                )}
+              </label>
+            ))}
+
+            <div className="settings-actions">
+              <button className="soft-button" type="button" onClick={() => void loadSettings()} disabled={saving}>
+                重置
+              </button>
+              <button className="primary-button" type="submit" disabled={saving}>
+                {saving && <Loader2 className="spin" size={16} />}
+                保存设置
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DriveApp({
+  user,
+  publicSettings,
+  path,
+  onNavigate,
+  onLogout
+}: {
+  user: User;
+  publicSettings: PublicSiteSettings | null;
+  path: string;
+  onNavigate: (path: string) => void;
+  onLogout: () => void;
+}) {
+  const [mainView, setMainView] = useState<MainView>(path === "/settings" ? "settings" : "files");
   const [category, setCategory] = useState<Category>("all");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selected, setSelected] = useState<FileItem | null>(null);
@@ -701,6 +904,18 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const parentId = crumbs[crumbs.length - 1]?.id ?? 0;
+  const isAdmin = user.role?.toUpperCase() === "ADMIN";
+  const isSettingsPage = isAdmin && path === "/settings";
+  const siteName = publicSettings?.siteName || "YL Cloud";
+  const effectiveView: MainView = isSettingsPage ? "settings" : mainView === "settings" ? "files" : mainView;
+
+  useEffect(() => {
+    if (isSettingsPage) {
+      setMainView("settings");
+    } else if (mainView === "settings") {
+      setMainView("files");
+    }
+  }, [isSettingsPage, mainView]);
 
   const filteredFiles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -739,6 +954,8 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
 
   async function switchCategory(next: Category) {
+    onNavigate("/");
+    setMainView("files");
     setCategory(next);
     setQuery("");
     setPreviewFile(null);
@@ -868,6 +1085,19 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
     onLogout();
   }
 
+  const topbarTitle =
+    effectiveView === "settings"
+      ? "系统设置"
+      : effectiveView === "spaces"
+        ? "团队空间"
+        : categoryMeta.find((item) => item.key === category)?.label || "全部文件";
+  const topbarDescription =
+    effectiveView === "settings"
+      ? "管理站点信息、访问网址和模型服务配置。"
+      : effectiveView === "spaces"
+        ? "成员协作、版本管理和 RAG 问答。"
+        : "现代化文件管理，适配当前 YLCloud 后端接口。";
+
   return (
     <main className="drive-shell">
       <aside className="sidebar">
@@ -875,28 +1105,45 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
           <span className="brand-icon">
             <HardDrive size={22} />
           </span>
-          <span>YL Cloud</span>
+          <span>{siteName}</span>
         </div>
 
         <nav className="side-nav" aria-label="功能导航">
-          <button className={mainView === "spaces" ? "active" : ""} type="button" onClick={() => setMainView("spaces")}>
+          <button
+            className={effectiveView === "spaces" ? "active" : ""}
+            type="button"
+            onClick={() => {
+              onNavigate("/");
+              setMainView("spaces");
+            }}
+          >
             <Network size={18} />
             团队空间
           </button>
           {categoryMeta.map((item) => (
             <button
-              className={mainView === "files" && category === item.key ? "active" : ""}
+              className={effectiveView === "files" && category === item.key ? "active" : ""}
               key={item.key}
               type="button"
-              onClick={() => {
-                setMainView("files");
-                void switchCategory(item.key);
-              }}
+              onClick={() => void switchCategory(item.key)}
             >
               {item.icon}
               {item.label}
             </button>
           ))}
+          {isAdmin && (
+            <button
+              className={effectiveView === "settings" ? "active" : ""}
+              type="button"
+              onClick={() => {
+                setMainView("settings");
+                onNavigate("/settings");
+              }}
+            >
+              <Settings size={18} />
+              系统设置
+            </button>
+          )}
         </nav>
 
         <div className="storage-card">
@@ -913,8 +1160,8 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
       <section className="content">
         <header className="topbar">
           <div>
-            <h1>{mainView === "spaces" ? "团队空间" : categoryMeta.find((item) => item.key === category)?.label || "全部文件"}</h1>
-            <p>{mainView === "spaces" ? "成员协作、版本管理和 RAG 问答。" : "现代化文件管理，适配当前 YLCloud 后端接口。"}</p>
+            <h1>{topbarTitle}</h1>
+            <p>{topbarDescription}</p>
           </div>
           <div className="topbar-right">
             <label className="search-box">
@@ -931,132 +1178,134 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
           </div>
         </header>
 
-        {mainView === "spaces" ? (
+        {effectiveView === "settings" ? (
+          <SettingsPanel onNotice={showNotice} />
+        ) : effectiveView === "spaces" ? (
           <SpacesView showNotice={showNotice} />
         ) : (
           <>
-        <section className="file-panel">
-          <div className="panel-toolbar">
-            <div>
-              <div className="breadcrumbs">
-                {category === "recycle" ? (
-                  <span>回收站</span>
-                ) : (
-                  crumbs.map((crumb, index) => (
-                    <button key={`${crumb.id}-${index}`} type="button" onClick={() => void jumpTo(index)}>
-                      {crumb.name}
-                      {index < crumbs.length - 1 && <ChevronRight size={14} />}
-                    </button>
-                  ))
-                )}
-              </div>
-              <p>
-                {filteredFiles.length} 项
-                {query && `，匹配「${query}」`}
-              </p>
-            </div>
+            <section className="file-panel">
+              <div className="panel-toolbar">
+                <div>
+                  <div className="breadcrumbs">
+                    {category === "recycle" ? (
+                      <span>回收站</span>
+                    ) : (
+                      crumbs.map((crumb, index) => (
+                        <button key={`${crumb.id}-${index}`} type="button" onClick={() => void jumpTo(index)}>
+                          {crumb.name}
+                          {index < crumbs.length - 1 && <ChevronRight size={14} />}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <p>
+                    {filteredFiles.length} 项
+                    {query && `，匹配「${query}」`}
+                  </p>
+                </div>
 
-            <div className="toolbar-actions">
-              {category !== "recycle" && (
-                <button className="soft-button" type="button" disabled={crumbs.length <= 1} onClick={goUp}>
-                  <ChevronLeft size={17} />
-                  返回上级
-                </button>
+                <div className="toolbar-actions">
+                  {category !== "recycle" && (
+                    <button className="soft-button" type="button" disabled={crumbs.length <= 1} onClick={goUp}>
+                      <ChevronLeft size={17} />
+                      返回上级
+                    </button>
+                  )}
+                  <button className="icon-button" type="button" onClick={() => void loadFiles(parentId, category)} title="刷新">
+                    <RefreshCw size={18} />
+                  </button>
+                  {category !== "recycle" && (
+                    <>
+                      <input ref={uploadInput} type="file" multiple hidden onChange={upload} />
+                      <button className="primary-button" type="button" onClick={() => uploadInput.current?.click()}>
+                        <UploadCloud size={17} />
+                        上传
+                      </button>
+                      <button className="soft-button" type="button" onClick={() => void createFolder()}>
+                        <FolderPlus size={17} />
+                        新建文件夹
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {error && (
+                <div className="error-state">
+                  <strong>加载失败</strong>
+                  <span>{error}</span>
+                  <button type="button" onClick={() => void loadFiles(parentId, category)}>
+                    重试
+                  </button>
+                </div>
               )}
-              <button className="icon-button" type="button" onClick={() => void loadFiles(parentId, category)} title="刷新">
-                <RefreshCw size={18} />
-              </button>
-              {category !== "recycle" && (
+
+              {loading ? (
+                <div className="loading-state">
+                  <Loader2 className="spin" size={24} />
+                  正在同步文件列表
+                </div>
+              ) : (
+                !error && (
+                  <FileTable
+                    files={filteredFiles}
+                    selected={selected}
+                    category={category}
+                    onSelect={setSelected}
+                    onOpen={(item) => void openItem(item)}
+                    onPreview={(item) => void previewItem(item)}
+                    onDownload={(item) => void downloadFile(item)}
+                    onRename={(item) => void renameFile(item)}
+                    onDelete={(item) => void deleteFile(item)}
+                    onRestore={(item) => void restoreFile(item)}
+                    onDeleteForever={(item) => void deleteForever(item)}
+                  />
+                )
+              )}
+            </section>
+
+            <section className="detail-strip">
+              {selected ? (
                 <>
-                  <input ref={uploadInput} type="file" multiple hidden onChange={upload} />
-                  <button className="primary-button" type="button" onClick={() => uploadInput.current?.click()}>
-                    <UploadCloud size={17} />
-                    上传
-                  </button>
-                  <button className="soft-button" type="button" onClick={() => void createFolder()}>
-                    <FolderPlus size={17} />
-                    新建文件夹
-                  </button>
+                  <span className={`file-mark large ${selected.isDir ? "folder" : ""}`}>{fileIcon(selected, 28)}</span>
+                  <div>
+                    <h3>{selected.name}</h3>
+                    <p>
+                      {fileTypeLabel(selected)} · {selected.isDir ? "文件夹" : formatSize(selected.size)} ·{" "}
+                      {formatTime(selected.updateTime || selected.createTime)}
+                    </p>
+                  </div>
+                  <div className="detail-actions">
+                    {!selected.isDir && (
+                      <>
+                        <button type="button" onClick={() => void previewItem(selected)}>
+                          <Eye size={16} />
+                          预览
+                        </button>
+                        <button type="button" onClick={() => void downloadFile(selected)}>
+                          <Download size={16} />
+                          下载
+                        </button>
+                      </>
+                    )}
+                    {category === "recycle" ? (
+                      <button type="button" onClick={() => void restoreFile(selected)}>
+                        <ArchiveRestore size={16} />
+                        恢复
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => void renameFile(selected)}>
+                        <MoreHorizontal size={16} />
+                        重命名
+                      </button>
+                    )}
+                  </div>
                 </>
+              ) : (
+                <p>选择一个文件或文件夹后，可在这里查看详情和快捷操作。</p>
               )}
-            </div>
-          </div>
-
-          {error && (
-            <div className="error-state">
-              <strong>加载失败</strong>
-              <span>{error}</span>
-              <button type="button" onClick={() => void loadFiles(parentId, category)}>
-                重试
-              </button>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="loading-state">
-              <Loader2 className="spin" size={24} />
-              正在同步文件列表
-            </div>
-          ) : (
-            !error && (
-              <FileTable
-                files={filteredFiles}
-                selected={selected}
-                category={category}
-                onSelect={setSelected}
-                onOpen={(item) => void openItem(item)}
-                onPreview={(item) => void previewItem(item)}
-                onDownload={(item) => void downloadFile(item)}
-                onRename={(item) => void renameFile(item)}
-                onDelete={(item) => void deleteFile(item)}
-                onRestore={(item) => void restoreFile(item)}
-                onDeleteForever={(item) => void deleteForever(item)}
-              />
-            )
-          )}
-        </section>
-
-        <section className="detail-strip">
-          {selected ? (
-            <>
-              <span className={`file-mark large ${selected.isDir ? "folder" : ""}`}>{fileIcon(selected, 28)}</span>
-              <div>
-                <h3>{selected.name}</h3>
-                <p>
-                  {fileTypeLabel(selected)} · {selected.isDir ? "文件夹" : formatSize(selected.size)} ·{" "}
-                  {formatTime(selected.updateTime || selected.createTime)}
-                </p>
-              </div>
-              <div className="detail-actions">
-                {!selected.isDir && (
-                  <>
-                    <button type="button" onClick={() => void previewItem(selected)}>
-                      <Eye size={16} />
-                      预览
-                    </button>
-                    <button type="button" onClick={() => void downloadFile(selected)}>
-                      <Download size={16} />
-                      下载
-                    </button>
-                  </>
-                )}
-                {category === "recycle" ? (
-                  <button type="button" onClick={() => void restoreFile(selected)}>
-                    <ArchiveRestore size={16} />
-                    恢复
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => void renameFile(selected)}>
-                    <MoreHorizontal size={16} />
-                    重命名
-                  </button>
-                )}
-              </div>
-            </>
-          ) : (
-            <p>选择一个文件或文件夹后，可在这里查看详情和快捷操作。</p>
-          )}
-        </section>
+            </section>
           </>
         )}
       </section>
@@ -1070,6 +1319,13 @@ function DriveApp({ user, onLogout }: { user: User; onLogout: () => void }) {
 export function App() {
   const [user, setUser] = useState<User | null>(() => getStoredUser());
   const [path, setPath] = useState(() => window.location.pathname);
+  const [publicSettings, setPublicSettings] = useState<PublicSiteSettings | null>(null);
+
+  useEffect(() => {
+    api.publicSettings()
+      .then(setPublicSettings)
+      .catch(() => setPublicSettings(null));
+  }, []);
 
   useEffect(() => {
     const syncPath = () => setPath(window.location.pathname);
@@ -1097,6 +1353,9 @@ export function App() {
     return (
       <DriveApp
         user={user}
+        publicSettings={publicSettings}
+        path={path}
+        onNavigate={navigate}
         onLogout={() => {
           setUser(null);
           navigate("/login");
@@ -1108,6 +1367,7 @@ export function App() {
   return (
     <AuthPage
       mode={path === "/sign" ? "sign" : "login"}
+      publicSettings={publicSettings}
       onNavigate={navigate}
       onSignedIn={(nextUser) => {
         setUser(nextUser);

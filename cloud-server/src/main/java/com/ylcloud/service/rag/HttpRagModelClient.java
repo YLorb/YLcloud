@@ -1,6 +1,7 @@
 package com.ylcloud.service.rag;
 
 import com.ylcloud.config.RagProperties;
+import com.ylcloud.service.SiteSettingService;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -10,19 +11,29 @@ import java.util.List;
 
 @Service
 public class HttpRagModelClient implements RagModelClient {
-    private final RestClient restClient;
+    private final RagProperties properties;
+    private final SiteSettingService siteSettingService;
 
     /**
      * 初始化 HttpRagModelClient 对象。
      *
      * @param properties 配置属性
      */
-    public HttpRagModelClient(RagProperties properties) {
+    public HttpRagModelClient(RagProperties properties, SiteSettingService siteSettingService) {
+        this.properties = properties;
+        this.siteSettingService = siteSettingService;
+    }
+
+    private RestClient restClient() {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.getConnectTimeoutMs());
         requestFactory.setReadTimeout(properties.getReadTimeoutMs());
-        this.restClient = RestClient.builder()
-                .baseUrl(properties.getModelService().getBaseUrl())
+        String baseUrl = siteSettingService.getString(
+                SiteSettingService.RAG_MODEL_SERVICE_BASE_URL,
+                properties.getModelService().getBaseUrl()
+        );
+        return RestClient.builder()
+                .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
                 .build();
     }
@@ -35,7 +46,7 @@ public class HttpRagModelClient implements RagModelClient {
      */
     @Override
     public List<float[]> embed(List<String> texts) {
-        EmbedResponse response = restClient.post()
+        EmbedResponse response = restClient().post()
                 .uri("/embed")
                 .body(new EmbedRequest(texts,true))
                 .retrieve()
@@ -64,7 +75,7 @@ public class HttpRagModelClient implements RagModelClient {
      */
     @Override
     public List<RerankResult> rerank(String query, List<String> documents, Integer topK) {
-        RerankResponse response = restClient.post()
+        RerankResponse response = restClient().post()
                 .uri("/rerank")
                 .body(new RerankRequest(query,documents,topK))
                 .retrieve()
@@ -83,7 +94,7 @@ public class HttpRagModelClient implements RagModelClient {
      */
     @Override
     public RagChatResponse chat(RagChatRequest request) {
-        RagChatResponse response = restClient.post()
+        RagChatResponse response = restClient().post()
                 .uri("/chat")
                 .body(request)
                 .retrieve()

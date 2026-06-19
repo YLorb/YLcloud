@@ -14,6 +14,8 @@ import type {
   SpaceDocumentSearch,
   SpaceFile,
   SpaceMember,
+  PublicSiteSettings,
+  SiteSetting,
   User
 } from "./types";
 
@@ -110,6 +112,13 @@ export const api = {
     request<void>("/api/sign", {
       method: "POST",
       body: JSON.stringify(payload)
+    }),
+  publicSettings: () => request<PublicSiteSettings>("/api/site/public-settings"),
+  adminSettings: () => request<SiteSetting[]>("/api/admin/settings"),
+  updateAdminSettings: (settings: Array<{ key: string; value: string }>) =>
+    request<void>("/api/admin/settings", {
+      method: "PUT",
+      body: JSON.stringify({ settings })
     }),
   currentUser: () => request<number>("/api/user/current"),
   listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`),

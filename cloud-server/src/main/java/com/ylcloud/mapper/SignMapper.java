@@ -10,8 +10,8 @@ public interface SignMapper {
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true,keyProperty = "id",keyColumn = "user_id")
-    @Insert("insert into users(username,password,nickname,status,create_time,update_time) " +
-            "values(#{username}, #{password}, #{nickname}, #{status}, #{createTime}, #{updateTime})")
+    @Insert("insert into users(username,password,nickname,status,role,create_time,update_time) " +
+            "values(#{username}, #{password}, #{nickname}, #{status}, #{role}, #{createTime}, #{updateTime})")
     int insert(User user);
 
     /**

@@ -8,7 +8,28 @@ export type User = {
   id: number;
   username: string;
   nickname: string;
+  role?: string;
   token: string;
+};
+
+export type SiteSetting = {
+  key: string;
+  value: string;
+  maskedValue?: string;
+  valueType: string;
+  groupName: string;
+  label: string;
+  description?: string;
+  secret: boolean;
+  editable: boolean;
+};
+
+export type PublicSiteSettings = {
+  siteName: string;
+  siteDescription: string;
+  logoUrl?: string;
+  publicUrl?: string;
+  allowRegister: boolean;
 };
 
 export type FileItem = {
