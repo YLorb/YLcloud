@@ -16,11 +16,19 @@ app = FastAPI(title="ylcloud BGE model service")
 
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3")
 RERANK_MODEL_NAME = os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3")
-CHAT_MODEL_NAME = os.getenv("CHAT_MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
+CHAT_MODEL_NAME = os.getenv("CHAT_MODEL_NAME", "deepseek-chat")
+GENERATE_MODEL_NAME = os.getenv("GENERATE_MODEL_NAME", "doubao-seed-2-0-pro-260215")
 MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR")
 USE_FP16 = os.getenv("USE_FP16", "true").lower() == "true"
 OPENAI_COMPATIBLE_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
 OPENAI_COMPATIBLE_API_KEY = os.getenv("OPENAI_COMPATIBLE_API_KEY")
+LLM_API_STYLE = os.getenv("LLM_API_STYLE", "responses").lower()
+CHAT_BASE_URL = os.getenv("CHAT_BASE_URL") or os.getenv("LLM_BASE_URL") or OPENAI_COMPATIBLE_BASE_URL
+CHAT_API_KEY = os.getenv("CHAT_API_KEY") or os.getenv("LLM_API_KEY") or OPENAI_COMPATIBLE_API_KEY
+CHAT_API_STYLE = os.getenv("CHAT_API_STYLE") or os.getenv("LLM_CHAT_API_STYLE") or os.getenv("LLM_API_STYLE", "chat_completions")
+GENERATE_BASE_URL = os.getenv("GENERATE_BASE_URL") or os.getenv("QUERY_REWRITE_BASE_URL") or OPENAI_COMPATIBLE_BASE_URL
+GENERATE_API_KEY = os.getenv("GENERATE_API_KEY") or os.getenv("QUERY_REWRITE_API_KEY") or OPENAI_COMPATIBLE_API_KEY
+GENERATE_API_STYLE = os.getenv("GENERATE_API_STYLE") or os.getenv("QUERY_REWRITE_API_STYLE") or os.getenv("LLM_API_STYLE", "responses")
 OFFLINE_FALLBACK = os.getenv("OFFLINE_FALLBACK", "false").lower() == "true"
 FALLBACK_DIMENSION = int(os.getenv("FALLBACK_DIMENSION", "512"))
 
@@ -100,6 +108,22 @@ class ChatResponse(BaseModel):
     totalTokens: int = 0
 
 
+class GenerateRequest(BaseModel):
+    model: Optional[str] = None
+    systemPrompt: Optional[str] = None
+    prompt: str
+    maxTokens: Optional[int] = 1024
+    temperature: Optional[float] = 0.2
+
+
+class GenerateResponse(BaseModel):
+    model: str
+    text: str
+    promptTokens: int = 0
+    completionTokens: int = 0
+    totalTokens: int = 0
+
+
 @app.get("/health")
 def health():
     return {
@@ -107,7 +131,12 @@ def health():
         "embeddingModel": EMBEDDING_MODEL_NAME,
         "rerankModel": RERANK_MODEL_NAME,
         "chatModel": CHAT_MODEL_NAME,
-        "chatEnabled": bool(OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_API_KEY),
+        "chatEnabled": bool(CHAT_BASE_URL and CHAT_API_KEY),
+        "chatApiStyle": CHAT_API_STYLE.lower(),
+        "generateModel": GENERATE_MODEL_NAME,
+        "generateEnabled": bool(GENERATE_BASE_URL and GENERATE_API_KEY),
+        "generateApiStyle": GENERATE_API_STYLE.lower(),
+        "llmApiStyle": LLM_API_STYLE,
         "embeddingLoaded": embedding_model is not None,
         "rerankerLoaded": reranker is not None,
         "cacheDir": MODEL_CACHE_DIR,
@@ -212,41 +241,131 @@ def fallback_tokens(text: str) -> list[str]:
     return [token for token in dict.fromkeys(tokens) if token]
 
 
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest):
-    if not OPENAI_COMPATIBLE_BASE_URL or not OPENAI_COMPATIBLE_API_KEY:
+def ensure_llm_config(feature: str, base_url: Optional[str], api_key: Optional[str]):
+    if not base_url or not api_key:
         raise HTTPException(
             status_code=503,
-            detail="OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_API_KEY are required for chat",
+            detail=f"base URL and API key are required for {feature}",
         )
-    model = request.model or CHAT_MODEL_NAME
-    prompt = build_chat_prompt(request)
+
+
+def llm_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}"}
+
+
+def raise_upstream_error(response: httpx.Response):
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:1000]
+        raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+
+
+def usage_tokens(data: dict) -> tuple[int, int, int]:
+    usage = data.get("usage") or {}
+    prompt = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+    completion = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+    total = usage.get("total_tokens") or (prompt + completion)
+    return int(prompt or 0), int(completion or 0), int(total or 0)
+
+
+def extract_response_text(data: dict) -> str:
+    if data.get("output_text"):
+        return str(data.get("output_text"))
+    parts: list[str] = []
+    for item in data.get("output") or []:
+        for content in item.get("content") or []:
+            if isinstance(content, dict):
+                if content.get("type") in {"output_text", "text"} and content.get("text"):
+                    parts.append(str(content.get("text")))
+                elif content.get("type") == "message" and content.get("content"):
+                    parts.append(str(content.get("content")))
+    if parts:
+        return "".join(parts)
+    choices = data.get("choices") or []
+    if choices:
+        return str(choices[0].get("message", {}).get("content", ""))
+    return ""
+
+
+def responses_input(text: str) -> list[dict]:
+    return [{"role": "user", "content": [{"type": "input_text", "text": text}]}]
+
+
+def call_responses(base_url: str, api_key: str, model: str, text: str, max_tokens: Optional[int], temperature: Optional[float]) -> tuple[str, dict]:
+    payload = {
+        "model": model,
+        "input": responses_input(text),
+        "temperature": temperature,
+    }
+    if max_tokens is not None:
+        payload["max_output_tokens"] = max_tokens
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(
+            base_url.rstrip("/") + "/responses",
+            json=payload,
+            headers=llm_headers(api_key),
+        )
+        raise_upstream_error(response)
+        data = response.json()
+    return extract_response_text(data), data
+
+
+def call_chat_completions(base_url: str, api_key: str, model: str, system_prompt: Optional[str], prompt: str, max_tokens: Optional[int], temperature: Optional[float]) -> tuple[str, dict]:
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": request.systemPrompt or ""},
+            {"role": "system", "content": system_prompt or ""},
             {"role": "user", "content": prompt},
         ],
-        "temperature": request.temperature,
-        "max_tokens": request.maxTokens,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
     }
-    headers = {"Authorization": f"Bearer {OPENAI_COMPATIBLE_API_KEY}"}
     with httpx.Client(timeout=120.0) as client:
         response = client.post(
-            OPENAI_COMPATIBLE_BASE_URL.rstrip("/") + "/chat/completions",
+            base_url.rstrip("/") + "/chat/completions",
             json=payload,
-            headers=headers,
+            headers=llm_headers(api_key),
         )
-        response.raise_for_status()
+        raise_upstream_error(response)
         data = response.json()
-    answer = data["choices"][0]["message"]["content"]
-    usage = data.get("usage") or {}
+    return extract_response_text(data), data
+
+
+def call_text_model(base_url: str, api_key: str, api_style: str, model: str, system_prompt: Optional[str], prompt: str, max_tokens: Optional[int], temperature: Optional[float]) -> tuple[str, dict]:
+    if api_style.lower() == "chat_completions":
+        return call_chat_completions(base_url, api_key, model, system_prompt, prompt, max_tokens, temperature)
+    text = ((system_prompt or "") + "\n\n" + prompt).strip()
+    return call_responses(base_url, api_key, model, text, max_tokens, temperature)
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest):
+    ensure_llm_config("chat", CHAT_BASE_URL, CHAT_API_KEY)
+    model = request.model or CHAT_MODEL_NAME
+    answer, data = call_text_model(CHAT_BASE_URL, CHAT_API_KEY, CHAT_API_STYLE, model, request.systemPrompt, build_chat_prompt(request), request.maxTokens, request.temperature)
+    prompt_tokens, completion_tokens, total_tokens = usage_tokens(data)
     return ChatResponse(
         model=model,
         answer=answer,
-        promptTokens=usage.get("prompt_tokens", 0),
-        completionTokens=usage.get("completion_tokens", 0),
-        totalTokens=usage.get("total_tokens", 0),
+        promptTokens=prompt_tokens,
+        completionTokens=completion_tokens,
+        totalTokens=total_tokens,
+    )
+
+
+@app.post("/generate", response_model=GenerateResponse)
+def generate(request: GenerateRequest):
+    ensure_llm_config("generation", GENERATE_BASE_URL, GENERATE_API_KEY)
+    model = request.model or GENERATE_MODEL_NAME
+    text, data = call_text_model(GENERATE_BASE_URL, GENERATE_API_KEY, GENERATE_API_STYLE, model, request.systemPrompt, request.prompt, request.maxTokens, request.temperature)
+    prompt_tokens, completion_tokens, total_tokens = usage_tokens(data)
+    return GenerateResponse(
+        model=model,
+        text=text,
+        promptTokens=prompt_tokens,
+        completionTokens=completion_tokens,
+        totalTokens=total_tokens,
     )
 
 

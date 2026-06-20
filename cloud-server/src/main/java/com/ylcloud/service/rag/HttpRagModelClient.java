@@ -102,6 +102,16 @@ public class HttpRagModelClient implements RagModelClient {
         return response == null ? new RagChatResponse() : response;
     }
 
+    @Override
+    public RagGenerateResponse generate(RagGenerateRequest request) {
+        RagGenerateResponse response = restClient().post()
+                .uri("/generate")
+                .body(request)
+                .retrieve()
+                .body(RagGenerateResponse.class);
+        return response == null ? new RagGenerateResponse() : response;
+    }
+
     /**
      * 生成向量 EmbedRequest 相关逻辑。
      *

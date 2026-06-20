@@ -7,6 +7,7 @@ public class RagChatResult {
     private String answer;
     private boolean success;
     private String errorMessage;
+    private String modelName;
 
     /**
      * 执行 success 函数的业务处理。

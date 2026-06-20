@@ -13,6 +13,7 @@ import java.util.List;
 @Service
 public class RagChatService {
     private static final Logger log = LoggerFactory.getLogger(RagChatService.class);
+    private static final String LEGACY_ARK_MODEL = "doubao-seed2.0";
 
     private final RagModelClient ragModelClient;
     private final RagProperties properties;
@@ -45,7 +46,8 @@ public class RagChatService {
         }
         try {
             RagChatRequest request = new RagChatRequest();
-            request.setModel(resolveChatModel(config));
+            String model = resolveChatModel(config);
+            request.setModel(model);
             request.setSystemPrompt(properties.getChat().getSystemPrompt());
             request.setQuestion(question);
             request.setContexts(buildContexts(chunks));
@@ -53,12 +55,18 @@ public class RagChatService {
             request.setTemperature(properties.getChat().getTemperature());
             RagChatResponse response = ragModelClient.chat(request);
             if(response.getAnswer() == null || response.getAnswer().isBlank()) {
-                return RagChatResult.failed(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
+                RagChatResult result = RagChatResult.failed(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
+                result.setModelName(model);
+                return result;
             }
-            return RagChatResult.success(response.getAnswer());
+            RagChatResult result = RagChatResult.success(response.getAnswer());
+            result.setModelName(model);
+            return result;
         } catch (Exception ex) {
             log.warn("RAG chat generation failed",ex);
-            return RagChatResult.failed(fallbackAnswer(),truncate(ex.getMessage(),1000));
+            RagChatResult result = RagChatResult.failed(fallbackAnswer(),truncate(ex.getMessage(),1000));
+            result.setModelName(resolveChatModel(config));
+            return result;
         }
     }
 
@@ -95,8 +103,9 @@ public class RagChatService {
      * @return 处理结果
      */
     private String resolveChatModel(SpaceRagConfig config) {
-        if(config != null && config.getChatModel() != null && !config.getChatModel().isBlank()) {
-            return config.getChatModel();
+        String configuredModel = config == null ? null : config.getChatModel();
+        if(configuredModel != null && !configuredModel.isBlank() && !LEGACY_ARK_MODEL.equals(configuredModel)) {
+            return configuredModel;
         }
         return properties.getModelService().getChatModel();
     }

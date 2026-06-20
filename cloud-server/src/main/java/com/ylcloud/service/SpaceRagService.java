@@ -40,6 +40,8 @@ import com.ylcloud.service.rag.parser.DocumentParser;
 import com.ylcloud.service.rag.parser.ParsedDocument;
 import com.ylcloud.service.rag.parser.StructuredChunk;
 import com.ylcloud.service.rag.parser.StructuredChunker;
+import com.ylcloud.service.rag.query.QueryPlan;
+import com.ylcloud.service.rag.query.QueryRewriteService;
 import com.ylcloud.service.rag.retriever.RagMultiRouteRetriever;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,6 +83,7 @@ public class SpaceRagService {
     private final RagProperties ragProperties;
     private final DocumentParser documentParser;
     private final StructuredChunker structuredChunker;
+    private final QueryRewriteService queryRewriteService;
     private final RagTaskExecutorService ragTaskExecutorService;
 
     /**
@@ -120,6 +123,7 @@ public class SpaceRagService {
                            RagProperties ragProperties,
                            DocumentParser documentParser,
                            StructuredChunker structuredChunker,
+                           QueryRewriteService queryRewriteService,
                            RagTaskExecutorService ragTaskExecutorService) {
         this.spaceRagMapper = spaceRagMapper;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
@@ -137,6 +141,7 @@ public class SpaceRagService {
         this.ragProperties = ragProperties;
         this.documentParser = documentParser;
         this.structuredChunker = structuredChunker;
+        this.queryRewriteService = queryRewriteService;
         this.ragTaskExecutorService = ragTaskExecutorService;
     }
 
@@ -202,7 +207,8 @@ public class SpaceRagService {
             throw new BaseException("当前空间未启用 RAG");
         }
         int limit = dto.getTopK() == null ? safeTopK(config.getTopK()) : dto.getTopK();
-        List<FileRagChunk> chunks = searchChunks(spaceId,dto.getQuestion(),limit,config);
+        QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion());
+        List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
         RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config);
         String answer = chatResult.getAnswer();
         List<Long> hitChunkIds = new ArrayList<>();
@@ -213,7 +219,8 @@ public class SpaceRagService {
             contexts.add(chunk.getContent());
             idJoiner.add(String.valueOf(chunk.getId()));
         }
-        saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),config.getChatModel(),
+        saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),
+                blankToCurrent(chatResult.getModelName(),config.getChatModel()),
                 chatResult.isSuccess(),chatResult.getErrorMessage());
 
         SpaceRagQueryVO vo = new SpaceRagQueryVO();
@@ -780,17 +787,17 @@ public class SpaceRagService {
      * @param config 配置对象
      * @return 列表结果
      */
-    private List<FileRagChunk> searchChunks(Long spaceId, String question, int limit, SpaceRagConfig config) {
+    private List<FileRagChunk> searchChunks(Long spaceId, QueryPlan queryPlan, int limit, SpaceRagConfig config) {
         List<FileRagChunk> spaceChunks = fileRagChunkMapper.listActiveBySpace(spaceId);
         List<FileRagChunk> candidates = ragMultiRouteRetriever.retrieve(
                 spaceId,
-                question,
+                queryPlan,
                 spaceChunks,
                 limit,
                 config.getScoreThreshold() == null ? null : config.getScoreThreshold().doubleValue()
         );
         if(!candidates.isEmpty()) {
-            return ragRerankService.rerank(question,candidates,limit);
+            return ragRerankService.rerank(queryPlan.getOriginal(),candidates,limit);
         }
         return List.of();
     }

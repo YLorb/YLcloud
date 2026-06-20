@@ -29,6 +29,12 @@ public class RagCandidateMerger {
                     current.addScore(source,candidate.getKeywordScore());
                 } else if("metadata".equals(source)) {
                     current.addScore(source,candidate.getMetadataScore());
+                } else if("title".equals(source)) {
+                    current.addScore(source,candidate.getTitleScore());
+                } else if("structure".equals(source)) {
+                    current.addScore(source,candidate.getStructureScore());
+                } else if("expanded".equals(source) || "hyde".equals(source) || "stepback".equals(source)) {
+                    current.addScore(source,candidate.getExpansionScore());
                 }
             }
         }

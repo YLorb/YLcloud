@@ -56,6 +56,28 @@ ylcloud:
     rerank:
       enabled: true
       top-k: 5
+    query:
+      rewrite-enabled: ${YLCLOUD_RAG_QUERY_REWRITE_ENABLED:true}
+      model-rewrite-enabled: ${YLCLOUD_RAG_QUERY_MODEL_REWRITE_ENABLED:true}
+      multi-query-enabled: ${YLCLOUD_RAG_MULTI_QUERY_ENABLED:true}
+      hyde-enabled: ${YLCLOUD_RAG_HYDE_ENABLED:true}
+      step-back-enabled: ${YLCLOUD_RAG_STEP_BACK_ENABLED:true}
+      max-expanded-queries: ${YLCLOUD_RAG_MAX_EXPANDED_QUERIES:4}
+      model: ${YLCLOUD_RAG_QUERY_MODEL:${YLCLOUD_ARK_MODEL:doubao-seed-2-0-pro-260215}}
+    retrieval:
+      dense-weight: 0.45
+      keyword-weight: 0.25
+      metadata-weight: 0.12
+      title-weight: 0.10
+      structure-weight: 0.05
+      query-expansion-weight: 0.70
+      neighbor-window: 1
+    chunking:
+      strategy: hybrid
+      semantic-enabled: true
+      semantic-window-chars: 260
+      semantic-break-threshold: 0.28
+      keep-code-blocks: true
     chat:
       enabled: ${YLCLOUD_RAG_CHAT_ENABLED:true}
       max-context-chars: 12000
@@ -68,6 +90,7 @@ ylcloud:
     extraction:
       enabled: true
       structured-enabled: true
+      layout-enabled: true
       ocr-enabled: true
       vlm-enabled: false
       parser-version: structured-v1
@@ -116,7 +139,7 @@ ylcloud:
         - docx
   llm:
     enabled: ${YLCLOUD_LLM_ENABLED:true}
-    provider: ${YLCLOUD_LLM_PROVIDER:openai-compatible}
+    provider: ${YLCLOUD_LLM_PROVIDER:deepseek}
     base-url: ${YLCLOUD_LLM_BASE_URL:https://api.deepseek.com}
     api-key: ${YLCLOUD_LLM_API_KEY:}
     model: ${YLCLOUD_LLM_MODEL:deepseek-chat}

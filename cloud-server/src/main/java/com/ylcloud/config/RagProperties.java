@@ -23,13 +23,16 @@ public class RagProperties {
     private Rerank rerank = new Rerank();
     private Chat chat = new Chat();
     private Extraction extraction = new Extraction();
+    private Chunking chunking = new Chunking();
+    private Query query = new Query();
+    private Retrieval retrieval = new Retrieval();
 
     @Data
     public static class ModelService {
         private String baseUrl = "http://127.0.0.1:8001";
         private String embeddingModel = "BAAI/bge-m3";
         private String rerankModel = "BAAI/bge-reranker-v2-m3";
-        private String chatModel = "Qwen/Qwen2.5-7B-Instruct";
+        private String chatModel = "deepseek-chat";
     }
 
     @Data
@@ -64,9 +67,41 @@ public class RagProperties {
     }
 
     @Data
+    public static class Chunking {
+        private String strategy = "hybrid";
+        private Boolean semanticEnabled = true;
+        private Integer semanticWindowChars = 260;
+        private Double semanticBreakThreshold = 0.28;
+        private Boolean keepCodeBlocks = true;
+    }
+
+    @Data
+    public static class Query {
+        private Boolean rewriteEnabled = true;
+        private Boolean modelRewriteEnabled = true;
+        private Boolean multiQueryEnabled = true;
+        private Boolean hydeEnabled = true;
+        private Boolean stepBackEnabled = true;
+        private Integer maxExpandedQueries = 4;
+        private String model = "doubao-seed-2-0-pro-260215";
+    }
+
+    @Data
+    public static class Retrieval {
+        private Double denseWeight = 0.45;
+        private Double keywordWeight = 0.25;
+        private Double metadataWeight = 0.12;
+        private Double titleWeight = 0.10;
+        private Double structureWeight = 0.05;
+        private Double queryExpansionWeight = 0.70;
+        private Integer neighborWindow = 1;
+    }
+
+    @Data
     public static class Extraction {
         private Boolean enabled = true;
         private Boolean structuredEnabled = true;
+        private Boolean layoutEnabled = true;
         private Boolean ocrEnabled = true;
         private Boolean vlmEnabled = false;
         private String parserVersion = "structured-v1";

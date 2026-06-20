@@ -35,13 +35,17 @@ public class StructuredChunker {
             if(blockText.isBlank()) {
                 continue;
             }
-            if(isTable(block)) {
+            if(isStandaloneBlock(block)) {
                 if(draft.length() > 0) {
                     chunks.add(toChunk(chunks.size(),draft,document));
                     draft = new ChunkDraft();
                 }
-                chunks.addAll(tableChunks(chunks.size(),block,blockText,document,chunkSize));
+                chunks.addAll(standaloneChunks(chunks.size(),block,blockText,document,chunkSize,chunkOverlap));
                 continue;
+            }
+            if(draft.length() > 0 && shouldBreakDraft(draft,block,blockText,chunkSize)) {
+                chunks.add(toChunk(chunks.size(),draft,document));
+                draft = draft.tail(chunkOverlap);
             }
             if(draft.length() > 0 && draft.length() + blockText.length() + 2 > chunkSize) {
                 chunks.add(toChunk(chunks.size(),draft,document));
@@ -67,24 +71,21 @@ public class StructuredChunker {
         return chunks;
     }
 
-    private List<StructuredChunk> tableChunks(int startIndex, DocumentBlock block, String blockText,
-                                              ParsedDocument document, int chunkSize) {
-        if(blockText.length() <= chunkSize) {
-            ChunkDraft draft = new ChunkDraft();
-            draft.add(block,blockText);
-            draft.tableId = tableId(block);
-            draft.tablePartIndex = 1;
-            draft.tablePartCount = 1;
-            return List.of(toChunk(startIndex,draft,document));
+    private List<StructuredChunk> standaloneChunks(int startIndex, DocumentBlock block, String blockText,
+                                                   ParsedDocument document, int chunkSize, int chunkOverlap) {
+        List<String> parts = isTable(block) ? splitTable(blockText,chunkSize) : recursiveSplit(blockText,chunkSize,chunkOverlap,0);
+        if(parts.isEmpty()) {
+            parts = List.of(blockText);
         }
-        List<String> parts = splitTable(blockText,chunkSize);
         List<StructuredChunk> result = new ArrayList<>();
         for(int i = 0; i < parts.size(); i++) {
             ChunkDraft draft = new ChunkDraft();
             draft.add(block,parts.get(i));
-            draft.tableId = tableId(block);
-            draft.tablePartIndex = i + 1;
-            draft.tablePartCount = parts.size();
+            if(isTable(block)) {
+                draft.tableId = tableId(block);
+                draft.tablePartIndex = i + 1;
+                draft.tablePartCount = parts.size();
+            }
             result.add(toChunk(startIndex + i,draft,document));
         }
         return result;
@@ -193,8 +194,67 @@ public class StructuredChunker {
         return text;
     }
 
+    private boolean isStandaloneBlock(DocumentBlock block) {
+        if(block == null || block.getType() == null) {
+            return false;
+        }
+        if(isTable(block)) {
+            return true;
+        }
+        return Boolean.TRUE.equals(ragProperties.getChunking().getKeepCodeBlocks())
+                && "code".equalsIgnoreCase(block.getType());
+    }
+
     private boolean isTable(DocumentBlock block) {
         return block != null && "table".equalsIgnoreCase(block.getType());
+    }
+
+    private boolean shouldBreakDraft(ChunkDraft draft, DocumentBlock block, String blockText, int chunkSize) {
+        if(block != null && "heading".equalsIgnoreCase(block.getType())) {
+            return true;
+        }
+        if(!Boolean.TRUE.equals(ragProperties.getChunking().getSemanticEnabled())) {
+            return false;
+        }
+        if(draft.length() < 120 || blockText.length() < 40) {
+            return false;
+        }
+        if(draft.length() + blockText.length() + 2 > chunkSize) {
+            return true;
+        }
+        return lexicalOverlap(draft.content.toString(),blockText) < semanticThreshold();
+    }
+
+    private double semanticThreshold() {
+        return ragProperties.getChunking().getSemanticBreakThreshold() == null ? 0.28
+                : ragProperties.getChunking().getSemanticBreakThreshold();
+    }
+
+    private double lexicalOverlap(String left, String right) {
+        Set<String> leftTokens = tokens(left);
+        Set<String> rightTokens = tokens(right);
+        if(leftTokens.isEmpty() || rightTokens.isEmpty()) {
+            return 1.0;
+        }
+        int overlap = 0;
+        for(String token : leftTokens) {
+            if(rightTokens.contains(token)) {
+                overlap++;
+            }
+        }
+        return overlap * 1.0 / Math.sqrt(leftTokens.size() * rightTokens.size());
+    }
+
+    private Set<String> tokens(String value) {
+        Set<String> result = new LinkedHashSet<>();
+        if(value == null) {
+            return result;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("[a-zA-Z0-9_]{2,}|[\u4e00-\u9fff]").matcher(value.toLowerCase());
+        while(matcher.find()) {
+            result.add(matcher.group());
+        }
+        return result;
     }
 
     private String tableId(DocumentBlock block) {

@@ -53,8 +53,16 @@ services:
       EMBEDDING_MODEL_NAME: ${YLCLOUD_RAG_EMBEDDING_MODEL:-BAAI/bge-small-zh-v1.5}
       RERANK_MODEL_NAME: ${YLCLOUD_RAG_RERANK_MODEL:-BAAI/bge-reranker-base}
       CHAT_MODEL_NAME: ${YLCLOUD_LLM_MODEL:-deepseek-chat}
-      OPENAI_COMPATIBLE_BASE_URL: ${YLCLOUD_LLM_BASE_URL:-}
-      OPENAI_COMPATIBLE_API_KEY: ${YLCLOUD_LLM_API_KEY:-}
+      CHAT_BASE_URL: ${YLCLOUD_LLM_BASE_URL:-https://api.deepseek.com}
+      CHAT_API_KEY: ${YLCLOUD_LLM_API_KEY:-}
+      CHAT_API_STYLE: ${YLCLOUD_LLM_CHAT_API_STYLE:-chat_completions}
+      GENERATE_MODEL_NAME: ${YLCLOUD_RAG_QUERY_MODEL:-${YLCLOUD_ARK_MODEL:-doubao-seed-2-0-pro-260215}}
+      GENERATE_BASE_URL: ${YLCLOUD_RAG_QUERY_BASE_URL:-${YLCLOUD_ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}}
+      GENERATE_API_KEY: ${YLCLOUD_RAG_QUERY_API_KEY:-${YLCLOUD_ARK_API_KEY:-${ARK_API_KEY:-}}}
+      GENERATE_API_STYLE: ${YLCLOUD_RAG_QUERY_API_STYLE:-responses}
+      OPENAI_COMPATIBLE_BASE_URL: ${YLCLOUD_ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      OPENAI_COMPATIBLE_API_KEY: ${YLCLOUD_ARK_API_KEY:-${ARK_API_KEY:-}}
+      LLM_API_STYLE: ${YLCLOUD_LLM_API_STYLE:-responses}
     ports:
       - "8001:8001"
     volumes:
@@ -71,7 +79,13 @@ services:
     container_name: ylcloud-document-parser-service
     environment:
       OCR_LANG: ${YLCLOUD_RAG_OCR_LANG:-chi_sim+eng}
-      VLM_PARSE_ENDPOINT: ${YLCLOUD_RAG_VLM_PARSE_ENDPOINT:-}
+      OPENAI_COMPATIBLE_BASE_URL: ${YLCLOUD_ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      OPENAI_COMPATIBLE_API_KEY: ${YLCLOUD_ARK_API_KEY:-${ARK_API_KEY:-}}
+      CHAT_MODEL_NAME: ${YLCLOUD_ARK_MODEL:-doubao-seed-2-0-pro-260215}
+      VLM_BASE_URL: ${YLCLOUD_VLM_BASE_URL:-${YLCLOUD_ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}}
+      VLM_API_KEY: ${YLCLOUD_VLM_API_KEY:-${YLCLOUD_ARK_API_KEY:-${ARK_API_KEY:-}}}
+      VLM_MODEL: ${YLCLOUD_VLM_MODEL:-${YLCLOUD_ARK_MODEL:-doubao-seed-2-0-pro-260215}}
+      VLM_API_STYLE: ${YLCLOUD_VLM_API_STYLE:-responses}
     ports:
       - "8002:8002"
     healthcheck:
@@ -113,10 +127,14 @@ services:
       YLCLOUD_RAG_QDRANT_REST_PORT: 6333
       YLCLOUD_RAG_QDRANT_PORT: 6334
       YLCLOUD_LLM_ENABLED: ${YLCLOUD_LLM_ENABLED:-true}
-      YLCLOUD_LLM_PROVIDER: ${YLCLOUD_LLM_PROVIDER:-openai-compatible}
+      YLCLOUD_LLM_PROVIDER: ${YLCLOUD_LLM_PROVIDER:-deepseek}
       YLCLOUD_LLM_BASE_URL: ${YLCLOUD_LLM_BASE_URL:-https://api.deepseek.com}
       YLCLOUD_LLM_API_KEY: ${YLCLOUD_LLM_API_KEY:-}
       YLCLOUD_LLM_MODEL: ${YLCLOUD_LLM_MODEL:-deepseek-chat}
+      YLCLOUD_ARK_BASE_URL: ${YLCLOUD_ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      YLCLOUD_ARK_API_KEY: ${YLCLOUD_ARK_API_KEY:-${ARK_API_KEY:-}}
+      YLCLOUD_ARK_MODEL: ${YLCLOUD_ARK_MODEL:-doubao-seed-2-0-pro-260215}
+      YLCLOUD_RAG_QUERY_MODEL: ${YLCLOUD_RAG_QUERY_MODEL:-${YLCLOUD_ARK_MODEL:-doubao-seed-2-0-pro-260215}}
     ports:
       - "8080:8080"
     volumes:

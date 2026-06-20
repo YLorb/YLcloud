@@ -12,6 +12,9 @@ public class RagCandidate {
     private double vectorScore;
     private double keywordScore;
     private double metadataScore;
+    private double titleScore;
+    private double structureScore;
+    private double expansionScore;
     private double finalScore;
     private Set<String> hitSources = new LinkedHashSet<>();
 
@@ -27,7 +30,15 @@ public class RagCandidate {
             keywordScore = Math.max(keywordScore,score);
         } else if("metadata".equals(source)) {
             metadataScore = Math.max(metadataScore,score);
+        } else if("title".equals(source)) {
+            titleScore = Math.max(titleScore,score);
+        } else if("structure".equals(source)) {
+            structureScore = Math.max(structureScore,score);
+        } else if("expanded".equals(source) || "hyde".equals(source) || "stepback".equals(source)) {
+            expansionScore = Math.max(expansionScore,score);
         }
-        finalScore = vectorScore * 0.65 + keywordScore * 0.25 + metadataScore * 0.10 + Math.max(0,hitSources.size() - 1) * 0.05;
+        finalScore = vectorScore * 0.45 + keywordScore * 0.25 + metadataScore * 0.12
+                + titleScore * 0.10 + structureScore * 0.05 + expansionScore * 0.08
+                + Math.max(0,hitSources.size() - 1) * 0.04;
     }
 }

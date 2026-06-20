@@ -28,11 +28,13 @@ ylcloud:
       chat-model: ${YLCLOUD_LLM_MODEL:deepseek-chat}
     qdrant:
       collection-name: ${YLCLOUD_RAG_QDRANT_COLLECTION_NAME:ylcloud_rag_bge_small_zh_v15}
+    query:
+      model: ${YLCLOUD_RAG_QUERY_MODEL:${YLCLOUD_ARK_MODEL:doubao-seed-2-0-pro-260215}}
     chat:
       enabled: ${YLCLOUD_RAG_CHAT_ENABLED:true}
   llm:
     enabled: ${YLCLOUD_LLM_ENABLED:true}
-    provider: ${YLCLOUD_LLM_PROVIDER:openai-compatible}
+    provider: ${YLCLOUD_LLM_PROVIDER:deepseek}
     base-url: ${YLCLOUD_LLM_BASE_URL:https://api.deepseek.com}
     api-key: ${YLCLOUD_LLM_API_KEY:}
     model: ${YLCLOUD_LLM_MODEL:deepseek-chat}

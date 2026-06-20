@@ -28,4 +28,12 @@ public interface RagModelClient {
      * @return 问答响应结果
      */
     RagChatResponse chat(RagChatRequest request);
+
+    /**
+     * 调用模型服务执行通用文本生成。
+     *
+     * @param request 生成请求
+     * @return 生成响应
+     */
+    RagGenerateResponse generate(RagGenerateRequest request);
 }

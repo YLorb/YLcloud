@@ -25,6 +25,29 @@ public class ParserServiceClient {
                 .build();
     }
 
+
+    public ParsedDocument parseLayout(LayoutParseRequest request) {
+        if(ragProperties.getExtraction() == null || !Boolean.TRUE.equals(ragProperties.getExtraction().getLayoutEnabled())) {
+            return ParsedDocument.failed(request.fileUuid(),request.fileHash(),"pdf-layout",request.parserVersion(),"Layout parser is disabled");
+        }
+        try {
+            LayoutParseResponse response = restClient.post()
+                    .uri("/parse/layout")
+                    .body(request)
+                    .retrieve()
+                    .body(LayoutParseResponse.class);
+            if(response == null || !response.isSuccess()) {
+                String message = response == null ? "Layout parser returned empty response" : response.getErrorMessage();
+                return ParsedDocument.failed(request.fileUuid(),request.fileHash(),"pdf-layout",request.parserVersion(),message);
+            }
+            return ParsedDocument.success(request.fileUuid(),request.fileHash(),response.getParser(),response.getParserVersion(),
+                    response.getFullText(),response.getBlocks());
+        } catch (RestClientException ex) {
+            return ParsedDocument.failed(request.fileUuid(),request.fileHash(),"pdf-layout",request.parserVersion(),
+                    "Layout parser request failed: " + ex.getMessage());
+        }
+    }
+
     public ParsedDocument parseVlmPage(VlmParseRequest request) {
         if(ragProperties.getExtraction() == null || !Boolean.TRUE.equals(ragProperties.getExtraction().getVlmEnabled())) {
             return ParsedDocument.failed(request.fileUuid(),request.fileHash(),"vlm-page",request.parserVersion(),"VLM parser is disabled");
@@ -69,12 +92,27 @@ public class ParserServiceClient {
         }
     }
 
+    public record LayoutParseRequest(String fileUuid, String fileHash, String fileName, String fileType,
+                                     String objectUrl, Integer maxPages, String parserVersion) {
+    }
+
     public record VlmParseRequest(String fileUuid, String fileHash, String fileName, String fileType,
-                                  Integer pageNo, String parserVersion) {
+                                  String objectUrl, Integer pageNo, Integer maxPages, String parserVersion) {
     }
 
     public record OcrParseRequest(String fileUuid, String fileHash, String fileName, String fileType,
                                   String objectUrl, Integer maxPages, String parserVersion) {
+    }
+
+    @lombok.Data
+    public static class LayoutParseResponse {
+        private boolean success;
+        private String parser;
+        private String parserVersion;
+        private String fullText;
+        private List<DocumentBlock> blocks;
+        private String errorMessage;
+        private List<String> warnings;
     }
 
     @lombok.Data

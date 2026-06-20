@@ -19,6 +19,7 @@ public class HybridDocumentParser implements DocumentParser {
     private final RagProperties ragProperties;
     private final DocxStructuredParser docxStructuredParser;
     private final TikaStructuredParser tikaStructuredParser;
+    private final LayoutStructuredParser layoutStructuredParser;
     private final OcrStructuredParser ocrStructuredParser;
     private final VlmPageParser vlmPageParser;
     private final DocumentParseQualityAssessor qualityAssessor;
@@ -28,6 +29,7 @@ public class HybridDocumentParser implements DocumentParser {
     public HybridDocumentParser(RagProperties ragProperties,
                                 DocxStructuredParser docxStructuredParser,
                                 TikaStructuredParser tikaStructuredParser,
+                                LayoutStructuredParser layoutStructuredParser,
                                 OcrStructuredParser ocrStructuredParser,
                                 VlmPageParser vlmPageParser,
                                 DocumentParseQualityAssessor qualityAssessor,
@@ -36,6 +38,7 @@ public class HybridDocumentParser implements DocumentParser {
         this.ragProperties = ragProperties;
         this.docxStructuredParser = docxStructuredParser;
         this.tikaStructuredParser = tikaStructuredParser;
+        this.layoutStructuredParser = layoutStructuredParser;
         this.ocrStructuredParser = ocrStructuredParser;
         this.vlmPageParser = vlmPageParser;
         this.qualityAssessor = qualityAssessor;
@@ -52,9 +55,15 @@ public class HybridDocumentParser implements DocumentParser {
             return cachedDocument;
         }
 
-        ParsedDocument parsed = isDocx(spaceFile,file)
-                ? docxStructuredParser.parse(spaceFile,file)
-                : tikaStructuredParser.parse(spaceFile,file);
+        ParsedDocument parsed = shouldUseLayout(spaceFile,file)
+                ? layoutStructuredParser.parse(spaceFile,file)
+                : isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
+        if((!parsed.isSuccess() || qualityAssessor.isLowQuality(parsed)) && shouldUseLayout(spaceFile,file)) {
+            ParsedDocument tikaParsed = isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
+            if(tikaParsed.isSuccess() && !qualityAssessor.isLowQuality(tikaParsed)) {
+                parsed = tikaParsed;
+            }
+        }
         if(!parsed.isSuccess() && isDocx(spaceFile,file)) {
             parsed = tikaStructuredParser.parse(spaceFile,file);
         }
@@ -120,6 +129,18 @@ public class HybridDocumentParser implements DocumentParser {
 
     private boolean fallbackToMetadata() {
         return ragProperties.getExtraction() == null || !Boolean.FALSE.equals(ragProperties.getExtraction().getFallbackToMetadata());
+    }
+
+    private boolean shouldUseLayout(SpaceFile spaceFile, File file) {
+        RagProperties.Extraction extraction = ragProperties.getExtraction();
+        if(extraction == null || !Boolean.TRUE.equals(extraction.getLayoutEnabled())) {
+            return false;
+        }
+        String name = spaceFile != null && spaceFile.getFileName() != null ? spaceFile.getFileName() : file == null ? null : file.getName();
+        String type = file == null || file.getType() == null ? "" : file.getType().toLowerCase();
+        String lowerName = name == null ? "" : name.toLowerCase();
+        return lowerName.endsWith(".pdf") || lowerName.endsWith(".png") || lowerName.endsWith(".jpg")
+                || lowerName.endsWith(".jpeg") || lowerName.endsWith(".webp") || type.contains("pdf") || type.startsWith("image");
     }
 
     private String parserVersion() {

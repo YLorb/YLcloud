@@ -36,12 +36,17 @@ Returns model names, cache directory, fp16 mode, and whether chat generation is 
 
 `POST /chat`
 
-The chat endpoint calls an OpenAI-compatible `/chat/completions` API. Configure it with:
+The chat endpoint and generation endpoint can use separate upstream models. Configure chat for DeepSeek and generation for Ark Responses API:
 
 ```bash
-OPENAI_COMPATIBLE_BASE_URL=http://your-llm-gateway/v1
-OPENAI_COMPATIBLE_API_KEY=your-key
-CHAT_MODEL_NAME=Qwen/Qwen2.5-7B-Instruct
+CHAT_BASE_URL=https://api.deepseek.com
+CHAT_API_KEY=your-deepseek-key
+CHAT_MODEL_NAME=deepseek-chat
+CHAT_API_STYLE=chat_completions
+GENERATE_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+GENERATE_API_KEY=your-ark-key
+GENERATE_MODEL_NAME=doubao-seed-2-0-pro-260215
+GENERATE_API_STYLE=responses
 ```
 
 ```json
