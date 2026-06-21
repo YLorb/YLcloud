@@ -37,27 +37,28 @@ public class RagRerankService {
      * @return 列表结果
      */
     public List<FileRagChunk> rerank(String query, List<FileRagChunk> chunks, int finalTopK) {
-        if(!Boolean.TRUE.equals(properties.getRerank().getEnabled()) || chunks == null || chunks.size() <= 1) {
-            return limit(chunks,finalTopK);
+        int outputTopK = outputTopK(finalTopK,chunks == null ? 0 : chunks.size());
+        if(!Boolean.TRUE.equals(rerankProperties().getEnabled()) || chunks == null || chunks.size() <= 1) {
+            return limit(chunks,outputTopK);
         }
         try {
             List<String> documents = new ArrayList<>();
             for(FileRagChunk chunk : chunks) {
                 documents.add(rerankDocument(chunk));
             }
-            List<RerankResult> results = ragModelClient.rerank(query,documents,Math.min(finalTopK,chunks.size()));
+            List<RerankResult> results = ragModelClient.rerank(query,documents,outputTopK);
             if(results.isEmpty()) {
-                return limit(chunks,finalTopK);
+                return limit(chunks,outputTopK);
             }
             List<FileRagChunk> reranked = new ArrayList<>();
             results.stream()
                     .filter(result -> result.getIndex() != null && result.getIndex() >= 0 && result.getIndex() < chunks.size())
                     .sorted(Comparator.comparing(RerankResult::getScore,Comparator.nullsLast(Double::compareTo)).reversed())
                     .forEach(result -> reranked.add(chunks.get(result.getIndex())));
-            return reranked.isEmpty() ? limit(chunks,finalTopK) : limit(reranked,finalTopK);
+            return reranked.isEmpty() ? limit(chunks,outputTopK) : limit(reranked,outputTopK);
         } catch (Exception ex) {
             log.warn("BGE rerank failed, using Qdrant similarity order",ex);
-            return limit(chunks,finalTopK);
+            return limit(chunks,outputTopK);
         }
     }
 
@@ -82,5 +83,17 @@ public class RagRerankService {
         }
         builder.append("Content:\n").append(chunk.getContent() == null ? "" : chunk.getContent());
         return builder.toString();
+    }
+
+    private int outputTopK(int requestedTopK, int chunkCount) {
+        int configuredTopK = rerankProperties().getTopK() == null || rerankProperties().getTopK() <= 0
+                ? 5 : rerankProperties().getTopK();
+        int requested = requestedTopK <= 0 ? configuredTopK : requestedTopK;
+        int limit = Math.min(requested,configuredTopK);
+        return chunkCount <= 0 ? limit : Math.min(limit,chunkCount);
+    }
+
+    private RagProperties.Rerank rerankProperties() {
+        return properties.getRerank() == null ? new RagProperties.Rerank() : properties.getRerank();
     }
 }

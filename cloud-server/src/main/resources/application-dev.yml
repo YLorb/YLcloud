@@ -24,7 +24,7 @@ ylcloud:
     model-service:
       base-url: ${YLCLOUD_RAG_MODEL_SERVICE_BASE_URL:http://127.0.0.1:8001}
       embedding-model: ${YLCLOUD_RAG_EMBEDDING_MODEL:BAAI/bge-small-zh-v1.5}
-      rerank-model: ${YLCLOUD_RAG_RERANK_MODEL:BAAI/bge-reranker-base}
+      rerank-model: ${YLCLOUD_RAG_RERANK_MODEL:BAAI/bge-reranker-v2-m3}
       chat-model: ${YLCLOUD_LLM_MODEL:deepseek-chat}
     qdrant:
       collection-name: ${YLCLOUD_RAG_QDRANT_COLLECTION_NAME:ylcloud_rag_bge_small_zh_v15}

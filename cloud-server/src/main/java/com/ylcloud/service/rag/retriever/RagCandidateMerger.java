@@ -28,7 +28,7 @@ public class RagCandidateMerger {
         }
         Map<Long, RagCandidate> merged = new LinkedHashMap<>();
         Map<String, Double> weights = sourceWeights();
-        double bonus = multiRouteBonus();
+        int rrfK = rrfK();
         for(RagCandidate candidate : candidates) {
             if(candidate == null || candidate.getChunk() == null || candidate.getChunk().getId() == null) {
                 continue;
@@ -37,7 +37,10 @@ public class RagCandidateMerger {
             for(Map.Entry<String, Double> entry : candidate.getSourceScores().entrySet()) {
                 current.addScore(entry.getKey(),entry.getValue());
             }
-            current.recalculateFinalScore(weights,bonus);
+            for(Map.Entry<String, Integer> entry : candidate.getSourceRanks().entrySet()) {
+                current.addRank(entry.getKey(),entry.getValue());
+            }
+            current.setFinalScore(rrfScore(current,weights,rrfK));
         }
         return merged.values().stream()
                 .sorted(Comparator.comparing(RagCandidate::getFinalScore).reversed())
@@ -52,10 +55,18 @@ public class RagCandidateMerger {
         }
         for(int i = 0; i < chunks.size(); i++) {
             RagCandidate candidate = new RagCandidate(chunks.get(i));
-            candidate.addScore(source,baseScore / (i + 1));
+            candidate.addRouteHit(source,i + 1,baseScore);
             candidates.add(candidate);
         }
         return candidates;
+    }
+
+    private double rrfScore(RagCandidate candidate, Map<String, Double> sourceWeights, int rrfK) {
+        double score = 0.0;
+        for(Map.Entry<String, Integer> entry : candidate.getSourceRanks().entrySet()) {
+            score += weight(sourceWeights,entry.getKey()) / (rrfK + entry.getValue());
+        }
+        return score;
     }
 
     private Map<String, Double> sourceWeights() {
@@ -73,12 +84,29 @@ public class RagCandidateMerger {
         return weights;
     }
 
-    private double multiRouteBonus() {
-        return safe(retrievalProperties().getMultiRouteBonus(),0.04);
+    private int rrfK() {
+        Integer value = retrievalProperties().getRrfK();
+        return value == null || value < 1 ? 60 : value;
     }
 
     private double safe(Double value, double fallback) {
         return value == null ? fallback : value;
+    }
+
+    private double weight(Map<String, Double> sourceWeights, String source) {
+        if(sourceWeights.containsKey(source)) {
+            return sourceWeights.get(source);
+        }
+        if(source != null && source.startsWith("multi_query")) {
+            return sourceWeights.getOrDefault("multi_query",1.0);
+        }
+        if(source != null && source.startsWith("hyde")) {
+            return sourceWeights.getOrDefault("hyde",1.0);
+        }
+        if(source != null && source.startsWith("stepback")) {
+            return sourceWeights.getOrDefault("stepback",1.0);
+        }
+        return 1.0;
     }
 
     private RagProperties.Retrieval retrievalProperties() {

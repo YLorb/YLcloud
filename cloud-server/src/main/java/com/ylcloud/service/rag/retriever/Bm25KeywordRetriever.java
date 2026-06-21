@@ -55,7 +55,11 @@ public class Bm25KeywordRetriever {
             scored.add(candidate);
         }
         scored.sort((left,right) -> Double.compare(right.getFinalScore(),left.getFinalScore()));
-        return scored.size() > limit ? scored.subList(0,limit) : scored;
+        List<RagCandidate> limited = scored.size() > limit ? scored.subList(0,limit) : scored;
+        for(int i = 0; i < limited.size(); i++) {
+            limited.get(i).addRank(source,i + 1);
+        }
+        return limited;
     }
 
     public List<String> tokenize(String text) {

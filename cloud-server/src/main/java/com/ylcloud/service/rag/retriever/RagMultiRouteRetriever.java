@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -115,7 +114,7 @@ public class RagMultiRouteRetriever {
         List<FileRagChunk> merged = candidateMerger.merge(candidates,mergeLimit);
         log.info("RAG multi-route retrieval merged: candidateCount={}, mergedCount={}, finalTopK={}",
                 candidates.size(),merged.size(),finalTopK);
-        return expandNeighbors(merged,spaceChunks,mergeLimit);
+        return merged;
     }
 
     private int safeLimit(Integer value, int fallback) {
@@ -124,52 +123,6 @@ public class RagMultiRouteRetriever {
 
     private RagProperties.Retrieval retrievalProperties() {
         return ragProperties.getRetrieval() == null ? new RagProperties.Retrieval() : ragProperties.getRetrieval();
-    }
-
-    private List<FileRagChunk> expandNeighbors(List<FileRagChunk> selected, List<FileRagChunk> spaceChunks, int limit) {
-        Integer neighborWindow = retrievalProperties().getNeighborWindow();
-        int window = neighborWindow == null ? 1 : Math.max(0,neighborWindow);
-        if(window == 0 || selected == null || selected.isEmpty()) {
-            return selected;
-        }
-        List<FileRagChunk> ordered = new ArrayList<>(spaceChunks);
-        ordered.sort(Comparator.comparing(FileRagChunk::getFileUuid,Comparator.nullsLast(String::compareTo))
-                .thenComparing(FileRagChunk::getChunkIndex,Comparator.nullsLast(Integer::compareTo)));
-        List<FileRagChunk> result = new ArrayList<>();
-        for(FileRagChunk chunk : selected) {
-            addIfAbsent(result,chunk);
-            for(int i = 0; i < ordered.size(); i++) {
-                FileRagChunk current = ordered.get(i);
-                if(current.getId() == null || !current.getId().equals(chunk.getId())) {
-                    continue;
-                }
-                int from = Math.max(0,i - window);
-                int to = Math.min(ordered.size() - 1,i + window);
-                for(int j = from; j <= to; j++) {
-                    FileRagChunk neighbor = ordered.get(j);
-                    if(neighbor.getFileUuid() != null && neighbor.getFileUuid().equals(chunk.getFileUuid())) {
-                        addIfAbsent(result,neighbor);
-                    }
-                }
-                break;
-            }
-            if(result.size() >= limit) {
-                break;
-            }
-        }
-        return result.size() > limit ? result.subList(0,limit) : result;
-    }
-
-    private void addIfAbsent(List<FileRagChunk> chunks, FileRagChunk chunk) {
-        if(chunk == null || chunk.getId() == null) {
-            return;
-        }
-        for(FileRagChunk item : chunks) {
-            if(chunk.getId().equals(item.getId())) {
-                return;
-            }
-        }
-        chunks.add(chunk);
     }
 
     private List<String> keywords(String question) {

@@ -51,6 +51,7 @@ public class RagProperties {
     @Data
     public static class Rerank {
         private Boolean enabled = true;
+        private Integer candidateTopK = 5;
         private Integer topK = 5;
     }
 
@@ -98,6 +99,7 @@ public class RagProperties {
         private Double stepBackWeight = 0.18;
         private Double queryExpansionWeight = 0.70;
         private Integer neighborWindow = 1;
+        private Integer rrfK = 60;
         private Integer vectorTopK = 20;
         private Integer bm25TopK = 20;
         private Integer multiQueryTopK = 20;
@@ -108,7 +110,6 @@ public class RagProperties {
         private Double exactMatchBoost = 1.5;
         private Double bm25K1 = 1.5;
         private Double bm25B = 0.75;
-        private Double multiRouteBonus = 0.04;
     }
 
     @Data

@@ -797,9 +797,26 @@ public class SpaceRagService {
                 config.getScoreThreshold() == null ? null : config.getScoreThreshold().doubleValue()
         );
         if(!candidates.isEmpty()) {
-            return ragRerankService.rerank(queryPlan.getOriginal(),candidates,limit);
+            int candidateTopK = rerankCandidateTopK();
+            List<FileRagChunk> rerankCandidates = limitChunks(candidates,candidateTopK);
+            return ragRerankService.rerank(queryPlan.getOriginal(),rerankCandidates,Math.min(limit,candidateTopK));
         }
         return List.of();
+    }
+
+    private int rerankCandidateTopK() {
+        if(ragProperties.getRerank() == null || ragProperties.getRerank().getCandidateTopK() == null
+                || ragProperties.getRerank().getCandidateTopK() <= 0) {
+            return DEFAULT_TOP_K;
+        }
+        return ragProperties.getRerank().getCandidateTopK();
+    }
+
+    private List<FileRagChunk> limitChunks(List<FileRagChunk> chunks, int limit) {
+        if(chunks == null || chunks.isEmpty()) {
+            return List.of();
+        }
+        return new ArrayList<>(chunks.subList(0,Math.min(limit,chunks.size())));
     }
 
     /**

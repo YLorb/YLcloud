@@ -19,6 +19,7 @@ public class RagCandidate {
     private double expansionScore;
     private double finalScore;
     private Map<String, Double> sourceScores = new LinkedHashMap<>();
+    private Map<String, Integer> sourceRanks = new LinkedHashMap<>();
     private Set<String> hitSources = new LinkedHashSet<>();
 
     public RagCandidate(FileRagChunk chunk) {
@@ -49,30 +50,17 @@ public class RagCandidate {
                 + Math.max(0,hitSources.size() - 1) * 0.04;
     }
 
-    public void recalculateFinalScore(Map<String, Double> sourceWeights, double multiRouteBonus) {
-        double score = 0.0;
-        for(Map.Entry<String, Double> entry : sourceScores.entrySet()) {
-            score += entry.getValue() * weight(sourceWeights,entry.getKey());
+    public void addRank(String source, int rank) {
+        if(source == null || source.isBlank() || rank <= 0) {
+            return;
         }
-        finalScore = score + Math.max(0,hitSources.size() - 1) * multiRouteBonus;
+        hitSources.add(source);
+        sourceRanks.merge(source,rank,Math::min);
     }
 
-    private double weight(Map<String, Double> sourceWeights, String source) {
-        if(sourceWeights == null || sourceWeights.isEmpty()) {
-            return 1.0;
-        }
-        if(sourceWeights.containsKey(source)) {
-            return sourceWeights.get(source);
-        }
-        if(source != null && source.startsWith("multi_query")) {
-            return sourceWeights.getOrDefault("multi_query",1.0);
-        }
-        if(source != null && source.startsWith("hyde")) {
-            return sourceWeights.getOrDefault("hyde",1.0);
-        }
-        if(source != null && source.startsWith("stepback")) {
-            return sourceWeights.getOrDefault("stepback",1.0);
-        }
-        return 1.0;
+    public void addRouteHit(String source, int rank, double score) {
+        addScore(source,score);
+        addRank(source,rank);
     }
+
 }

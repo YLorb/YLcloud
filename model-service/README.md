@@ -8,7 +8,7 @@ The current project acceptance profile keeps the lightweight Chinese BGE pair:
 
 ```text
 EMBEDDING_MODEL_NAME=BAAI/bge-small-zh-v1.5
-RERANK_MODEL_NAME=BAAI/bge-reranker-base
+RERANK_MODEL_NAME=BAAI/bge-reranker-v2-m3
 FALLBACK_DIMENSION=512
 ```
 
@@ -31,10 +31,13 @@ YLCLOUD_RAG_BM25_TOP_K=20
 YLCLOUD_RAG_MULTI_QUERY_TOP_K=20
 YLCLOUD_RAG_HYDE_TOP_K=20
 YLCLOUD_RAG_STEP_BACK_TOP_K=20
+YLCLOUD_RAG_RRF_K=60
+YLCLOUD_RAG_RERANK_CANDIDATE_TOP_K=5
+YLCLOUD_RAG_RERANK_TOP_K=5
 YLCLOUD_RAG_TOKENIZER_PROVIDER=ik
 ```
 
-BM25 keyword retrieval runs inside `cloud-server` with IK Analyzer plus exact token preservation for models, numbers, standards, versions, and error codes. The model service is not required for BM25, but it is required for vector, HyDE-vector, and rerank quality validation.
+BM25 keyword retrieval runs inside `cloud-server` with IK Analyzer plus exact token preservation for models, numbers, standards, versions, and error codes. `cloud-server` fuses route rankings with RRF before sending the configured candidate top K to this service for Cross-Encoder rerank. The model service is not required for BM25, but it is required for vector, HyDE-vector, and rerank quality validation.
 
 ## Start
 

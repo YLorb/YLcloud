@@ -42,7 +42,7 @@ ylcloud:
     model-service:
       base-url: ${YLCLOUD_RAG_MODEL_SERVICE_BASE_URL:http://127.0.0.1:8001}
       embedding-model: ${YLCLOUD_RAG_EMBEDDING_MODEL:BAAI/bge-small-zh-v1.5}
-      rerank-model: ${YLCLOUD_RAG_RERANK_MODEL:BAAI/bge-reranker-base}
+      rerank-model: ${YLCLOUD_RAG_RERANK_MODEL:BAAI/bge-reranker-v2-m3}
       chat-model: ${YLCLOUD_LLM_MODEL:deepseek-chat}
     qdrant:
       init-enabled: true
@@ -54,8 +54,9 @@ ylcloud:
       payload-text-key: text
       min-score: 0.0
     rerank:
-      enabled: true
-      top-k: 5
+      enabled: ${YLCLOUD_RAG_RERANK_ENABLED:true}
+      candidate-top-k: ${YLCLOUD_RAG_RERANK_CANDIDATE_TOP_K:5}
+      top-k: ${YLCLOUD_RAG_RERANK_TOP_K:5}
     query:
       rewrite-enabled: ${YLCLOUD_RAG_QUERY_REWRITE_ENABLED:true}
       model-rewrite-enabled: ${YLCLOUD_RAG_QUERY_MODEL_REWRITE_ENABLED:true}
@@ -75,6 +76,7 @@ ylcloud:
       step-back-weight: 0.18
       query-expansion-weight: 0.70
       neighbor-window: 1
+      rrf-k: ${YLCLOUD_RAG_RRF_K:60}
       vector-top-k: ${YLCLOUD_RAG_VECTOR_TOP_K:20}
       bm25-top-k: ${YLCLOUD_RAG_BM25_TOP_K:20}
       multi-query-top-k: ${YLCLOUD_RAG_MULTI_QUERY_TOP_K:20}
@@ -85,7 +87,6 @@ ylcloud:
       exact-match-boost: ${YLCLOUD_RAG_EXACT_MATCH_BOOST:1.5}
       bm25-k1: ${YLCLOUD_RAG_BM25_K1:1.5}
       bm25-b: ${YLCLOUD_RAG_BM25_B:0.75}
-      multi-route-bonus: ${YLCLOUD_RAG_MULTI_ROUTE_BONUS:0.04}
     chunking:
       strategy: hybrid
       semantic-enabled: true

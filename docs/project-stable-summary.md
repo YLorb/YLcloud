@@ -49,7 +49,7 @@ YLcloud 是一个个人云盘与知识库系统，核心能力包括：
 - Qdrant：`qdrant/qdrant:v1.15.4`
 - model-service：本仓库 `model-service` 目录构建
 - 默认 embedding 模型：`BAAI/bge-small-zh-v1.5`
-- 默认 rerank 模型：`BAAI/bge-reranker-base`
+- 默认 rerank 模型：`BAAI/bge-reranker-v2-m3`
 - 默认 LLM：`deepseek-chat`，通过 OpenAI-compatible API 调用
 
 ## 3. 服务端口
