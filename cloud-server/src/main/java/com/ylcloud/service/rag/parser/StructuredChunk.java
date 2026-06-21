@@ -8,6 +8,10 @@ import java.util.List;
 @Data
 public class StructuredChunk {
     private Integer chunkIndex;
+    private String chunkType;
+    private Integer parentChunkIndex;
+    private String parentContentHash;
+    private Integer chunkLevel;
     private String content;
     private String contentHash;
     private Integer tokenCount;

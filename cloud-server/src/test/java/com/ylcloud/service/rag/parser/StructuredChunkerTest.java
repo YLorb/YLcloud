@@ -30,10 +30,14 @@ class StructuredChunkerTest {
 
         List<StructuredChunk> chunks = chunker.chunk(document,1000,100);
 
-        assertEquals(1,chunks.size());
-        assertTrue(chunks.get(0).getContent().contains("Document path: Background"));
-        assertTrue(chunks.get(0).getMetadataJson().contains("\"headingPath\":[\"Background\"]"));
-        assertTrue(chunks.get(0).getMetadataJson().contains("\"vlmEnabled\":false"));
+        StructuredChunk child = firstChild(chunks);
+
+        assertEquals(2,chunks.size());
+        assertTrue(chunks.get(0).getMetadataJson().contains("\"chunkType\":\"parent\""));
+        assertTrue(child.getContent().contains("Document path: Background"));
+        assertTrue(child.getMetadataJson().contains("\"headingPath\":[\"Background\"]"));
+        assertTrue(child.getMetadataJson().contains("\"parentChunkIndex\":0"));
+        assertTrue(child.getMetadataJson().contains("\"vlmEnabled\":false"));
     }
 
     @Test
@@ -52,9 +56,11 @@ class StructuredChunkerTest {
 
         List<StructuredChunk> chunks = chunker.chunk(document,1000,100);
 
+        StructuredChunk child = firstChild(chunks);
+
         assertFalse(chunks.isEmpty());
-        assertTrue(chunks.get(0).getMetadataJson().contains("\"vlmEnabled\":true"));
-        assertTrue(chunks.get(0).getMetadataJson().contains("\"vlmUsed\":true"));
+        assertTrue(child.getMetadataJson().contains("\"vlmEnabled\":true"));
+        assertTrue(child.getMetadataJson().contains("\"vlmUsed\":true"));
     }
 
     @Test
@@ -73,10 +79,12 @@ class StructuredChunkerTest {
 
         List<StructuredChunk> chunks = chunker.chunk(document,1000,50);
 
-        assertEquals(1,chunks.size());
-        assertEquals(table,chunks.get(0).getContent());
-        assertTrue(chunks.get(0).getMetadataJson().contains("\"blockTypes\":[\"table\"]"));
-        assertTrue(chunks.get(0).getMetadataJson().contains("\"tablePartCount\":1"));
+        StructuredChunk child = firstChild(chunks);
+
+        assertEquals(2,chunks.size());
+        assertEquals(table,child.getContent());
+        assertTrue(child.getMetadataJson().contains("\"blockTypes\":[\"table\"]"));
+        assertTrue(child.getMetadataJson().contains("\"tablePartCount\":1"));
     }
 
     @Test
@@ -95,10 +103,37 @@ class StructuredChunkerTest {
 
         List<StructuredChunk> chunks = chunker.chunk(document,60,0);
 
-        assertTrue(chunks.size() > 1);
-        for(StructuredChunk chunk : chunks) {
+        List<StructuredChunk> children = childChunks(chunks);
+
+        assertTrue(children.size() > 1);
+        for(StructuredChunk chunk : children) {
             assertTrue(chunk.getContent().startsWith("| Name | Value |\n|---|---|"));
         }
-        assertTrue(chunks.get(0).getMetadataJson().contains("\"preserveTableHeader\":true"));
+        assertTrue(children.get(0).getMetadataJson().contains("\"preserveTableHeader\":true"));
+    }
+
+    @Test
+    void fallsBackToFixedWindowWhenBlocksAreMissing() {
+        RagProperties properties = new RagProperties();
+        StructuredChunker chunker = new StructuredChunker(new ObjectMapper(),properties);
+        String text = "A".repeat(1700);
+        ParsedDocument document = ParsedDocument.success("file-1","hash-1","plain","structured-v1",text,List.of());
+
+        List<StructuredChunk> chunks = chunker.chunk(document,1000,100);
+
+        assertEquals(3,chunks.size());
+        assertTrue(chunks.get(0).getMetadataJson().contains("\"fallbackChunking\":true"));
+        assertTrue(chunks.get(0).getMetadataJson().contains("\"chunkingStrategy\":\"fixed_window\""));
+        assertEquals(800,chunks.get(0).getContent().length());
+        assertEquals(800,chunks.get(1).getContent().length());
+        assertEquals(300,chunks.get(2).getContent().length());
+    }
+
+    private StructuredChunk firstChild(List<StructuredChunk> chunks) {
+        return childChunks(chunks).get(0);
+    }
+
+    private List<StructuredChunk> childChunks(List<StructuredChunk> chunks) {
+        return chunks.stream().filter(chunk -> "child".equals(chunk.getChunkType())).toList();
     }
 }

@@ -15,6 +15,8 @@ import java.util.Set;
 @Component
 public class StructuredChunker {
     private static final List<String> TEXT_SEPARATORS = List.of("\n\n","\n","\u3002","\uff01","\uff1f",";","\uff1b","\uff0c",","," ");
+    private static final int FALLBACK_CHUNK_SIZE = 800;
+    private static final int FALLBACK_CHUNK_OVERLAP = 100;
 
     private final ObjectMapper objectMapper;
     private final RagProperties ragProperties;
@@ -25,6 +27,14 @@ public class StructuredChunker {
     }
 
     public List<StructuredChunk> chunk(ParsedDocument document, int chunkSize, int chunkOverlap) {
+        List<StructuredChunk> childChunks = buildChildChunks(document,chunkSize,chunkOverlap);
+        if(childChunks.isEmpty()) {
+            return fixedWindowChunks(document);
+        }
+        return withParentChunks(document,childChunks,chunkSize);
+    }
+
+    private List<StructuredChunk> buildChildChunks(ParsedDocument document, int chunkSize, int chunkOverlap) {
         List<StructuredChunk> chunks = new ArrayList<>();
         if(document == null || document.getBlocks() == null || document.getBlocks().isEmpty()) {
             return chunks;
@@ -67,6 +77,143 @@ public class StructuredChunker {
         }
         if(draft.length() > 0) {
             chunks.add(toChunk(chunks.size(),draft,document));
+        }
+        return chunks;
+    }
+
+    private List<StructuredChunk> withParentChunks(ParsedDocument document, List<StructuredChunk> childChunks, int chunkSize) {
+        List<StructuredChunk> result = new ArrayList<>();
+        java.util.Map<String, List<StructuredChunk>> groups = new java.util.LinkedHashMap<>();
+        for(StructuredChunk child : childChunks) {
+            groups.computeIfAbsent(parentKey(child),key -> new ArrayList<>()).add(child);
+        }
+        java.util.Map<String, StructuredChunk> parents = new java.util.LinkedHashMap<>();
+        int index = 0;
+        int parentSize = Math.max(chunkSize,FALLBACK_CHUNK_SIZE) * 3;
+        for(java.util.Map.Entry<String, List<StructuredChunk>> entry : groups.entrySet()) {
+            StructuredChunk parent = parentChunk(index++,entry.getKey(),entry.getValue(),document,parentSize);
+            parents.put(entry.getKey(),parent);
+            result.add(parent);
+        }
+        for(StructuredChunk child : childChunks) {
+            StructuredChunk parent = parents.get(parentKey(child));
+            child.setChunkIndex(index++);
+            child.setChunkType("child");
+            child.setParentChunkIndex(parent == null ? null : parent.getChunkIndex());
+            child.setParentContentHash(parent == null ? null : parent.getContentHash());
+            child.setChunkLevel(child.getHeadingPath() == null ? 0 : child.getHeadingPath().size() + 1);
+            child.setMetadataJson(enrichMetadata(child.getMetadataJson(),child,false,"structured"));
+            result.add(child);
+        }
+        return result;
+    }
+
+    private StructuredChunk parentChunk(int index, String key, List<StructuredChunk> children,
+                                        ParsedDocument document, int parentSize) {
+        StructuredChunk parent = new StructuredChunk();
+        String content = parentContent(key,children,parentSize);
+        parent.setChunkIndex(index);
+        parent.setChunkType("parent");
+        parent.setChunkLevel(parentLevel(children));
+        parent.setContent(content);
+        parent.setContentHash(sha256(content));
+        parent.setTokenCount(content.length());
+        parent.setPageStart(minPage(children));
+        parent.setPageEnd(maxPage(children));
+        parent.setHeadingPath(parentHeading(children));
+        parent.setBlockTypes(parentBlockTypes(children));
+        parent.setMetadataJson(enrichMetadata(parentMetadata(document,parent,children),parent,false,"parent_section"));
+        return parent;
+    }
+
+    private String parentContent(String key, List<StructuredChunk> children, int parentSize) {
+        StringBuilder builder = new StringBuilder();
+        if(key != null && !key.isBlank() && !"__root__".equals(key)) {
+            builder.append("Section: ").append(key).append("\n\n");
+        }
+        for(StructuredChunk child : children) {
+            if(child.getContent() == null || child.getContent().isBlank()) {
+                continue;
+            }
+            if(builder.length() > 0) {
+                builder.append("\n\n");
+            }
+            builder.append(child.getContent());
+            if(builder.length() >= parentSize) {
+                break;
+            }
+        }
+        String value = builder.toString().trim();
+        return value.length() <= parentSize ? value : value.substring(0,parentSize);
+    }
+
+    private String parentKey(StructuredChunk chunk) {
+        if(chunk.getHeadingPath() == null || chunk.getHeadingPath().isEmpty()) {
+            return "__root__";
+        }
+        return String.join(" > ",chunk.getHeadingPath());
+    }
+
+    private int parentLevel(List<StructuredChunk> children) {
+        List<String> heading = parentHeading(children);
+        return heading == null ? 0 : heading.size();
+    }
+
+    private List<String> parentHeading(List<StructuredChunk> children) {
+        for(StructuredChunk child : children) {
+            if(child.getHeadingPath() != null && !child.getHeadingPath().isEmpty()) {
+                return new ArrayList<>(child.getHeadingPath());
+            }
+        }
+        return new ArrayList<>();
+    }
+
+    private List<String> parentBlockTypes(List<StructuredChunk> children) {
+        Set<String> types = new LinkedHashSet<>();
+        for(StructuredChunk child : children) {
+            if(child.getBlockTypes() != null) {
+                types.addAll(child.getBlockTypes());
+            }
+        }
+        return new ArrayList<>(types);
+    }
+
+    private Integer minPage(List<StructuredChunk> children) {
+        Integer result = null;
+        for(StructuredChunk child : children) {
+            if(child.getPageStart() == null) continue;
+            result = result == null ? child.getPageStart() : Math.min(result,child.getPageStart());
+        }
+        return result;
+    }
+
+    private Integer maxPage(List<StructuredChunk> children) {
+        Integer result = null;
+        for(StructuredChunk child : children) {
+            if(child.getPageEnd() == null) continue;
+            result = result == null ? child.getPageEnd() : Math.max(result,child.getPageEnd());
+        }
+        return result;
+    }
+
+    private List<StructuredChunk> fixedWindowChunks(ParsedDocument document) {
+        String text = document == null || document.getFullText() == null ? "" : document.getFullText().trim();
+        if(text.isBlank()) {
+            return List.of();
+        }
+        List<StructuredChunk> chunks = new ArrayList<>();
+        List<String> parts = splitByLength(text,FALLBACK_CHUNK_SIZE,FALLBACK_CHUNK_OVERLAP);
+        for(int i = 0; i < parts.size(); i++) {
+            StructuredChunk chunk = new StructuredChunk();
+            String content = parts.get(i);
+            chunk.setChunkIndex(i);
+            chunk.setChunkType("child");
+            chunk.setChunkLevel(0);
+            chunk.setContent(content);
+            chunk.setContentHash(sha256(content));
+            chunk.setTokenCount(content.length());
+            chunk.setMetadataJson(enrichMetadata(fallbackMetadata(document,i,parts.size()),chunk,true,"fixed_window"));
+            chunks.add(chunk);
         }
         return chunks;
     }
@@ -267,6 +414,8 @@ public class StructuredChunker {
         StructuredChunk chunk = new StructuredChunk();
         String content = draft.content.toString().trim();
         chunk.setChunkIndex(index);
+        chunk.setChunkType("child");
+        chunk.setChunkLevel(draft.headingPath.size() + 1);
         chunk.setContent(content);
         chunk.setContentHash(sha256(content));
         chunk.setTokenCount(content.length());
@@ -274,11 +423,11 @@ public class StructuredChunker {
         chunk.setPageEnd(draft.pageEnd);
         chunk.setHeadingPath(new ArrayList<>(draft.headingPath));
         chunk.setBlockTypes(new ArrayList<>(draft.blockTypes));
-        chunk.setMetadataJson(metadataJson(document,draft));
+        chunk.setMetadataJson(metadataJson(document,draft,chunk));
         return chunk;
     }
 
-    private String metadataJson(ParsedDocument document, ChunkDraft draft) {
+    private String metadataJson(ParsedDocument document, ChunkDraft draft, StructuredChunk chunk) {
         try {
             return objectMapper.writeValueAsString(new Metadata(
                     document.getParser(),
@@ -294,10 +443,105 @@ public class StructuredChunker {
                     draft.tableId,
                     draft.tablePartIndex,
                     draft.tablePartCount,
-                    draft.tablePartCount != null && draft.tablePartCount > 1
+                    draft.tablePartCount != null && draft.tablePartCount > 1,
+                    chunk.getChunkType(),
+                    chunk.getParentChunkIndex(),
+                    chunk.getParentContentHash(),
+                    chunk.getChunkLevel(),
+                    false,
+                    "structured"
             ));
         } catch (Exception ex) {
             return "{}";
+        }
+    }
+
+    private String parentMetadata(ParsedDocument document, StructuredChunk parent, List<StructuredChunk> children) {
+        try {
+            return objectMapper.writeValueAsString(new Metadata(
+                    document == null ? "unknown" : document.getParser(),
+                    document == null ? "structured-v1" : document.getParserVersion(),
+                    document != null && document.isFallback(),
+                    vlmEnabled(),
+                    containsSource(children,"vlm") || containsSource(children,"vlm-page"),
+                    parent.getPageStart(),
+                    parent.getPageEnd(),
+                    parent.getHeadingPath(),
+                    parent.getBlockTypes(),
+                    List.of("parent-section"),
+                    null,
+                    null,
+                    null,
+                    false,
+                    parent.getChunkType(),
+                    parent.getParentChunkIndex(),
+                    parent.getParentContentHash(),
+                    parent.getChunkLevel(),
+                    false,
+                    "parent_section"
+            ));
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
+    private String fallbackMetadata(ParsedDocument document, int partIndex, int partCount) {
+        try {
+            return objectMapper.writeValueAsString(new Metadata(
+                    document == null ? "unknown" : document.getParser(),
+                    document == null ? "structured-v1" : document.getParserVersion(),
+                    document != null && document.isFallback(),
+                    vlmEnabled(),
+                    false,
+                    null,
+                    null,
+                    List.of(),
+                    List.of("fallback_text"),
+                    List.of("fixed-window"),
+                    null,
+                    partIndex + 1,
+                    partCount,
+                    false,
+                    "child",
+                    null,
+                    null,
+                    0,
+                    true,
+                    "fixed_window"
+            ));
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
+    private boolean containsSource(List<StructuredChunk> children, String source) {
+        if(children == null || source == null) {
+            return false;
+        }
+        for(StructuredChunk child : children) {
+            String metadata = child.getMetadataJson();
+            if(metadata != null && metadata.contains(source)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String enrichMetadata(String metadataJson, StructuredChunk chunk, boolean fallbackChunking, String strategy) {
+        try {
+            java.util.Map<String, Object> metadata = metadataJson == null || metadataJson.isBlank()
+                    ? new java.util.LinkedHashMap<>()
+                    : objectMapper.readValue(metadataJson,new com.fasterxml.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() {});
+            metadata.put("chunkType",chunk.getChunkType());
+            metadata.put("parentChunkIndex",chunk.getParentChunkIndex());
+            metadata.put("parentContentHash",chunk.getParentContentHash());
+            metadata.put("chunkLevel",chunk.getChunkLevel());
+            metadata.put("fallbackChunking",fallbackChunking);
+            metadata.put("chunkingStrategy",strategy);
+            return objectMapper.writeValueAsString(metadata);
+        } catch (Exception ex) {
+            return "{\"chunkType\":\"" + escapeJson(chunk.getChunkType()) + "\",\"fallbackChunking\":" + fallbackChunking
+                    + ",\"chunkingStrategy\":\"" + escapeJson(strategy) + "\"}";
         }
     }
 
@@ -326,10 +570,19 @@ public class StructuredChunker {
         }
     }
 
+    private String escapeJson(String value) {
+        if(value == null) {
+            return "";
+        }
+        return value.replace("\\","\\\\").replace("\"","\\\"");
+    }
+
     private record Metadata(String parser, String parserVersion, boolean fallback, boolean vlmEnabled,
                             boolean vlmUsed, Integer pageStart, Integer pageEnd, List<String> headingPath,
                             List<String> blockTypes, List<String> sources, String tableId,
-                            Integer tablePartIndex, Integer tablePartCount, boolean preserveTableHeader) {
+                            Integer tablePartIndex, Integer tablePartCount, boolean preserveTableHeader,
+                            String chunkType, Integer parentChunkIndex, String parentContentHash,
+                            Integer chunkLevel, boolean fallbackChunking, String chunkingStrategy) {
     }
 
     private static class ChunkDraft {
