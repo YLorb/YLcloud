@@ -48,6 +48,25 @@ GENERATE_API_STYLE=responses
 
 If chat variables are missing, retrieval still works and the application returns a safe fallback answer with citations.
 
+## Embedding Model
+
+The current acceptance-stage default keeps a lightweight Chinese embedding and rerank pair:
+
+```bash
+YLCLOUD_RAG_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+YLCLOUD_RAG_RERANK_MODEL=BAAI/bge-reranker-base
+YLCLOUD_RAG_EMBEDDING_DIMENSION=512
+YLCLOUD_RAG_QDRANT_COLLECTION_NAME=ylcloud_rag_bge_small_zh_v15
+```
+
+For retrieval-quality validation, disable offline hash embeddings:
+
+```bash
+YLCLOUD_MODEL_SERVICE_OFFLINE_FALLBACK=false
+```
+
+`BAAI/bge-m3` is kept as an optional stronger profile in `docs/rag-bge-m3.env.example`.
+
 ## Database Migration
 
 Flyway runs migrations from `classpath:db/migration`.
@@ -61,9 +80,11 @@ Existing databases are supported with `baseline-on-migrate=true`.
 
 Spring Boot initializes Qdrant at startup:
 
-- collection: `ylcloud_rag_bge_m3_v1`
-- vector size: `1024`
+- collection: `ylcloud_rag_bge_small_zh_v15`
+- vector size: `512`
 - distance: `Cosine`
 - payload indexes: `spaceId`, `spaceFileId`, `documentId`, `status`
 
 If an existing collection has a different vector size or distance, startup fails fast with a clear error.
+
+When switching to another embedding profile, use a new collection name or clear/recreate the existing collection, then rebuild RAG indexes.

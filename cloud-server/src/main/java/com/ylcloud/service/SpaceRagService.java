@@ -207,7 +207,7 @@ public class SpaceRagService {
             throw new BaseException("当前空间未启用 RAG");
         }
         int limit = dto.getTopK() == null ? safeTopK(config.getTopK()) : dto.getTopK();
-        QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion());
+        QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),dto.getHistory());
         List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
         RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config);
         String answer = chatResult.getAnswer();

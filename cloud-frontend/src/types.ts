@@ -217,6 +217,11 @@ export type RagCitation = {
   rerankScore?: number;
 };
 
+export type RagChatMessage = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
 export type RagQuery = {
   question: string;
   answer?: string;

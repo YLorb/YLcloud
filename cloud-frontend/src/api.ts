@@ -6,6 +6,7 @@ import type {
   FilePreview,
   FileVersion,
   RagConfig,
+  RagChatMessage,
   RagDocument,
   RagQuery,
   RagTask,
@@ -267,10 +268,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload)
     }),
-  queryRag: (spaceId: number, question: string, topK?: number) =>
+  queryRag: (spaceId: number, question: string, topK?: number, history?: RagChatMessage[]) =>
     request<RagQuery>(`/api/space/${spaceId}/rag/query`, {
       method: "POST",
-      body: JSON.stringify({ question, topK })
+      body: JSON.stringify({ question, topK, history })
     }),
   importSpaceWebLink: (spaceId: number, payload: { url: string; parentId?: number | null; name?: string }) =>
     request<SpaceFile>(`/api/space/${spaceId}/rag/links`, {

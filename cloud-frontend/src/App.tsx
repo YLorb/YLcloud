@@ -1237,7 +1237,12 @@ function ChatView({ showNotice }: { showNotice: (notice: Notice) => void }) {
 
     setLoading(true);
     try {
-      const answer = await api.queryRag(Number(spaceId), question);
+      const history = messages
+        .slice(-6)
+        .filter((message) => !message.id.startsWith("welcome"))
+        .filter((message) => message.content.trim())
+        .map((message) => ({ role: message.role, content: message.content.trim() }));
+      const answer = await api.queryRag(Number(spaceId), question, undefined, history);
       const citations =
         answer.citations?.length
           ? `\n\n引用：${answer.citations.map((citation) => citation.fileName || `片段 ${citation.chunkId}`).join("、")}`
