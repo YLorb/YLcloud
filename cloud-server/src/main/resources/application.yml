@@ -35,7 +35,7 @@ ylcloud:
   rag:
     vector-enabled: true
     embedding-dimension: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:512}
-    vector-top-n: 30
+    vector-top-n: 20
     embedding-batch-size: 8
     connect-timeout-ms: 3000
     read-timeout-ms: 60000
@@ -66,12 +66,26 @@ ylcloud:
       model: ${YLCLOUD_RAG_QUERY_MODEL:${YLCLOUD_ARK_MODEL:doubao-seed-2-0-pro-260215}}
     retrieval:
       dense-weight: 0.45
+      bm25-weight: 0.30
       keyword-weight: 0.25
       metadata-weight: 0.12
       title-weight: 0.10
       structure-weight: 0.05
+      hyde-weight: 0.20
+      step-back-weight: 0.18
       query-expansion-weight: 0.70
       neighbor-window: 1
+      vector-top-k: ${YLCLOUD_RAG_VECTOR_TOP_K:20}
+      bm25-top-k: ${YLCLOUD_RAG_BM25_TOP_K:20}
+      multi-query-top-k: ${YLCLOUD_RAG_MULTI_QUERY_TOP_K:20}
+      hyde-top-k: ${YLCLOUD_RAG_HYDE_TOP_K:20}
+      step-back-top-k: ${YLCLOUD_RAG_STEP_BACK_TOP_K:20}
+      keyword-fallback-top-k: ${YLCLOUD_RAG_KEYWORD_FALLBACK_TOP_K:20}
+      tokenizer-provider: ${YLCLOUD_RAG_TOKENIZER_PROVIDER:ik}
+      exact-match-boost: ${YLCLOUD_RAG_EXACT_MATCH_BOOST:1.5}
+      bm25-k1: ${YLCLOUD_RAG_BM25_K1:1.5}
+      bm25-b: ${YLCLOUD_RAG_BM25_B:0.75}
+      multi-route-bonus: ${YLCLOUD_RAG_MULTI_ROUTE_BONUS:0.04}
     chunking:
       strategy: hybrid
       semantic-enabled: true

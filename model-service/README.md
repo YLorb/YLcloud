@@ -21,6 +21,21 @@ YLCLOUD_RAG_QDRANT_COLLECTION_NAME=ylcloud_rag_bge_small_zh_v15
 
 `OFFLINE_FALLBACK=true` is useful only for connectivity checks. Set `YLCLOUD_MODEL_SERVICE_OFFLINE_FALLBACK=false` when validating retrieval quality.
 
+## Retrieval Defaults
+
+Spring Boot uses the model service for vector retrieval and rerank, then merges it with local keyword routes:
+
+```text
+YLCLOUD_RAG_VECTOR_TOP_K=20
+YLCLOUD_RAG_BM25_TOP_K=20
+YLCLOUD_RAG_MULTI_QUERY_TOP_K=20
+YLCLOUD_RAG_HYDE_TOP_K=20
+YLCLOUD_RAG_STEP_BACK_TOP_K=20
+YLCLOUD_RAG_TOKENIZER_PROVIDER=ik
+```
+
+BM25 keyword retrieval runs inside `cloud-server` with IK Analyzer plus exact token preservation for models, numbers, standards, versions, and error codes. The model service is not required for BM25, but it is required for vector, HyDE-vector, and rerank quality validation.
+
 ## Start
 
 ```bash

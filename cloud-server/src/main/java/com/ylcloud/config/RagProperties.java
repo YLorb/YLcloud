@@ -89,12 +89,26 @@ public class RagProperties {
     @Data
     public static class Retrieval {
         private Double denseWeight = 0.45;
+        private Double bm25Weight = 0.30;
         private Double keywordWeight = 0.25;
         private Double metadataWeight = 0.12;
         private Double titleWeight = 0.10;
         private Double structureWeight = 0.05;
+        private Double hydeWeight = 0.20;
+        private Double stepBackWeight = 0.18;
         private Double queryExpansionWeight = 0.70;
         private Integer neighborWindow = 1;
+        private Integer vectorTopK = 20;
+        private Integer bm25TopK = 20;
+        private Integer multiQueryTopK = 20;
+        private Integer hydeTopK = 20;
+        private Integer stepBackTopK = 20;
+        private Integer keywordFallbackTopK = 20;
+        private String tokenizerProvider = "ik";
+        private Double exactMatchBoost = 1.5;
+        private Double bm25K1 = 1.5;
+        private Double bm25B = 0.75;
+        private Double multiRouteBonus = 0.04;
     }
 
     @Data

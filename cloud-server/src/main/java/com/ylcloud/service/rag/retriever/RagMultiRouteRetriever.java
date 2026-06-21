@@ -5,6 +5,8 @@ import com.ylcloud.entity.FileRagChunk;
 import com.ylcloud.mapper.FileRagChunkMapper;
 import com.ylcloud.service.rag.QdrantVectorStoreService;
 import com.ylcloud.service.rag.query.QueryPlan;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,19 +15,23 @@ import java.util.List;
 
 @Service
 public class RagMultiRouteRetriever {
+    private static final Logger log = LoggerFactory.getLogger(RagMultiRouteRetriever.class);
     private final RagProperties ragProperties;
     private final FileRagChunkMapper fileRagChunkMapper;
     private final QdrantVectorStoreService qdrantVectorStoreService;
     private final RagCandidateMerger candidateMerger;
+    private final Bm25KeywordRetriever bm25KeywordRetriever;
 
     public RagMultiRouteRetriever(RagProperties ragProperties,
                                   FileRagChunkMapper fileRagChunkMapper,
                                   QdrantVectorStoreService qdrantVectorStoreService,
-                                  RagCandidateMerger candidateMerger) {
+                                  RagCandidateMerger candidateMerger,
+                                  Bm25KeywordRetriever bm25KeywordRetriever) {
         this.ragProperties = ragProperties;
         this.fileRagChunkMapper = fileRagChunkMapper;
         this.qdrantVectorStoreService = qdrantVectorStoreService;
         this.candidateMerger = candidateMerger;
+        this.bm25KeywordRetriever = bm25KeywordRetriever;
     }
 
     public List<FileRagChunk> retrieve(Long spaceId, String question, List<FileRagChunk> spaceChunks,
@@ -42,34 +48,46 @@ public class RagMultiRouteRetriever {
         if(spaceChunks == null || spaceChunks.isEmpty() || plan == null || plan.getOriginal() == null || plan.getOriginal().isBlank()) {
             return List.of();
         }
-        int vectorLimit = Math.max(finalTopK,ragProperties.getVectorTopN() == null ? 30 : ragProperties.getVectorTopN());
-        int keywordLimit = Math.max(finalTopK * 3,24);
-        int metadataLimit = Math.max(finalTopK * 3,24);
-        double expansionWeight = ragProperties.getRetrieval() == null || ragProperties.getRetrieval().getQueryExpansionWeight() == null
-                ? 0.70 : ragProperties.getRetrieval().getQueryExpansionWeight();
+        RagProperties.Retrieval retrieval = retrievalProperties();
+        int vectorLimit = safeLimit(retrieval.getVectorTopK(),20);
+        int bm25Limit = safeLimit(retrieval.getBm25TopK(),20);
+        int multiQueryLimit = safeLimit(retrieval.getMultiQueryTopK(),20);
+        int hydeLimit = safeLimit(retrieval.getHydeTopK(),20);
+        int stepBackLimit = safeLimit(retrieval.getStepBackTopK(),20);
+        int keywordLimit = safeLimit(retrieval.getKeywordFallbackTopK(),20);
+        int metadataLimit = keywordLimit;
+        double expansionWeight = retrieval.getQueryExpansionWeight() == null ? 0.70 : retrieval.getQueryExpansionWeight();
         List<RagCandidate> candidates = new ArrayList<>();
         List<String> retrievalQueries = plan.retrievalQueries();
         for(int i = 0; i < retrievalQueries.size(); i++) {
             String query = retrievalQueries.get(i);
-            double weight = i == 0 ? 1.0 : expansionWeight;
-            String source = i == 0 ? "vector" : "expanded";
+            boolean originalRoute = i == 0;
+            boolean stepBackRoute = plan.getStepBackQuery() != null && plan.getStepBackQuery().equals(query);
+            double weight = originalRoute ? 1.0 : expansionWeight;
+            int currentVectorLimit = originalRoute ? vectorLimit : stepBackRoute ? stepBackLimit : multiQueryLimit;
+            int currentBm25Limit = originalRoute ? bm25Limit : stepBackRoute ? stepBackLimit : multiQueryLimit;
+            String vectorSource = originalRoute ? "vector" : stepBackRoute ? "stepback_vector" : "multi_query_vector";
+            String bm25Source = originalRoute ? "bm25" : stepBackRoute ? "stepback_bm25" : "multi_query_bm25";
             candidates.addAll(candidateMerger.fromChunks(
-                    qdrantVectorStoreService.search(spaceId,query,spaceChunks,vectorLimit,minScore),
-                    source,
+                    qdrantVectorStoreService.search(spaceId,query,spaceChunks,currentVectorLimit,minScore),
+                    vectorSource,
                     weight
             ));
+            candidates.addAll(bm25KeywordRetriever.retrieve(query,spaceChunks,currentBm25Limit,bm25Source,weight));
             for(String keyword : keywords(query)) {
                 candidates.addAll(candidateMerger.fromChunks(
                         fileRagChunkMapper.searchBySpaceAndKeyword(spaceId,keyword,keywordLimit),
-                        i == 0 ? "keyword" : "expanded",
+                        "keyword_fallback",
                         0.8 * weight
                 ));
                 candidates.addAll(candidateMerger.fromChunks(
                         fileRagChunkMapper.searchBySpaceAndMetadata(spaceId,keyword,metadataLimit),
-                        i == 0 ? "metadata" : "expanded",
+                        "metadata",
                         0.7 * weight
                 ));
             }
+            log.info("RAG retrieval route finished: source={}, bm25Source={}, topK={}, queryChars={}",
+                    vectorSource,bm25Source,currentVectorLimit,query.length());
         }
         for(String keyword : plan.getKeywords()) {
             candidates.addAll(candidateMerger.fromChunks(
@@ -88,18 +106,29 @@ public class RagMultiRouteRetriever {
         }
         if(plan.getHydeDocument() != null && !plan.getHydeDocument().isBlank()) {
             candidates.addAll(candidateMerger.fromChunks(
-                    qdrantVectorStoreService.search(spaceId,plan.getHydeDocument(),spaceChunks,vectorLimit,minScore),
-                    "hyde",
+                    qdrantVectorStoreService.search(spaceId,plan.getHydeDocument(),spaceChunks,hydeLimit,minScore),
+                    "hyde_vector",
                     0.65
             ));
         }
-        List<FileRagChunk> merged = candidateMerger.merge(candidates,Math.max(vectorLimit,finalTopK * 8));
-        return expandNeighbors(merged,spaceChunks,Math.max(vectorLimit,finalTopK * 8));
+        int mergeLimit = Math.max(Math.max(vectorLimit,bm25Limit),finalTopK * 8);
+        List<FileRagChunk> merged = candidateMerger.merge(candidates,mergeLimit);
+        log.info("RAG multi-route retrieval merged: candidateCount={}, mergedCount={}, finalTopK={}",
+                candidates.size(),merged.size(),finalTopK);
+        return expandNeighbors(merged,spaceChunks,mergeLimit);
+    }
+
+    private int safeLimit(Integer value, int fallback) {
+        return value == null || value <= 0 ? fallback : value;
+    }
+
+    private RagProperties.Retrieval retrievalProperties() {
+        return ragProperties.getRetrieval() == null ? new RagProperties.Retrieval() : ragProperties.getRetrieval();
     }
 
     private List<FileRagChunk> expandNeighbors(List<FileRagChunk> selected, List<FileRagChunk> spaceChunks, int limit) {
-        int window = ragProperties.getRetrieval() == null || ragProperties.getRetrieval().getNeighborWindow() == null
-                ? 1 : Math.max(0,ragProperties.getRetrieval().getNeighborWindow());
+        Integer neighborWindow = retrievalProperties().getNeighborWindow();
+        int window = neighborWindow == null ? 1 : Math.max(0,neighborWindow);
         if(window == 0 || selected == null || selected.isEmpty()) {
             return selected;
         }

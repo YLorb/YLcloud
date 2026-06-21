@@ -75,6 +75,12 @@
             </dependency>
 
             <dependency>
+                <groupId>com.github.magese</groupId>
+                <artifactId>ik-analyzer</artifactId>
+                <version>8.5.0</version>
+            </dependency>
+
+            <dependency>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-mysql</artifactId>
                 <version>10.10.0</version>
