@@ -37,6 +37,23 @@ class RagCandidateMergerTest {
         assertEquals(2L,merged.get(0).getId());
     }
 
+    @Test
+    void rrfKConfigurationChangesScoreMagnitudeButNotRankOrder() {
+        RagProperties properties = new RagProperties();
+        properties.getRetrieval().setRrfK(1);
+        RagCandidate first = new RagCandidate(chunk(1L));
+        first.addRouteHit("vector",1,1.0);
+        RagCandidate second = new RagCandidate(chunk(2L));
+        second.addRouteHit("vector",2,999.0);
+
+        List<RagCandidate> merged = new RagCandidateMerger(properties)
+                .mergeCandidates(List.of(first,second),2);
+
+        assertEquals(1L,merged.get(0).getChunk().getId());
+        assertEquals(0.45 / 2,merged.get(0).getFinalScore(),0.000001);
+        assertEquals(0.45 / 3,merged.get(1).getFinalScore(),0.000001);
+    }
+
     private FileRagChunk chunk(Long id) {
         FileRagChunk chunk = new FileRagChunk();
         chunk.setId(id);

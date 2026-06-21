@@ -129,6 +129,20 @@ class StructuredChunkerTest {
         assertEquals(300,chunks.get(2).getContent().length());
     }
 
+    @Test
+    void fixedWindowFallbackKeepsOneHundredCharacterOverlap() {
+        RagProperties properties = new RagProperties();
+        StructuredChunker chunker = new StructuredChunker(new ObjectMapper(),properties);
+        String text = "0123456789".repeat(170);
+        ParsedDocument document = ParsedDocument.success("file-1","hash-1","plain","structured-v1",text,List.of());
+
+        List<StructuredChunk> chunks = chunker.chunk(document,1000,100);
+
+        assertEquals(3,chunks.size());
+        assertEquals(chunks.get(0).getContent().substring(700,800),chunks.get(1).getContent().substring(0,100));
+        assertEquals(chunks.get(1).getContent().substring(700,800),chunks.get(2).getContent().substring(0,100));
+    }
+
     private StructuredChunk firstChild(List<StructuredChunk> chunks) {
         return childChunks(chunks).get(0);
     }

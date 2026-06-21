@@ -25,6 +25,36 @@ class RagRerankServiceTest {
         assertEquals(7,client.documentCount);
     }
 
+    @Test
+    void disabledRerankStillUsesConfiguredTopKLimitWithoutCallingModel() {
+        RagProperties properties = new RagProperties();
+        properties.getRerank().setEnabled(false);
+        properties.getRerank().setTopK(3);
+        FakeModelClient client = new FakeModelClient();
+        RagRerankService service = new RagRerankService(client,properties);
+
+        List<FileRagChunk> result = service.rerank("query",chunks(7),10);
+
+        assertEquals(3,result.size());
+        assertEquals(0,client.callCount);
+    }
+
+    @Test
+    void emptyRerankResponseFallsBackToOriginalOrderAndConfiguredTopK() {
+        RagProperties properties = new RagProperties();
+        properties.getRerank().setTopK(2);
+        FakeModelClient client = new FakeModelClient();
+        client.returnEmpty = true;
+        RagRerankService service = new RagRerankService(client,properties);
+
+        List<FileRagChunk> result = service.rerank("query",chunks(5),5);
+
+        assertEquals(2,result.size());
+        assertEquals(1L,result.get(0).getId());
+        assertEquals(2L,result.get(1).getId());
+        assertEquals(1,client.callCount);
+    }
+
     private List<FileRagChunk> chunks(int count) {
         List<FileRagChunk> chunks = new ArrayList<>();
         for(int i = 0; i < count; i++) {
@@ -39,6 +69,8 @@ class RagRerankServiceTest {
     private static class FakeModelClient implements RagModelClient {
         private int requestedTopK;
         private int documentCount;
+        private int callCount;
+        private boolean returnEmpty;
 
         @Override
         public List<float[]> embed(List<String> texts) {
@@ -47,8 +79,12 @@ class RagRerankServiceTest {
 
         @Override
         public List<RerankResult> rerank(String query, List<String> documents, Integer topK) {
+            callCount++;
             requestedTopK = topK;
             documentCount = documents.size();
+            if(returnEmpty) {
+                return List.of();
+            }
             List<RerankResult> results = new ArrayList<>();
             for(int i = 0; i < Math.min(topK,documents.size()); i++) {
                 RerankResult result = new RerankResult();
