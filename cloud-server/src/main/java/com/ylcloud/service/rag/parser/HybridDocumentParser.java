@@ -95,6 +95,10 @@ public class HybridDocumentParser implements DocumentParser {
         if(cached == null || !SpaceConstant.RAG_TASK_SUCCESS.equals(cached.getParseStatus())) {
             return null;
         }
+        if("metadata".equals(cached.getParser())) {
+            parseResultMapper.disableMetadataCache(cached.getFileUuid(),cached.getFileHash(),cached.getParserVersion());
+            return null;
+        }
         try {
             List<DocumentBlock> blocks = cached.getBlocksJson() == null || cached.getBlocksJson().isBlank()
                     ? List.of()

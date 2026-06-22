@@ -104,4 +104,32 @@ public interface SpaceRagTaskMapper {
                        @Param("successCount") Integer successCount,
                        @Param("failedCount") Integer failedCount,
                        @Param("updateTime") LocalDateTime updateTime);
+
+    /**
+     * 查询超过执行时限的索引任务。
+     * @return 列表结果
+     */
+    @Select("<script>" +
+            "select " + TASK_COLUMNS + " from space_rag_task " +
+            "where task_type in ('INDEX_FILE','REBUILD_FILE','REBUILD_SPACE') " +
+            "and task_status in ('PENDING','RUNNING') " +
+            "and coalesce(started_time, updatetime, createtime) &lt;= #{cutoff} " +
+            "<if test='spaceId != null'>and space_id = #{spaceId} </if>" +
+            "order by createtime asc" +
+            "</script>")
+    List<SpaceRagTask> listStaleIndexTasks(@Param("spaceId") Long spaceId,
+                                           @Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * 仅当任务仍在等待或运行时标记为失败。
+     * @return 影响行数
+     */
+    @Update("update space_rag_task set task_status = 'FAILED', error_message = #{errorMessage}, " +
+            "finished_time = #{finishedTime}, updatetime = #{updateTime} " +
+            "where id = #{id} and task_status in ('PENDING','RUNNING')")
+    int failActiveTask(@Param("id") Long id,
+                       @Param("errorMessage") String errorMessage,
+                       @Param("finishedTime") LocalDateTime finishedTime,
+                       @Param("updateTime") LocalDateTime updateTime);
+
 }

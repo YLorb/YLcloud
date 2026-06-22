@@ -12,6 +12,14 @@ BACKEND_JAR="${ROOT_DIR}/cloud-server/target/cloud-server-1.0-SNAPSHOT.jar"
 
 mkdir -p "${RUN_DIR}"
 
+ENV_FILE="${YLCLOUD_ENV_FILE:-${ROOT_DIR}/.env}"
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
+
 log() {
   printf '[YLcloud] %s\n' "$*"
 }
@@ -73,15 +81,17 @@ start_backend() {
   log "starting backend on port ${BACKEND_PORT}"
   (
     cd "${ROOT_DIR}"
-    env \
+    setsid env \
       JAVA_HOME="${JAVA_HOME}" \
       SERVER_PORT="${BACKEND_PORT}" \
       YLCLOUD_MINIO_ACCESS_KEY="${YLCLOUD_MINIO_ACCESS_KEY:-ylcloud_minio}" \
       YLCLOUD_MINIO_SECRET_KEY="${YLCLOUD_MINIO_SECRET_KEY:-ylcloud_minio_pwd}" \
-      YLCLOUD_MINIO_ENDPOINT="${YLCLOUD_MINIO_ENDPOINT:-http://127.0.0.1:9000}" \
+      YLCLOUD_MINIO_ENDPOINT="${YLCLOUD_MINIO_ENDPOINT:-http://172.18.0.1:9000}" \
       YLCLOUD_MINIO_BUCKET="${YLCLOUD_MINIO_BUCKET:-localbucket1}" \
+      YLCLOUD_RAG_INDEX_CONCURRENCY="${YLCLOUD_RAG_INDEX_CONCURRENCY:-5}" \
+      YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES="${YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES:-10}" \
       "${JAVA_BIN}" -jar "${BACKEND_JAR}" \
-      >"${RUN_DIR}/backend.log" 2>&1 &
+      >"${RUN_DIR}/backend.log" 2>&1 < /dev/null &
     echo $! >"${RUN_DIR}/backend.pid"
   )
 
@@ -133,17 +143,23 @@ main() {
 
   log "project: ${ROOT_DIR}"
   log "logs: ${RUN_DIR}"
+  if [[ -f "${ENV_FILE}" ]]; then
+    log "env: ${ENV_FILE}"
+  fi
+  log "rag index concurrency: ${YLCLOUD_RAG_INDEX_CONCURRENCY:-5}"
+  log "rag index timeout minutes: ${YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES:-10}"
 
   if [[ -z "${YLCLOUD_LLM_API_KEY:-}" ]]; then
     log "YLCLOUD_LLM_API_KEY is not set; RAG can run, but LLM chat will fall back unless you export it."
   fi
 
   log "starting docker dependencies"
-  (cd "${ROOT_DIR}" && docker compose up -d minio qdrant model-service)
+  (cd "${ROOT_DIR}" && docker compose up -d minio qdrant model-service document-parser-service)
 
   wait_http "MinIO" "http://127.0.0.1:9000/minio/health/live" 60 2
   wait_http "Qdrant" "http://127.0.0.1:6333/collections" 60 2
   wait_http "model-service" "http://127.0.0.1:8001/health" 60 2
+  wait_http "document-parser-service" "http://127.0.0.1:8002/health" 60 2
 
   start_backend
   start_frontend
