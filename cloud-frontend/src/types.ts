@@ -204,6 +204,26 @@ export type RagTask = {
   updatetime?: string;
 };
 
+export type AsyncTask = {
+  id?: string | number;
+  taskId?: string | number;
+  name?: string;
+  title?: string;
+  type?: string;
+  status?: string | number;
+  phase?: string;
+  progress?: number;
+  total?: number;
+  current?: number;
+  message?: string;
+  error?: string;
+  errorMessage?: string;
+  createTime?: string;
+  updateTime?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type RagCitation = {
   index?: number;
   chunkId?: number;

@@ -289,6 +289,12 @@ select:focus {
   text-align: left;
 }
 
+.side-nav button.side-section-start {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
 .side-nav button.active {
   color: #1456d9;
   background: var(--primary-soft);
@@ -1257,6 +1263,267 @@ select:focus {
   min-height: 220px;
 }
 
+.async-view {
+  min-height: min(620px, calc(100vh - 184px));
+  padding: var(--card-pad);
+  border: 1px solid rgba(47, 109, 246, 0.16);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-hero);
+}
+
+.async-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--card-gap);
+  margin-bottom: var(--card-gap);
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.async-head h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.async-head p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.async-task-list {
+  display: grid;
+  gap: 10px;
+}
+
+.async-task-row {
+  display: grid;
+  grid-template-columns: 42px minmax(180px, 1fr) minmax(160px, 240px) 86px;
+  align-items: center;
+  gap: 14px;
+  min-height: 72px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inner);
+  padding: 12px 14px;
+  color: var(--text);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.async-task-row:hover {
+  border-color: rgba(47, 109, 246, 0.34);
+  background: #f8fbff;
+}
+
+.async-task-icon,
+.async-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.async-task-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: #1456d9;
+  background: var(--primary-soft);
+}
+
+.async-task-icon.success,
+.async-status-badge.success {
+  color: var(--success);
+  background: #ecfdf3;
+}
+
+.async-task-icon.failed,
+.async-status-badge.failed {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.async-task-icon.pending,
+.async-status-badge.pending {
+  color: #8a5b00;
+  background: #fff7df;
+}
+
+.async-task-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.async-task-main strong,
+.async-task-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.async-task-main small,
+.async-task-progress span,
+.async-task-meta dt {
+  color: var(--muted);
+}
+
+.async-task-progress {
+  display: grid;
+  gap: 7px;
+}
+
+.async-task-progress i,
+.async-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1f7;
+}
+
+.async-task-progress b,
+.async-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2f6df6, #7aa2ff);
+}
+
+.async-task-state {
+  justify-self: end;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #1456d9;
+  background: var(--primary-soft);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.async-task-state.success {
+  color: var(--success);
+  background: #ecfdf3;
+}
+
+.async-task-state.failed {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.async-task-state.pending {
+  color: #8a5b00;
+  background: #fff7df;
+}
+
+.async-task-window {
+  width: min(560px, 100%);
+  overflow: hidden;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+}
+
+.async-task-window header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.async-task-window h3 {
+  margin: 0;
+}
+
+.async-task-window p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.async-task-window header button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.async-window-body {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.async-status-badge {
+  justify-content: flex-start;
+  gap: 9px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #1456d9;
+  background: var(--primary-soft);
+  font-weight: 720;
+}
+
+.async-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.async-progress-head strong {
+  font-size: 28px;
+}
+
+.async-progress-head span {
+  min-width: 0;
+  color: var(--muted);
+  text-align: right;
+}
+
+.async-task-error {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.async-task-meta {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.async-task-meta div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.async-task-meta dt,
+.async-task-meta dd {
+  margin: 0;
+}
+
+.async-task-meta dd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-error {
+  min-height: 180px;
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }
@@ -1756,6 +2023,16 @@ select:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .async-task-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .async-task-progress,
+  .async-task-state {
+    grid-column: 2;
+    justify-self: stretch;
+  }
+
   .rag-console form {
     grid-template-columns: 1fr;
   }
@@ -1781,5 +2058,31 @@ select:focus {
   .space-panel,
   .rag-console {
     min-height: 0;
+  }
+
+  .async-head,
+  .async-progress-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .async-progress-head span {
+    text-align: left;
+  }
+
+  .async-task-row {
+    grid-template-columns: 1fr;
+  }
+
+  .async-task-icon,
+  .async-task-progress,
+  .async-task-state {
+    grid-column: auto;
+    justify-self: start;
+  }
+
+  .async-task-meta div {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }

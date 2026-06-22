@@ -1,5 +1,6 @@
 import type {
   ApiResult,
+  AsyncTask,
   ChunkStatus,
   ChunkUploadInit,
   FileItem,
@@ -121,6 +122,7 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ settings })
     }),
+  listAsyncTasks: () => request<AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }>("/api/async"),
   currentUser: () => request<number>("/api/user/current"),
   listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`),
   uploadFile: (file: File, parentId = 0) => {
