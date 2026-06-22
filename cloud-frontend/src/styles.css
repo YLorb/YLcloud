@@ -2086,3 +2086,47 @@ select:focus {
     gap: 4px;
   }
 }
+
+.knowledge-settings-page .rag-config-form label:not(.inline-check) {
+  display: grid;
+  gap: 6px;
+}
+
+.knowledge-settings-page .rag-config-form label span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.knowledge-settings-page .rag-config-form small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.segmented-control {
+  display: inline-flex;
+  gap: 4px;
+  grid-column: 1 / -1;
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.segmented-control button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.segmented-control button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-soft);
+}

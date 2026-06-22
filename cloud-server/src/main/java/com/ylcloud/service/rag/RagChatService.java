@@ -52,7 +52,7 @@ public class RagChatService {
             request.setQuestion(question);
             request.setContexts(buildContexts(chunks));
             request.setMaxTokens(properties.getChat().getMaxAnswerTokens());
-            request.setTemperature(properties.getChat().getTemperature());
+            request.setTemperature(resolveTemperature(config));
             RagChatResponse response = ragModelClient.chat(request);
             if(response.getAnswer() == null || response.getAnswer().isBlank()) {
                 RagChatResult result = RagChatResult.failed(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
@@ -102,6 +102,12 @@ public class RagChatService {
      * @param config 配置对象
      * @return 处理结果
      */
+    private double resolveTemperature(SpaceRagConfig config) {
+        Double configured = config == null || config.getTemperature() == null ? null : config.getTemperature().doubleValue();
+        double value = configured == null ? (properties.getChat().getTemperature() == null ? 0.2 : properties.getChat().getTemperature()) : configured;
+        return Math.max(0.0,Math.min(1.0,value));
+    }
+
     private String resolveChatModel(SpaceRagConfig config) {
         String configuredModel = config == null ? null : config.getChatModel();
         if(configuredModel != null && !configuredModel.isBlank() && !LEGACY_ARK_MODEL.equals(configuredModel)) {

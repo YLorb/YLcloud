@@ -18,6 +18,11 @@ public class SpaceRagQueryDTO {
 
     private Integer topK;
 
+    /**
+     * 检索范围模式：precise / balanced / broad。普通用户不直接控制 Top-k 数值。
+     */
+    private String retrievalMode;
+
     @Valid
     @Size(max = 10, message = "对话历史不能超过 10 条")
     private List<RagChatMessageDTO> history;

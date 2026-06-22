@@ -270,10 +270,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(payload)
     }),
-  queryRag: (spaceId: number, question: string, topK?: number, history?: RagChatMessage[]) =>
+  queryRag: (spaceId: number, question: string, retrievalMode?: "precise" | "balanced" | "broad", history?: RagChatMessage[]) =>
     request<RagQuery>(`/api/space/${spaceId}/rag/query`, {
       method: "POST",
-      body: JSON.stringify({ question, topK, history })
+      body: JSON.stringify({ question, retrievalMode, history })
     }),
   importSpaceWebLink: (spaceId: number, payload: { url: string; parentId?: number | null; name?: string }) =>
     request<SpaceFile>(`/api/space/${spaceId}/rag/links`, {

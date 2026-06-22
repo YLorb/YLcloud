@@ -2,6 +2,7 @@ package com.ylcloud.entity;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -16,6 +17,8 @@ public class SpaceRagQueryLog {
     private String answer;
     private String hitChunkIds;
     private String modelName;
+    private Integer topK;
+    private BigDecimal temperature;
     private Integer promptTokens;
     private Integer completionTokens;
     private Integer totalTokens;

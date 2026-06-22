@@ -22,8 +22,8 @@ public interface SpaceRagMapper {
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    @Insert("insert into space_rag_config(space_id, embedding_model, chat_model, vector_collection, chunk_size, chunk_overlap, top_k, score_threshold, enabled, status, createtime, updatetime) " +
-            "values(#{spaceId}, #{embeddingModel}, #{chatModel}, #{vectorCollection}, #{chunkSize}, #{chunkOverlap}, #{topK}, #{scoreThreshold}, #{enabled}, #{status}, #{createtime}, #{updatetime})")
+    @Insert("insert into space_rag_config(space_id, embedding_model, chat_model, vector_collection, chunk_size, chunk_overlap, top_k, temperature, score_threshold, enabled, status, createtime, updatetime) " +
+            "values(#{spaceId}, #{embeddingModel}, #{chatModel}, #{vectorCollection}, #{chunkSize}, #{chunkOverlap}, #{topK}, #{temperature}, #{scoreThreshold}, #{enabled}, #{status}, #{createtime}, #{updatetime})")
     int insert(SpaceRagConfig config);
 
     /**
@@ -31,7 +31,7 @@ public interface SpaceRagMapper {
      * @return 处理结果
      */
     @Select("select id, space_id as spaceId, embedding_model as embeddingModel, chat_model as chatModel, vector_collection as vectorCollection, " +
-            "chunk_size as chunkSize, chunk_overlap as chunkOverlap, top_k as topK, score_threshold as scoreThreshold, enabled, status, createtime, updatetime " +
+            "chunk_size as chunkSize, chunk_overlap as chunkOverlap, top_k as topK, temperature, score_threshold as scoreThreshold, enabled, status, createtime, updatetime " +
             "from space_rag_config where space_id = #{spaceId} and status = 1")
     SpaceRagConfig getBySpaceId(@Param("spaceId") Long spaceId);
 
@@ -40,7 +40,7 @@ public interface SpaceRagMapper {
      * @return 影响行数
      */
     @Update("update space_rag_config set embedding_model = #{embeddingModel}, chat_model = #{chatModel}, " +
-            "chunk_size = #{chunkSize}, chunk_overlap = #{chunkOverlap}, top_k = #{topK}, " +
+            "chunk_size = #{chunkSize}, chunk_overlap = #{chunkOverlap}, top_k = #{topK}, temperature = #{temperature}, " +
             "score_threshold = #{scoreThreshold}, enabled = #{enabled}, updatetime = #{updateTime} " +
             "where space_id = #{spaceId} and status = 1")
     int updateConfig(@Param("spaceId") Long spaceId,
@@ -49,6 +49,7 @@ public interface SpaceRagMapper {
                      @Param("chunkSize") Integer chunkSize,
                      @Param("chunkOverlap") Integer chunkOverlap,
                      @Param("topK") Integer topK,
+                     @Param("temperature") BigDecimal temperature,
                      @Param("scoreThreshold") BigDecimal scoreThreshold,
                      @Param("enabled") Integer enabled,
                      @Param("updateTime") LocalDateTime updateTime);

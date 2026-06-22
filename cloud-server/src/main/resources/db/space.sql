@@ -51,6 +51,7 @@ create table if not exists space_rag_config (
     chunk_size int not null default 1000,
     chunk_overlap int not null default 100,
     top_k int not null default 5,
+    temperature decimal(3,2) not null default 0.20,
     score_threshold decimal(6,4) default 0.0000,
     enabled int not null default 1,
     status int not null default 1,
@@ -169,6 +170,8 @@ create table if not exists space_rag_query_log (
     answer longtext,
     hit_chunk_ids varchar(1000),
     model_name varchar(100),
+    top_k int,
+    temperature decimal(3,2),
     prompt_tokens int default 0,
     completion_tokens int default 0,
     total_tokens int default 0,
@@ -178,4 +181,17 @@ create table if not exists space_rag_query_log (
     index idx_space_rag_query_log_space_id (space_id),
     index idx_space_rag_query_log_user_id (user_id),
     index idx_space_rag_query_log_createtime (createtime)
+);
+
+create table if not exists space_rag_config_log (
+    id bigint primary key auto_increment,
+    space_id bigint not null,
+    operator_id bigint not null,
+    changed_fields varchar(500),
+    before_json longtext,
+    after_json longtext,
+    createtime timestamp not null,
+    index idx_space_rag_config_log_space_id (space_id),
+    index idx_space_rag_config_log_operator_id (operator_id),
+    index idx_space_rag_config_log_createtime (createtime)
 );

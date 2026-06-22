@@ -154,9 +154,12 @@ export type RagConfig = {
   chunkSize?: number;
   chunkOverlap?: number;
   topK?: number;
+  temperature?: number;
   scoreThreshold?: number;
   enabled?: number;
   status?: number;
+  createtime?: string;
+  updatetime?: string;
 };
 
 export type RagDocument = {

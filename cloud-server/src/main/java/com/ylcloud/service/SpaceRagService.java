@@ -19,6 +19,7 @@ import com.ylcloud.entity.FileRagChunk;
 import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.entity.SpaceRagChunkRef;
 import com.ylcloud.entity.SpaceRagConfig;
+import com.ylcloud.entity.SpaceRagConfigLog;
 import com.ylcloud.entity.SpaceRagDocument;
 import com.ylcloud.entity.SpaceRagQueryLog;
 import com.ylcloud.entity.SpaceRagTask;
@@ -26,6 +27,7 @@ import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.FileRagChunkMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
 import com.ylcloud.mapper.SpaceRagChunkRefMapper;
+import com.ylcloud.mapper.SpaceRagConfigLogMapper;
 import com.ylcloud.mapper.SpaceRagDocumentMapper;
 import com.ylcloud.mapper.SpaceRagMapper;
 import com.ylcloud.mapper.SpaceRagQueryLogMapper;
@@ -44,11 +46,15 @@ import com.ylcloud.service.rag.query.QueryPlan;
 import com.ylcloud.service.rag.query.QueryRewriteService;
 import com.ylcloud.service.rag.retriever.RagMultiRouteRetriever;
 import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -69,9 +75,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Service
 public class SpaceRagService {
+    private static final Logger log = LoggerFactory.getLogger(SpaceRagService.class);
     private static final int DEFAULT_CHUNK_SIZE = 1000;
     private static final int DEFAULT_CHUNK_OVERLAP = 100;
     private static final int DEFAULT_TOP_K = 5;
+    private static final int MAX_TOP_K = 20;
 
     private final SpaceRagMapper spaceRagMapper;
     private final SpaceRagDocumentMapper spaceRagDocumentMapper;
@@ -79,6 +87,7 @@ public class SpaceRagService {
     private final SpaceRagChunkRefMapper spaceRagChunkRefMapper;
     private final SpaceRagTaskMapper spaceRagTaskMapper;
     private final SpaceRagQueryLogMapper spaceRagQueryLogMapper;
+    private final SpaceRagConfigLogMapper spaceRagConfigLogMapper;
     private final SpaceFileMapper spaceFileMapper;
     private final FileInfoMapper fileInfoMapper;
     private final SpacePermissionService spacePermissionService;
@@ -119,6 +128,7 @@ public class SpaceRagService {
                            SpaceRagChunkRefMapper spaceRagChunkRefMapper,
                            SpaceRagTaskMapper spaceRagTaskMapper,
                            SpaceRagQueryLogMapper spaceRagQueryLogMapper,
+                           SpaceRagConfigLogMapper spaceRagConfigLogMapper,
                            SpaceFileMapper spaceFileMapper,
                            FileInfoMapper fileInfoMapper,
                            SpacePermissionService spacePermissionService,
@@ -137,6 +147,7 @@ public class SpaceRagService {
         this.spaceRagChunkRefMapper = spaceRagChunkRefMapper;
         this.spaceRagTaskMapper = spaceRagTaskMapper;
         this.spaceRagQueryLogMapper = spaceRagQueryLogMapper;
+        this.spaceRagConfigLogMapper = spaceRagConfigLogMapper;
         this.spaceFileMapper = spaceFileMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spacePermissionService = spacePermissionService;
@@ -180,13 +191,16 @@ public class SpaceRagService {
         if(chunkOverlap >= chunkSize) {
             throw new BaseException("文本分块重叠长度必须小于文本分块大小");
         }
+        Integer topK = safeConfiguredTopK(dto.getTopK() == null ? current.getTopK() : dto.getTopK());
+        BigDecimal temperature = safeTemperature(dto.getTemperature() == null ? current.getTemperature() : dto.getTemperature());
         int rows = spaceRagMapper.updateConfig(
                 spaceId,
                 blankToCurrent(dto.getEmbeddingModel(),current.getEmbeddingModel()),
                 blankToCurrent(dto.getChatModel(),current.getChatModel()),
                 chunkSize,
                 chunkOverlap,
-                dto.getTopK() == null ? current.getTopK() : dto.getTopK(),
+                topK,
+                temperature,
                 dto.getScoreThreshold() == null ? current.getScoreThreshold() : dto.getScoreThreshold(),
                 dto.getEnabled() == null ? current.getEnabled() : dto.getEnabled(),
                 LocalDateTime.now()
@@ -194,7 +208,9 @@ public class SpaceRagService {
         if(rows == 0) {
             throw new BaseException("空间 RAG 配置更新失败");
         }
-        return toConfigVO(requireConfig(spaceId));
+        SpaceRagConfig updated = requireConfig(spaceId);
+        saveConfigChangeLog(spaceId,userId,current,updated);
+        return toConfigVO(updated);
     }
 
     /**
@@ -212,7 +228,7 @@ public class SpaceRagService {
         if(!StatusConstant.ENABLE.equals(config.getEnabled())) {
             throw new BaseException("当前空间未启用 RAG");
         }
-        int limit = dto.getTopK() == null ? safeTopK(config.getTopK()) : dto.getTopK();
+        int limit = resolveQueryTopK(config,dto.getRetrievalMode());
         QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),dto.getHistory());
         List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
         RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config);
@@ -226,7 +242,7 @@ public class SpaceRagService {
             idJoiner.add(String.valueOf(chunk.getId()));
         }
         saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),
-                blankToCurrent(chatResult.getModelName(),config.getChatModel()),
+                blankToCurrent(chatResult.getModelName(),config.getChatModel()),limit,safeTemperature(config.getTemperature()),
                 chatResult.isSuccess(),chatResult.getErrorMessage());
 
         SpaceRagQueryVO vo = new SpaceRagQueryVO();
@@ -1180,7 +1196,7 @@ public class SpaceRagService {
      * @param success 方法入参
      * @param errorMessage 错误信息
      */
-    private void saveQueryLog(Long spaceId, Long userId, String question, String answer, String hitChunkIds, String modelName, boolean success, String errorMessage) {
+    private void saveQueryLog(Long spaceId, Long userId, String question, String answer, String hitChunkIds, String modelName, Integer topK, BigDecimal temperature, boolean success, String errorMessage) {
         SpaceRagQueryLog log = new SpaceRagQueryLog();
         log.setSpaceId(spaceId);
         log.setUserId(userId);
@@ -1188,6 +1204,8 @@ public class SpaceRagService {
         log.setAnswer(answer);
         log.setHitChunkIds(hitChunkIds);
         log.setModelName(modelName);
+        log.setTopK(topK);
+        log.setTemperature(temperature);
         log.setPromptTokens(question == null ? 0 : question.length());
         log.setCompletionTokens(answer == null ? 0 : answer.length());
         log.setTotalTokens(log.getPromptTokens() + log.getCompletionTokens());
@@ -1213,6 +1231,7 @@ public class SpaceRagService {
         vo.setChunkSize(config.getChunkSize());
         vo.setChunkOverlap(config.getChunkOverlap());
         vo.setTopK(config.getTopK());
+        vo.setTemperature(safeTemperature(config.getTemperature()));
         vo.setScoreThreshold(config.getScoreThreshold());
         vo.setEnabled(config.getEnabled());
         vo.setStatus(config.getStatus());
@@ -1308,14 +1327,84 @@ public class SpaceRagService {
         return Math.min(chunkOverlap,realChunkSize - 1);
     }
 
-    /**
-     * 执行 safeTopK 函数的业务处理。
-     *
-     * @param topK 召回数量
-     * @return 影响行数
-     */
-    private int safeTopK(Integer topK) {
-        return topK == null || topK <= 0 ? DEFAULT_TOP_K : topK;
+    private int resolveQueryTopK(SpaceRagConfig config, String retrievalMode) {
+        int configured = safeConfiguredTopK(config == null ? null : config.getTopK());
+        String mode = retrievalMode == null ? "balanced" : retrievalMode.trim().toLowerCase();
+        if("precise".equals(mode)) {
+            return Math.max(1,Math.min(configured,Math.max(1,(int) Math.ceil(configured * 0.4))));
+        }
+        if("broad".equals(mode)) {
+            return configured;
+        }
+        return Math.max(1,Math.min(configured,Math.max(1,(int) Math.ceil(configured * 0.7))));
+    }
+
+    private Integer safeConfiguredTopK(Integer topK) {
+        if(topK == null || topK <= 0) {
+            return DEFAULT_TOP_K;
+        }
+        return Math.min(topK,MAX_TOP_K);
+    }
+
+    private BigDecimal safeTemperature(BigDecimal temperature) {
+        BigDecimal value = temperature == null ? BigDecimal.valueOf(ragProperties.getChat().getTemperature() == null ? 0.2 : ragProperties.getChat().getTemperature()) : temperature;
+        if(value.compareTo(BigDecimal.ZERO) < 0) {
+            value = BigDecimal.ZERO;
+        }
+        if(value.compareTo(BigDecimal.ONE) > 0) {
+            value = BigDecimal.ONE;
+        }
+        return value.setScale(2,RoundingMode.HALF_UP);
+    }
+
+    private void saveConfigChangeLog(Long spaceId, Long operatorId, SpaceRagConfig before, SpaceRagConfig after) {
+        String changedFields = changedFields(before,after);
+        if(changedFields.isBlank()) {
+            return;
+        }
+        SpaceRagConfigLog changeLog = new SpaceRagConfigLog();
+        changeLog.setSpaceId(spaceId);
+        changeLog.setOperatorId(operatorId);
+        changeLog.setChangedFields(changedFields);
+        changeLog.setBeforeJson(configSnapshot(before));
+        changeLog.setAfterJson(configSnapshot(after));
+        changeLog.setCreatetime(LocalDateTime.now());
+        spaceRagConfigLogMapper.insert(changeLog);
+        log.info("RAG config updated: spaceId={}, operatorId={}, changedFields={}, before={}, after={}",
+                spaceId,operatorId,changedFields,changeLog.getBeforeJson(),changeLog.getAfterJson());
+    }
+
+    private String changedFields(SpaceRagConfig before, SpaceRagConfig after) {
+        List<String> fields = new ArrayList<>();
+        addChanged(fields,"embeddingModel",before.getEmbeddingModel(),after.getEmbeddingModel());
+        addChanged(fields,"chatModel",before.getChatModel(),after.getChatModel());
+        addChanged(fields,"chunkSize",before.getChunkSize(),after.getChunkSize());
+        addChanged(fields,"chunkOverlap",before.getChunkOverlap(),after.getChunkOverlap());
+        addChanged(fields,"topK",before.getTopK(),after.getTopK());
+        addChanged(fields,"temperature",safeTemperature(before.getTemperature()),safeTemperature(after.getTemperature()));
+        addChanged(fields,"scoreThreshold",before.getScoreThreshold(),after.getScoreThreshold());
+        addChanged(fields,"enabled",before.getEnabled(),after.getEnabled());
+        return String.join(",",fields);
+    }
+
+    private void addChanged(List<String> fields, String field, Object before, Object after) {
+        if(before == null ? after != null : !before.equals(after)) {
+            fields.add(field);
+        }
+    }
+
+    private String configSnapshot(SpaceRagConfig config) {
+        if(config == null) {
+            return "{}";
+        }
+        return "{\"embeddingModel\":\"" + escapeJson(config.getEmbeddingModel()) + "\","
+                + "\"chatModel\":\"" + escapeJson(config.getChatModel()) + "\","
+                + "\"chunkSize\":" + config.getChunkSize() + ","
+                + "\"chunkOverlap\":" + config.getChunkOverlap() + ","
+                + "\"topK\":" + config.getTopK() + ","
+                + "\"temperature\":" + safeTemperature(config.getTemperature()) + ","
+                + "\"scoreThreshold\":" + config.getScoreThreshold() + ","
+                + "\"enabled\":" + config.getEnabled() + "}";
     }
 
     /**

@@ -330,6 +330,7 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
   const [tasks, setTasks] = useState<RagTask[]>([]);
   const [ragQuery, setRagQuery] = useState<RagQuery | null>(null);
   const [question, setQuestion] = useState("");
+  const [retrievalMode, setRetrievalMode] = useState<"precise" | "balanced" | "broad">("balanced");
   const [loading, setLoading] = useState(false);
   const [addDocumentOpen, setAddDocumentOpen] = useState(false);
 
@@ -403,23 +404,27 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
 
   async function saveRagConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!active) return;
+    if (!active || !canManageRag) return;
     const form = new FormData(event.currentTarget);
     const enabled = form.get("enabled") === "on" ? 1 : 0;
     const chunkSize = Number(form.get("chunkSize"));
     const chunkOverlap = Number(form.get("chunkOverlap"));
     const topK = Number(form.get("topK"));
+    const temperature = Number(form.get("temperature"));
+    const scoreThreshold = Number(form.get("scoreThreshold"));
     try {
       const next = await api.updateRagConfig(active.id, {
         enabled,
         chunkSize: Number.isFinite(chunkSize) && chunkSize > 0 ? chunkSize : ragConfig?.chunkSize,
         chunkOverlap: Number.isFinite(chunkOverlap) && chunkOverlap >= 0 ? chunkOverlap : ragConfig?.chunkOverlap,
-        topK: Number.isFinite(topK) && topK > 0 ? topK : ragConfig?.topK
+        topK: Number.isFinite(topK) && topK > 0 ? topK : ragConfig?.topK,
+        temperature: Number.isFinite(temperature) ? temperature : ragConfig?.temperature,
+        scoreThreshold: Number.isFinite(scoreThreshold) ? scoreThreshold : ragConfig?.scoreThreshold
       });
       setRagConfig(next);
-      showNotice({ type: "success", text: "RAG 配置已保存" });
+      showNotice({ type: "success", text: "知识库设置已保存" });
     } catch (err) {
-      showNotice({ type: "error", text: err instanceof Error ? err.message : "RAG 配置保存失败" });
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "知识库设置保存失败" });
     }
   }
 
@@ -450,13 +455,15 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
     if (!active || !question.trim()) return;
     setLoading(true);
     try {
-      setRagQuery(await api.queryRag(active.id, question.trim(), ragConfig?.topK));
+      setRagQuery(await api.queryRag(active.id, question.trim(), retrievalMode));
     } catch (err) {
       showNotice({ type: "error", text: err instanceof Error ? err.message : "RAG 问答失败" });
     } finally {
       setLoading(false);
     }
   }
+
+  const canManageRag = active?.role === "OWNER" || active?.role === "ADMIN";
 
   return (
     <section className="spaces-view">
@@ -563,22 +570,42 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
                 </div>
               </section>
 
-              <section className="space-panel">
+              <section className="space-panel knowledge-settings-page">
                 <div className="section-heading">
-                  <h3>RAG 设置</h3>
-                  <span>{ragConfig?.enabled ? "已启用" : "未启用"}</span>
+                  <h3>知识库设置</h3>
+                  <span>{canManageRag ? "可编辑" : "只读"}</span>
                 </div>
-                <form className="rag-config-form" onSubmit={saveRagConfig}>
+                <form key={`${active.id}-${ragConfig?.updatetime || ragConfig?.id || "new"}`} className="rag-config-form" onSubmit={saveRagConfig}>
                   <label className="inline-check">
-                    <input name="enabled" type="checkbox" defaultChecked={Boolean(ragConfig?.enabled)} />
-                    启用 RAG
+                    <input name="enabled" type="checkbox" disabled={!canManageRag} defaultChecked={Boolean(ragConfig?.enabled)} />
+                    启用 RAG 问答
                   </label>
-                  <input name="chunkSize" type="number" min="1" defaultValue={ragConfig?.chunkSize ?? 1000} aria-label="分块大小" />
-                  <input name="chunkOverlap" type="number" min="0" defaultValue={ragConfig?.chunkOverlap ?? 100} aria-label="重叠长度" />
-                  <input name="topK" type="number" min="1" defaultValue={ragConfig?.topK ?? 5} aria-label="召回数量" />
-                  <button className="primary-button" type="submit">
-                    保存配置
-                  </button>
+                  <label>
+                    <span>管理员 Top-k 上限</span>
+                    <input name="topK" type="number" min="1" max="20" disabled={!canManageRag} defaultValue={ragConfig?.topK ?? 5} aria-label="召回数量上限" />
+                  </label>
+                  <label>
+                    <span>温度 {Number(ragConfig?.temperature ?? 0.2).toFixed(2)}</span>
+                    <input name="temperature" type="range" min="0" max="1" step="0.05" disabled={!canManageRag} defaultValue={ragConfig?.temperature ?? 0.2} aria-label="温度" />
+                    <small>低温更依赖上下文，高温更有创造性。</small>
+                  </label>
+                  <label>
+                    <span>分块大小</span>
+                    <input name="chunkSize" type="number" min="1" disabled={!canManageRag} defaultValue={ragConfig?.chunkSize ?? 1000} aria-label="分块大小" />
+                  </label>
+                  <label>
+                    <span>重叠长度</span>
+                    <input name="chunkOverlap" type="number" min="0" disabled={!canManageRag} defaultValue={ragConfig?.chunkOverlap ?? 100} aria-label="重叠长度" />
+                  </label>
+                  <label>
+                    <span>分数阈值</span>
+                    <input name="scoreThreshold" type="number" min="0" max="1" step="0.01" disabled={!canManageRag} defaultValue={ragConfig?.scoreThreshold ?? 0} aria-label="分数阈值" />
+                  </label>
+                  {canManageRag && (
+                    <button className="primary-button" type="submit">
+                      保存设置
+                    </button>
+                  )}
                 </form>
                 <dl className="config-facts">
                   <div>
@@ -586,8 +613,8 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
                     <dd>{ragConfig?.vectorCollection || "-"}</dd>
                   </div>
                   <div>
-                    <dt>阈值</dt>
-                    <dd>{ragConfig?.scoreThreshold ?? "-"}</dd>
+                    <dt>模型</dt>
+                    <dd>{ragConfig?.chatModel || "-"}</dd>
                   </div>
                 </dl>
               </section>
@@ -641,6 +668,22 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
                 <span>{tasks.filter((task) => task.taskStatus === "RUNNING").length} 个运行中任务</span>
               </div>
               <form onSubmit={askRag}>
+                <div className="segmented-control" aria-label="检索范围">
+                  {[
+                    ["precise", "精准"],
+                    ["balanced", "均衡"],
+                    ["broad", "广泛"]
+                  ].map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      className={retrievalMode === mode ? "active" : ""}
+                      type="button"
+                      onClick={() => setRetrievalMode(mode as "precise" | "balanced" | "broad")}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="询问当前空间知识库" />
                 <button className="primary-button" type="submit" disabled={loading || !question.trim()}>
                   {loading && <Loader2 className="spin" size={16} />}

@@ -234,6 +234,7 @@ public class SpaceService {
         ragConfig.setChunkSize(1000);
         ragConfig.setChunkOverlap(100);
         ragConfig.setTopK(5);
+        ragConfig.setTemperature(BigDecimal.valueOf(ragProperties.getChat().getTemperature() == null ? 0.2 : ragProperties.getChat().getTemperature()));
         ragConfig.setScoreThreshold(BigDecimal.ZERO);
         ragConfig.setEnabled(StatusConstant.ENABLE);
         ragConfig.setStatus(StatusConstant.ENABLE);

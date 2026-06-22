@@ -18,6 +18,7 @@ public class SpaceRagConfig {
     private Integer chunkSize;
     private Integer chunkOverlap;
     private Integer topK;
+    private BigDecimal temperature;
     private BigDecimal scoreThreshold;
     private Integer enabled;
     private Integer status;
