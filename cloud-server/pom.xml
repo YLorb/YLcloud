@@ -58,6 +58,10 @@
             <artifactId>tika-parsers-standard-package</artifactId>
         </dependency>
         <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.github.magese</groupId>
             <artifactId>ik-analyzer</artifactId>
         </dependency>

@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Token,
     [Parameter(Mandatory = $true)][long]$SpaceId,
     [Parameter(Mandatory = $true)][long]$SpaceFileId,
-    [string]$Question = "请概括这个文档的主要内容"
+    [string]$Question = "请概括这个文档的主要内容",
+    [int]$TimeoutMinutes = 12
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,7 +30,7 @@ Write-Host "Rebuilding file RAG index..."
 Invoke-YlCloudJson -Method Post -Path "/api/space/$SpaceId/rag/files/$SpaceFileId/rebuild" | Out-Null
 
 Write-Host "Polling RAG tasks..."
-$deadline = (Get-Date).AddMinutes(5)
+$deadline = (Get-Date).AddMinutes($TimeoutMinutes)
 do {
     Start-Sleep -Seconds 3
     $tasks = Invoke-YlCloudJson -Method Get -Path "/api/space/$SpaceId/rag/tasks"

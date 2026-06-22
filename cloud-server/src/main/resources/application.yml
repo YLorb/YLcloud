@@ -101,7 +101,10 @@ ylcloud:
       temperature: 0.2
       no-answer-text: 当前知识库中没有检索到足够的依据，无法回答该问题。
       unavailable-text: 已检索到相关资料，但问答模型暂不可用。请先查看下方引用内容，稍后重试。
-      system-prompt: 你是云端知识库问答助手。只能根据提供的知识库上下文回答；如果上下文没有答案，明确说明无法从当前知识库回答。回答应简洁、准确，并在相关句子后使用引用编号。
+      system-prompt: 你是云端知识库问答助手。只能根据提供的知识库上下文回答；如果上下文没有答案，明确说明无法从当前知识库回答。回答应简洁、准确，并在相关句子后使用引用编号。若用户询问代码、写法、模板、示例实现，必须优先完整输出上下文中命中的相关代码，使用 fenced code block 包裹；不要用“见上下文”“部分代码如下”等方式省略已检索到的代码。
+    index:
+      concurrency: ${YLCLOUD_RAG_INDEX_CONCURRENCY:5}
+      task-timeout-minutes: ${YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES:10}
     extraction:
       enabled: true
       structured-enabled: true

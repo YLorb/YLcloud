@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -22,7 +23,11 @@ public interface FileRagChunkMapper {
      */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into file_rag_chunk(file_uuid, file_hash, chunk_index, content, content_hash, token_count, metadata, vector_id, embedding_model, chunk_size, chunk_overlap, status, createtime, updatetime) " +
-            "values(#{fileUuid}, #{fileHash}, #{chunkIndex}, #{content}, #{contentHash}, #{tokenCount}, #{metadata}, #{vectorId}, #{embeddingModel}, #{chunkSize}, #{chunkOverlap}, #{status}, #{createtime}, #{updatetime})")
+            "values(#{fileUuid}, #{fileHash}, #{chunkIndex}, #{content}, #{contentHash}, #{tokenCount}, #{metadata}, #{vectorId}, #{embeddingModel}, #{chunkSize}, #{chunkOverlap}, #{status}, #{createtime}, #{updatetime}) " +
+            "on duplicate key update id = last_insert_id(id), content = values(content), content_hash = values(content_hash), " +
+            "token_count = values(token_count), metadata = values(metadata), vector_id = values(vector_id), " +
+            "embedding_model = values(embedding_model), chunk_size = values(chunk_size), chunk_overlap = values(chunk_overlap), " +
+            "status = values(status), updatetime = values(updatetime)")
     int insert(FileRagChunk chunk);
 
     /**
@@ -44,6 +49,14 @@ public interface FileRagChunkMapper {
             "chunk_overlap as chunkOverlap, status, createtime, updatetime from file_rag_chunk " +
             "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and status = 1 order by chunk_index")
     List<FileRagChunk> listByFileUuidAndHash(@Param("fileUuid") String fileUuid, @Param("fileHash") String fileHash);
+
+    /**
+     * 禁用指定物理文件版本的 active chunks，用于清理旧的 metadata fallback 缓存。
+     * @return 影响行数
+     */
+    @Update("update file_rag_chunk set status = 0, updatetime = now() " +
+            "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and status = 1")
+    int disableByFileUuidAndHash(@Param("fileUuid") String fileUuid, @Param("fileHash") String fileHash);
 
     /**
      * 搜索 searchBySpaceAndKeyword 相关逻辑。

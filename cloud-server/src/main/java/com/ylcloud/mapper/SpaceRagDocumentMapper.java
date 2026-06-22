@@ -139,4 +139,16 @@ public interface SpaceRagDocumentMapper {
             "</script>")
     List<SpaceDocumentSearchVO> listSearchDocumentsByIds(@Param("spaceId") Long spaceId,
                                                          @Param("documentIds") List<Long> documentIds);
+
+    /**
+     * 将空间中超时仍处于索引中的文档标记为失败。
+     * @return 影响行数
+     */
+    @Update("update space_rag_document set index_status = 'FAILED', chunk_count = 0, error_message = #{errorMessage}, updatetime = #{updateTime} " +
+            "where space_id = #{spaceId} and status = 1 and index_status = 'INDEXING' and updatetime <= #{cutoff}")
+    int failStaleIndexingDocuments(@Param("spaceId") Long spaceId,
+                                   @Param("cutoff") LocalDateTime cutoff,
+                                   @Param("errorMessage") String errorMessage,
+                                   @Param("updateTime") LocalDateTime updateTime);
+
 }

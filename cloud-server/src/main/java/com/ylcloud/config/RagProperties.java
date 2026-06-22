@@ -23,6 +23,7 @@ public class RagProperties {
     private Rerank rerank = new Rerank();
     private Chat chat = new Chat();
     private Extraction extraction = new Extraction();
+    private Index index = new Index();
     private Chunking chunking = new Chunking();
     private Query query = new Query();
     private Retrieval retrieval = new Retrieval();
@@ -65,6 +66,12 @@ public class RagProperties {
         private String noAnswerText = "当前知识库中没有检索到足够的依据，无法回答该问题。";
         private String unavailableText = "已检索到相关资料，但问答模型暂不可用。请先查看下方引用内容，稍后重试。";
         private String systemPrompt = "你是云端知识库问答助手。只能根据提供的知识库上下文回答；如果上下文没有答案，明确说明无法从当前知识库回答。回答应简洁、准确，并在相关句子后使用引用编号。";
+    }
+
+    @Data
+    public static class Index {
+        private Integer concurrency = 5;
+        private Integer taskTimeoutMinutes = 10;
     }
 
     @Data

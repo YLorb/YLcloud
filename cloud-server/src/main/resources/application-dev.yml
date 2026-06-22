@@ -16,8 +16,8 @@ ylcloud:
     max-file-size: 2147483648
   minio:
     endpoint: ${YLCLOUD_MINIO_ENDPOINT:http://127.0.0.1:9000}
-    accessKey: ${YLCLOUD_MINIO_ACCESS_KEY:minioadmin}
-    secretKey: ${YLCLOUD_MINIO_SECRET_KEY:minioadmin}
+    accessKey: ${YLCLOUD_MINIO_ACCESS_KEY:ylcloud_minio}
+    secretKey: ${YLCLOUD_MINIO_SECRET_KEY:ylcloud_minio_pwd}
     bucket-name: ${YLCLOUD_MINIO_BUCKET:localbucket1}
   rag:
     embedding-dimension: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:512}

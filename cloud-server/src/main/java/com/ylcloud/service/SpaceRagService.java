@@ -43,6 +43,7 @@ import com.ylcloud.service.rag.parser.StructuredChunker;
 import com.ylcloud.service.rag.query.QueryPlan;
 import com.ylcloud.service.rag.query.QueryRewriteService;
 import com.ylcloud.service.rag.retriever.RagMultiRouteRetriever;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -53,10 +54,15 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 空间 RAG 业务服务。
@@ -241,6 +247,7 @@ public class SpaceRagService {
      */
     public List<SpaceRagDocumentVO> listDocuments(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
+        expireStaleIndexTasks(spaceId);
         List<SpaceRagDocumentVO> result = new ArrayList<>();
         for(SpaceRagDocument document : spaceRagDocumentMapper.listBySpaceId(spaceId)) {
             result.add(toDocumentVO(document));
@@ -257,6 +264,7 @@ public class SpaceRagService {
      */
     public List<SpaceRagTaskVO> listTasks(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
+        expireStaleIndexTasks(spaceId);
         List<SpaceRagTaskVO> result = new ArrayList<>();
         for(SpaceRagTask task : spaceRagTaskMapper.listBySpaceId(spaceId)) {
             result.add(toTaskVO(task));
@@ -313,7 +321,8 @@ public class SpaceRagService {
     @Transactional
     public Boolean repairSpaceVectors(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
-        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningIndexTaskBySpace(spaceId);
+        expireStaleIndexTasks(spaceId);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningSpaceTask(spaceId,SpaceConstant.RAG_TASK_REBUILD_SPACE);
         if(runningTask != null) {
             return true;
         }
@@ -404,7 +413,8 @@ public class SpaceRagService {
     @Transactional
     public Boolean rebuildSpace(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
-        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningIndexTaskBySpace(spaceId);
+        expireStaleIndexTasks(spaceId);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningSpaceTask(spaceId,SpaceConstant.RAG_TASK_REBUILD_SPACE);
         if(runningTask != null) {
             return true;
         }
@@ -424,10 +434,7 @@ public class SpaceRagService {
     @Transactional
     public Boolean rebuildFile(Long spaceId, Long spaceFileId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
-        SpaceRagTask runningSpaceTask = spaceRagTaskMapper.findRunningSpaceTask(spaceId,SpaceConstant.RAG_TASK_REBUILD_SPACE);
-        if(runningSpaceTask != null) {
-            return true;
-        }
+        expireStaleIndexTasks(spaceId);
         SpaceRagTask runningTask = spaceRagTaskMapper.findRunningFileTask(spaceId,spaceFileId);
         if(runningTask != null) {
             return true;
@@ -453,11 +460,8 @@ public class SpaceRagService {
         if(spaceFile == null || spaceFile.getDir() == 1) {
             return;
         }
+        expireStaleIndexTasks(spaceFile.getSpaceId());
         SpaceRagDocument document = createDocument(spaceFile,userId);
-        SpaceRagTask runningSpaceTask = spaceRagTaskMapper.findRunningSpaceTask(spaceFile.getSpaceId(),SpaceConstant.RAG_TASK_REBUILD_SPACE);
-        if(runningSpaceTask != null) {
-            return;
-        }
         SpaceRagTask runningTask = spaceRagTaskMapper.findRunningFileTask(spaceFile.getSpaceId(),spaceFile.getId());
         if(runningTask != null) {
             return;
@@ -485,7 +489,7 @@ public class SpaceRagService {
             rebuildDocument(document,userId);
             updateTaskProgress(taskId,1,1,0);
             finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
-        } catch (Exception ex) {
+        } catch (Throwable ex) {
             String errorMessage = truncate(ex.getMessage(),1000);
             updateTaskProgress(taskId,1,0,1);
             finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,errorMessage,started);
@@ -523,30 +527,40 @@ public class SpaceRagService {
             }
             List<SpaceRagDocument> documents = spaceRagDocumentMapper.listBySpaceId(spaceId);
             updateTaskProgress(taskId,documents.size(),0,0);
-            int failed = 0;
-            int success = 0;
-            for(SpaceRagDocument document : documents) {
-                try {
-                    rebuildDocument(document,userId);
-                    success++;
-                } catch (Exception ex) {
-                    failed++;
-                    spaceRagDocumentMapper.updateIndexResult(
-                            document.getId(),
-                            SpaceConstant.RAG_INDEX_FAILED,
-                            0,
-                            truncate(ex.getMessage(),1000),
-                            LocalDateTime.now()
-                    );
+            AtomicInteger failed = new AtomicInteger();
+            AtomicInteger success = new AtomicInteger();
+            ExecutorService executor = Executors.newFixedThreadPool(indexConcurrency());
+            try {
+                List<CompletableFuture<Void>> futures = new ArrayList<>();
+                for(SpaceRagDocument document : documents) {
+                    futures.add(CompletableFuture.runAsync(() -> {
+                        try {
+                            rebuildDocument(document,userId);
+                            success.incrementAndGet();
+                        } catch (Throwable ex) {
+                            failed.incrementAndGet();
+                            spaceRagDocumentMapper.updateIndexResult(
+                                    document.getId(),
+                                    SpaceConstant.RAG_INDEX_FAILED,
+                                    0,
+                                    truncate(ex.getMessage(),1000),
+                                    LocalDateTime.now()
+                            );
+                        } finally {
+                            updateTaskProgress(taskId,documents.size(),success.get(),failed.get());
+                        }
+                    },executor));
                 }
-                updateTaskProgress(taskId,documents.size(),success,failed);
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            } finally {
+                executor.shutdown();
             }
-            if(failed > 0) {
-                finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,"Partial document indexing failed: " + failed + "/" + documents.size(),started);
+            if(failed.get() > 0) {
+                finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,"Partial document indexing failed: " + failed.get() + "/" + documents.size(),started);
                 return;
             }
             finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
-        } catch (Exception ex) {
+        } catch (Throwable ex) {
             finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
         }
     }
@@ -620,8 +634,11 @@ public class SpaceRagService {
             throw new BaseException("文件哈希不存在，无法建立 RAG 切片");
         }
         List<FileRagChunk> exists = fileRagChunkMapper.listByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
-        if(!exists.isEmpty()) {
+        if(!exists.isEmpty() && !isMetadataFallbackChunks(exists)) {
             return exists;
+        }
+        if(!exists.isEmpty()) {
+            fileRagChunkMapper.disableByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
         }
         ParsedDocument parsed = documentParser.parse(spaceFile,file);
         if(parsed == null || !parsed.isSuccess()) {
@@ -764,6 +781,19 @@ public class SpaceRagService {
      * @param file 文件对象
      * @return 处理结果
      */
+    private boolean isMetadataFallbackChunks(List<FileRagChunk> chunks) {
+        if(chunks == null || chunks.isEmpty()) {
+            return false;
+        }
+        for(FileRagChunk chunk : chunks) {
+            String metadata = chunk.getMetadata();
+            if(metadata == null || !metadata.contains("\"parser\":\"metadata\"") || !metadata.contains("\"fallback\":true")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private String buildDocumentText(SpaceFile spaceFile, File file) {
         StringBuilder builder = new StringBuilder();
         builder.append("文件名称：").append(spaceFile.getFileName()).append('\n');
@@ -798,10 +828,127 @@ public class SpaceRagService {
         );
         if(!candidates.isEmpty()) {
             int candidateTopK = rerankCandidateTopK();
-            List<FileRagChunk> rerankCandidates = limitChunks(candidates,candidateTopK);
+            List<FileRagChunk> expandedCandidates = expandContextChunks(candidates,spaceChunks,queryPlan,candidateTopK);
+            List<FileRagChunk> rerankCandidates = limitChunks(expandedCandidates,candidateTopK);
             return ragRerankService.rerank(queryPlan.getOriginal(),rerankCandidates,Math.min(limit,candidateTopK));
         }
         return List.of();
+    }
+
+    private List<FileRagChunk> expandContextChunks(List<FileRagChunk> candidates,
+                                                   List<FileRagChunk> spaceChunks,
+                                                   QueryPlan queryPlan,
+                                                   int limit) {
+        if(candidates == null || candidates.isEmpty() || spaceChunks == null || spaceChunks.isEmpty()) {
+            return candidates == null ? List.of() : candidates;
+        }
+        int max = Math.max(limit * 3,limit + 8);
+        Map<Long, FileRagChunk> selected = new LinkedHashMap<>();
+        Map<String, FileRagChunk> byPosition = new LinkedHashMap<>();
+        for(FileRagChunk chunk : spaceChunks) {
+            if(chunk.getId() != null && chunk.getFileUuid() != null && chunk.getFileHash() != null && chunk.getChunkIndex() != null) {
+                byPosition.put(positionKey(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex()),chunk);
+            }
+        }
+        boolean codeIntent = queryPlan != null && ("code".equals(queryPlan.getIntent()) || looksLikeCodeQuestion(queryPlan.getOriginal()));
+        for(FileRagChunk chunk : candidates) {
+            addChunk(selected,chunk,max);
+            Integer parentIndex = metadataInt(chunk.getMetadata(),"parentChunkIndex");
+            if(parentIndex != null) {
+                FileRagChunk parent = byPosition.get(positionKey(chunk.getFileUuid(),chunk.getFileHash(),parentIndex));
+                addChunk(selected,parent,max);
+                if(codeIntent) {
+                    addNeighborChunks(selected,byPosition,parent == null ? chunk : parent,1,max);
+                }
+            } else if(codeIntent && "parent".equals(metadataString(chunk.getMetadata(),"chunkType"))) {
+                addNeighborChunks(selected,byPosition,chunk,1,max);
+            }
+            if(codeIntent) {
+                addNeighborChunks(selected,byPosition,chunk,1,max);
+            }
+            if(selected.size() >= max) {
+                break;
+            }
+        }
+        return selected.values().stream()
+                .sorted(Comparator.comparing(FileRagChunk::getFileUuid,Comparator.nullsLast(String::compareTo))
+                        .thenComparing(FileRagChunk::getFileHash,Comparator.nullsLast(String::compareTo))
+                        .thenComparing(FileRagChunk::getChunkIndex,Comparator.nullsLast(Integer::compareTo)))
+                .toList();
+    }
+
+    private void addNeighborChunks(Map<Long, FileRagChunk> selected,
+                                   Map<String, FileRagChunk> byPosition,
+                                   FileRagChunk chunk,
+                                   int radius,
+                                   int max) {
+        if(chunk == null || chunk.getFileUuid() == null || chunk.getFileHash() == null || chunk.getChunkIndex() == null) {
+            return;
+        }
+        for(int offset = -radius; offset <= radius; offset++) {
+            if(offset == 0 || selected.size() >= max) {
+                continue;
+            }
+            FileRagChunk neighbor = byPosition.get(positionKey(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex() + offset));
+            addChunk(selected,neighbor,max);
+        }
+    }
+
+    private void addChunk(Map<Long, FileRagChunk> selected, FileRagChunk chunk, int max) {
+        if(chunk == null || chunk.getId() == null || selected.size() >= max) {
+            return;
+        }
+        selected.putIfAbsent(chunk.getId(),chunk);
+    }
+
+    private String positionKey(String fileUuid, String fileHash, Integer chunkIndex) {
+        return fileUuid + "|" + fileHash + "|" + chunkIndex;
+    }
+
+    private boolean looksLikeCodeQuestion(String question) {
+        if(question == null) {
+            return false;
+        }
+        return question.contains("代码") || question.contains("怎么写") || question.toLowerCase().contains("code");
+    }
+
+    private Integer metadataInt(String metadata, String key) {
+        String value = metadataString(metadata,key);
+        if(value == null || value.isBlank() || "null".equals(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String metadataString(String metadata, String key) {
+        if(metadata == null || metadata.isBlank() || key == null || key.isBlank()) {
+            return null;
+        }
+        String marker = "\"" + key + "\":";
+        int start = metadata.indexOf(marker);
+        if(start < 0) {
+            return null;
+        }
+        int valueStart = start + marker.length();
+        while(valueStart < metadata.length() && Character.isWhitespace(metadata.charAt(valueStart))) {
+            valueStart++;
+        }
+        if(valueStart >= metadata.length()) {
+            return null;
+        }
+        if(metadata.charAt(valueStart) == '\"') {
+            int valueEnd = metadata.indexOf('\"',valueStart + 1);
+            return valueEnd < 0 ? null : metadata.substring(valueStart + 1,valueEnd);
+        }
+        int valueEnd = valueStart;
+        while(valueEnd < metadata.length() && metadata.charAt(valueEnd) != ',' && metadata.charAt(valueEnd) != '}') {
+            valueEnd++;
+        }
+        return metadata.substring(valueStart,valueEnd).trim();
     }
 
     private int rerankCandidateTopK() {
@@ -874,6 +1021,59 @@ public class SpaceRagService {
             start = Math.max(end - chunkOverlap,start + 1);
         }
         return chunks;
+    }
+
+    /**
+     * 启动时清理上次进程遗留的超时索引任务。
+     */
+    @PostConstruct
+    public void expireStaleIndexTasksOnStartup() {
+        expireStaleIndexTasks(null);
+    }
+
+    /**
+     * 将超过时限仍占用索引资源的任务标记为失败。
+     *
+     * @param spaceId 空间 ID，为 null 时处理所有空间
+     */
+    private void expireStaleIndexTasks(Long spaceId) {
+        int timeoutMinutes = indexTimeoutMinutes();
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(timeoutMinutes);
+        String errorMessage = "RAG indexing task timeout after " + timeoutMinutes + " minutes";
+        for(SpaceRagTask task : spaceRagTaskMapper.listStaleIndexTasks(spaceId,cutoff)) {
+            LocalDateTime now = LocalDateTime.now();
+            int updated = spaceRagTaskMapper.failActiveTask(task.getId(),errorMessage,now,now);
+            if(updated == 0) {
+                continue;
+            }
+            if(task.getDocumentId() != null) {
+                spaceRagDocumentMapper.updateIndexResult(task.getDocumentId(),SpaceConstant.RAG_INDEX_FAILED,0,errorMessage,now);
+                continue;
+            }
+            if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(task.getTaskType())) {
+                spaceRagDocumentMapper.failStaleIndexingDocuments(task.getSpaceId(),cutoff,errorMessage,now);
+            }
+        }
+    }
+
+    /**
+     * 查询 RAG 索引并发数。
+     *
+     * @return 并发数
+     */
+    private int indexConcurrency() {
+        Integer concurrency = ragProperties.getIndex() == null ? null : ragProperties.getIndex().getConcurrency();
+        return Math.max(1,concurrency == null ? 5 : concurrency);
+    }
+
+    /**
+     * 查询 RAG 索引任务超时时间。
+     *
+     * @return 分钟数
+     */
+    private int indexTimeoutMinutes() {
+        Integer minutes = ragProperties.getIndex() == null ? null : ragProperties.getIndex().getTaskTimeoutMinutes();
+        return Math.max(1,minutes == null ? 10 : minutes);
     }
 
     /**

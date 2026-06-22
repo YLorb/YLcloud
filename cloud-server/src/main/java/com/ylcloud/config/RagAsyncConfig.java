@@ -15,11 +15,12 @@ import java.util.concurrent.Executor;
 public class RagAsyncConfig {
 
     @Bean("ragTaskExecutor")
-    public Executor ragTaskExecutor() {
+    public Executor ragTaskExecutor(RagProperties ragProperties) {
+        int concurrency = Math.max(1, ragProperties.getIndex().getConcurrency() == null ? 5 : ragProperties.getIndex().getConcurrency());
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(4);
-        executor.setQueueCapacity(100);
+        executor.setCorePoolSize(concurrency);
+        executor.setMaxPoolSize(concurrency);
+        executor.setQueueCapacity(Math.max(100, concurrency * 20));
         executor.setThreadNamePrefix("rag-task-");
         executor.initialize();
         return executor;

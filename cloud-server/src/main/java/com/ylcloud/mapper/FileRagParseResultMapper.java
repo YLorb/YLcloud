@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * Mapper for cached structured RAG parse results.
@@ -26,4 +27,15 @@ public interface FileRagParseResultMapper {
     @Insert("insert into file_rag_parse_result(file_uuid, file_hash, parser, parser_version, parse_status, full_text, blocks_json, error_message, status, createtime, updatetime) " +
             "values(#{fileUuid}, #{fileHash}, #{parser}, #{parserVersion}, #{parseStatus}, #{fullText}, #{blocksJson}, #{errorMessage}, #{status}, #{createtime}, #{updatetime})")
     int insert(FileRagParseResult result);
+
+    /**
+     * 禁用 metadata fallback 解析缓存，避免旧失败缓存被反复展示或复用。
+     * @return 影响行数
+     */
+    @Update("update file_rag_parse_result set status = 0, updatetime = now() " +
+            "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and parser_version = #{parserVersion} " +
+            "and parser = 'metadata' and status = 1")
+    int disableMetadataCache(@Param("fileUuid") String fileUuid,
+                             @Param("fileHash") String fileHash,
+                             @Param("parserVersion") String parserVersion);
 }
