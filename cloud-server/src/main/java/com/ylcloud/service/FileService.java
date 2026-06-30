@@ -146,7 +146,8 @@ public class FileService {
      * @return 处理结果
      */
     private boolean Admin(User user) {
-        return user != null && ("ADMIN".equalsIgnoreCase(user.getRole()) || "admin".equalsIgnoreCase(user.getUsername()));
+        //return user != null && ("ADMIN".equalsIgnoreCase(user.getRole()) || "admin".equalsIgnoreCase(user.getUsername()));
+        return user != null && ("ADMIN".equalsIgnoreCase(user.getRole())); // fixed：防止越权
     }
 
     /**
@@ -179,7 +180,7 @@ public class FileService {
     }
 
     /**
-     * 执行 permissionName 函数的业务处理。
+     * 把 FilePermission 枚举值转换成对应的中文名称。
      *
      * @param permission 方法入参
      * @return 处理结果
@@ -194,7 +195,7 @@ public class FileService {
     }
 
     /**
-     * 校验 requireFileById 相关逻辑。
+     * 校验所有权并获取文件（通过 fileId 获取文件）
      *
      * @param fileId 文件 ID
      * @param permission 方法入参
@@ -224,7 +225,7 @@ public class FileService {
     }
 
     /**
-     * 校验 requireFileByUuid 相关逻辑。
+     * 校验所有权并获取文件（通过 fileUuid 获取文件）
      *
      * @param fileUuid 文件 UUID
      * @param parentId 父级 ID
@@ -242,7 +243,7 @@ public class FileService {
     }
 
     /**
-     * 校验 requireWritableDirectory 相关逻辑。
+     * 检查目录存在状态 & 权限
      *
      * @param directory 方法入参
      */
@@ -254,7 +255,7 @@ public class FileService {
     }
 
     /**
-     * 查询 listChildren 相关逻辑。
+     * 列举当前目录下的文件。
      *
      * @param parentId 父级 ID
      * @param ownerId 方法入参
@@ -301,7 +302,7 @@ public class FileService {
     }
 
     /**
-     * 执行 File_Info 函数的业务处理。
+     * 文件获取与创建
      *
      * @param fileUuid 文件 UUID
      * @param parentId 父级 ID
@@ -337,6 +338,7 @@ public class FileService {
 
     /**
      * 查询 getFileType 相关逻辑。
+     * 获取文件类型
      *
      * @param name 名称
      * @return 处理结果
@@ -381,11 +383,18 @@ public class FileService {
         return getFileType(fileName);
     }
 
+    /**
+     * 文件名合规检查
+     *
+     * @param fileName 原文件名
+     * @return 当文件名合规时返回
+     */
+
     private String requireSafeFileName(String fileName) {
         if(fileName == null) {
             throw new BaseException("文件名不能为空");
         }
-        String normalized = fileName.trim();
+        String normalized = fileName.trim(); // 删除空格，返回新字符串
         if(normalized.isEmpty() || normalized.length() > 255) {
             throw new BaseException("文件名不能为空且不能超过 255 个字符");
         }
@@ -394,6 +403,12 @@ public class FileService {
         }
         return normalized;
     }
+
+    /**
+     * 文件上传限制检查：空文件、大文件、违规名文件
+     *
+     * @param uploadFile 上传的文件
+     */
 
     private void validateUploadFile(MultipartFile uploadFile) {
         if(uploadFile == null || uploadFile.isEmpty()) {
@@ -405,6 +420,15 @@ public class FileService {
         requireSafeFileName(uploadFile.getOriginalFilename());
     }
 
+    /**
+     * 检查命名冲突
+     *
+     * @param fileName 文件名
+     * @param dir 文件：0 / 文件夹：1
+     * @param parentId 父目录
+     * @param userId 用户 ID
+     * @param ignoreId 忽略检查的文件 ID，重命名时使用
+     */
     private void requireNoNameConflict(String fileName, int dir, Long parentId, Long userId, Long ignoreId) {
         List<UserFileDTO> siblings = listChildren(parentId,userId);
         for(UserFileDTO sibling : siblings) {
@@ -419,6 +443,7 @@ public class FileService {
 
     /**
      * 查询 getPath 相关逻辑。
+     * 获取文件路径
      *
      * @param fileId 文件 ID
      * @param userId 用户 ID
@@ -440,6 +465,7 @@ public class FileService {
 
     /**
      * 规范化 normalizeParentId 相关逻辑。
+     * 获取正确的父目录，以及新用户创建时为其定向一个正确的父目录（防止自环）
      *
      * @param parentId 父级 ID
      * @param userId 用户 ID
@@ -479,6 +505,7 @@ public class FileService {
 
     /**
      * 查询 getRootId 相关逻辑。
+     * 获取当前用户根目录
      *
      * @param userId 用户 ID
      * @return 处理结果
@@ -498,7 +525,7 @@ public class FileService {
         Long userId = BaseContext.getCurrentId();
         validateUploadFile(uploadFile);
         String originalFilename = requireSafeFileName(uploadFile.getOriginalFilename());
-        if (uploadFile == null || uploadFile.isEmpty()) {
+        if (uploadFile.isEmpty()) {
             log.warn("用户尝试上传空文件");
             throw new RuntimeException("上传文件不能为空");
         }
@@ -557,12 +584,12 @@ public class FileService {
             try {
                 minioclientUtil.putObject(uploadFile,file.getFileUuid());
             } catch (Exception e) {
-                log.error("uuid缂栧彿{}鏂囦欢涓婁紶澶辫触锛屽師鍥狅細{}",file.getFileUuid(),e.getMessage());
+                log.error("uuid对应文件{}上传失败，原因：{}",file.getFileUuid(),e.getMessage());
                 throw new RuntimeException(e);
             }
             fileInfoMapper.insertFileInfo(file);
 
-            // 鎻掑叆 user_file
+            // 回填 user_file
             fileInfoMapper.insertFile_User(file_user);
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
@@ -614,6 +641,7 @@ public class FileService {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
         Long ownerId = userFileDTO.getUserId();
 
+        //TODO：未来需要支持打包下载
         if(userFileDTO.getDir() == 1) {
             throw new BaseException("目录不支持下载");
         }
@@ -764,6 +792,7 @@ public class FileService {
 
     /**
      * 解析 resolveContentType 相关逻辑。
+     * 推断文件类型，指导浏览器正确预览/打开
      *
      * @param fileName 文件名
      * @param storedType 方法入参
@@ -801,6 +830,7 @@ public class FileService {
      * @return 处理结果
      */
     private boolean hasExtension(String fileName, String... extensions) {
+        // String... extensions 是 Java 的可变参数写法，表示这个方法可以接收任意数量的 String 参数。
         if(fileName == null) {
             return false;
         }

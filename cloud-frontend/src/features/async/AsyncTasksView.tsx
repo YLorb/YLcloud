@@ -1,8 +1,8 @@
-import { AlertCircle, CheckCircle2, Clock3, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import type { Notice } from "../../appTypes";
-import type { AsyncTask } from "../../types";
+import type { AsyncTask, KnowledgePipelineEvent, KnowledgePipelineTask, Space } from "../../types";
 import { formatTime } from "../../fileUtils";
 
 type TaskState = "pending" | "running" | "success" | "failed";
@@ -19,6 +19,10 @@ type NormalizedAsyncTask = {
   createTime?: string;
   updateTime?: string;
   raw: AsyncTask;
+  source?: "async" | "knowledge";
+  spaceId?: number;
+  taskId?: number;
+  retryable?: boolean;
 };
 
 function pickTasks(payload: AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }) {
@@ -76,7 +80,32 @@ function normalizeTask(task: AsyncTask, index: number): NormalizedAsyncTask {
     error: task.error || task.errorMessage || "",
     createTime: task.createTime || task.createdAt,
     updateTime: task.updateTime || task.updatedAt,
-    raw: task
+    raw: task,
+    source: "async"
+  };
+}
+
+function normalizeKnowledgeTask(task: KnowledgePipelineTask): NormalizedAsyncTask {
+  const state = normalizeStatus(task.taskStatus);
+  const terminal = task.terminalStage || task.stage || task.taskStatus || "PENDING";
+  const reason = task.terminalReason ? ` · 终止原因：${task.terminalReason}` : "";
+  const incremental = task.incrementalAction ? ` · 增量策略：${task.incrementalAction}` : "";
+  return {
+    id: `knowledge-${task.id}`,
+    title: task.documentId ? `知识画像任务 #${task.documentId}` : "空间知识画像任务",
+    type: task.taskType || "knowledge",
+    state,
+    phase: terminal,
+    progress: typeof task.progress === "number" ? task.progress : normalizeProgress({ progress: task.progress }, state),
+    message: `终止节点：${terminal}${reason}${incremental}`,
+    error: task.errorMessage || "",
+    createTime: task.createtime,
+    updateTime: task.updatetime,
+    raw: task as unknown as AsyncTask,
+    source: "knowledge",
+    spaceId: task.spaceId,
+    taskId: task.id,
+    retryable: task.taskStatus === "FAILED" || task.taskStatus === "PARTIAL_SUCCESS"
   };
 }
 
@@ -98,7 +127,14 @@ function isActive(state: TaskState) {
   return state === "pending" || state === "running";
 }
 
-function AsyncTaskWindow({ task, onClose }: { task: NormalizedAsyncTask; onClose: () => void }) {
+function eventStatusText(status?: string) {
+  if (status === "SUCCEEDED") return "成功";
+  if (status === "FAILED") return "失败";
+  if (status === "RUNNING") return "执行中";
+  return status || "未知";
+}
+
+function AsyncTaskWindow({ task, events, onClose }: { task: NormalizedAsyncTask; events: KnowledgePipelineEvent[]; onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <section className="async-task-window" onClick={(event) => event.stopPropagation()}>
@@ -124,6 +160,45 @@ function AsyncTaskWindow({ task, onClose }: { task: NormalizedAsyncTask; onClose
             <span style={{ width: `${task.progress}%` }} />
           </div>
           {task.error && <div className="async-task-error">{task.error}</div>}
+          {task.source === "knowledge" && (
+            <dl className="async-task-meta">
+              <div>
+                <dt>终止节点</dt>
+                <dd>{(task.raw as unknown as KnowledgePipelineTask).terminalStage || task.phase}</dd>
+              </div>
+              <div>
+                <dt>终止原因</dt>
+                <dd>{(task.raw as unknown as KnowledgePipelineTask).terminalReason || "-"}</dd>
+              </div>
+              <div>
+                <dt>增量策略</dt>
+                <dd>{(task.raw as unknown as KnowledgePipelineTask).incrementalAction || "-"}</dd>
+              </div>
+              <div>
+                <dt>策略说明</dt>
+                <dd>{(task.raw as unknown as KnowledgePipelineTask).incrementalDetail || "-"}</dd>
+              </div>
+            </dl>
+          )}
+          {!!events.length && (
+            <div className="knowledge-event-timeline">
+              {events.map((event) => (
+                <div className={`knowledge-event-item ${(event.eventStatus || "").toLowerCase()}`} key={event.id}>
+                  <span />
+                  <div>
+                    <strong>{event.stage}</strong>
+                    <small>
+                      {event.eventType} · {eventStatusText(event.eventStatus)}
+                      {typeof event.durationMs === "number" ? ` · ${event.durationMs}ms` : ""}
+                    </small>
+                    {(event.errorCode || event.errorMessage || event.outputSummary) && (
+                      <p>{event.errorCode || event.outputSummary || event.errorMessage}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <dl className="async-task-meta">
             <div>
               <dt>任务 ID</dt>
@@ -146,7 +221,10 @@ function AsyncTaskWindow({ task, onClose }: { task: NormalizedAsyncTask; onClose
 
 export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) => void }) {
   const [tasks, setTasks] = useState<NormalizedAsyncTask[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [spaceId, setSpaceId] = useState<number | "">("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedEvents, setSelectedEvents] = useState<KnowledgePipelineEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -154,8 +232,14 @@ export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) =>
     if (!silent) setLoading(true);
     setError("");
     try {
-      const payload = await api.listAsyncTasks();
-      setTasks(pickTasks(payload).map(normalizeTask));
+      const [payload, knowledgeTasks] = await Promise.all([
+        api.listAsyncTasks(),
+        spaceId ? api.listKnowledgeTasks(Number(spaceId)) : Promise.resolve([] as KnowledgePipelineTask[])
+      ]);
+      setTasks([
+        ...pickTasks(payload).map(normalizeTask),
+        ...(knowledgeTasks || []).map(normalizeKnowledgeTask)
+      ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "异步任务加载失败";
       if (!silent) {
@@ -168,10 +252,45 @@ export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) =>
   }
 
   useEffect(() => {
-    void loadTasks();
+    api.listSpaces()
+      .then((items) => {
+        setSpaces(items || []);
+        setSpaceId((current) => current || items?.[0]?.id || "");
+      })
+      .catch(() => setSpaces([]));
   }, []);
 
+  useEffect(() => {
+    void loadTasks();
+  }, [spaceId]);
+
+  async function retryTask(task: NormalizedAsyncTask) {
+    if(task.source !== "knowledge" || !task.spaceId || !task.taskId) {
+      return;
+    }
+    await api.retryKnowledgeTask(task.spaceId,task.taskId);
+    showNotice({ type: "success", text: "已提交知识任务重试" });
+    await loadTasks(true);
+  }
+
+  async function retryFailedKnowledgeTasks() {
+    if(!spaceId) return;
+    await api.retryFailedKnowledgeTasks(Number(spaceId));
+    showNotice({ type: "success", text: "已提交知识任务批量重试" });
+    await loadTasks(true);
+  }
+
   const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedId) || null, [tasks, selectedId]);
+
+  useEffect(() => {
+    if (!selectedTask || selectedTask.source !== "knowledge" || !selectedTask.spaceId || !selectedTask.taskId) {
+      setSelectedEvents([]);
+      return;
+    }
+    api.listKnowledgeTaskEvents(selectedTask.spaceId,selectedTask.taskId)
+      .then((items) => setSelectedEvents(items || []))
+      .catch(() => setSelectedEvents([]));
+  }, [selectedTask?.id]);
 
   useEffect(() => {
     if (!selectedTask || !isActive(selectedTask.state)) return;
@@ -188,6 +307,17 @@ export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) =>
         </div>
         <button className="icon-button" type="button" onClick={() => void loadTasks()} title="刷新任务">
           <RefreshCw size={18} />
+        </button>
+        <select value={spaceId} onChange={(event) => setSpaceId(event.target.value ? Number(event.target.value) : "")}>
+          {spaces.map((space) => (
+            <option key={space.id} value={space.id}>
+              {space.name}
+            </option>
+          ))}
+        </select>
+        <button className="soft-button" type="button" disabled={!spaceId} onClick={() => void retryFailedKnowledgeTasks()}>
+          <RotateCcw size={16} />
+          批量重试知识任务
         </button>
       </div>
 
@@ -223,6 +353,25 @@ export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) =>
                   </i>
                 </span>
                 <span className={`async-task-state ${task.state}`}>{statusLabel(task.state)}</span>
+                {task.retryable && (
+                  <span
+                    className="async-task-inline-action"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void retryTask(task);
+                    }}
+                    onKeyDown={(event) => {
+                      if(event.key === "Enter" || event.key === " ") {
+                        event.stopPropagation();
+                        void retryTask(task);
+                      }
+                    }}
+                  >
+                    重试
+                  </span>
+                )}
               </button>
             ))}
             {!tasks.length && (
@@ -238,7 +387,7 @@ export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) =>
         )
       )}
 
-      {selectedTask && <AsyncTaskWindow task={selectedTask} onClose={() => setSelectedId(null)} />}
+      {selectedTask && <AsyncTaskWindow task={selectedTask} events={selectedEvents} onClose={() => setSelectedId(null)} />}
     </section>
   );
 }

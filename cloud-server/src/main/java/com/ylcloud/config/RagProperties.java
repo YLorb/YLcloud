@@ -113,6 +113,9 @@ public class RagProperties {
         private Integer hydeTopK = 20;
         private Integer stepBackTopK = 20;
         private Integer keywordFallbackTopK = 20;
+        private Integer knowledgeMinChunkChars = 80;
+        private Integer knowledgeMinChunkTokens = 20;
+        private Boolean knowledgeSkipMetadataOnly = true;
         private String tokenizerProvider = "ik";
         private Double exactMatchBoost = 1.5;
         private Double bm25K1 = 1.5;

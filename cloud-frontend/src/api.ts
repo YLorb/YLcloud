@@ -6,6 +6,14 @@ import type {
   FileItem,
   FilePreview,
   FileVersion,
+  KnowledgeDashboard,
+  KnowledgeDocument,
+  KnowledgeFacet,
+  KnowledgePipelineEvent,
+  KnowledgePipelineTask,
+  KnowledgeProfile,
+  KnowledgeProfileDiff,
+  KnowledgeProfileVersion,
   RagConfig,
   RagChatMessage,
   RagDocument,
@@ -297,5 +305,55 @@ export const api = {
   repairSpaceVectors: (spaceId: number) =>
     request<boolean>(`/api/space/${spaceId}/rag/vectors/repair`, { method: "POST" }),
   repairFileVectors: (spaceId: number, spaceFileId: number) =>
-    request<boolean>(`/api/space/${spaceId}/rag/files/${spaceFileId}/vectors/repair`, { method: "POST" })
+    request<boolean>(`/api/space/${spaceId}/rag/files/${spaceFileId}/vectors/repair`, { method: "POST" }),
+  knowledgeDashboard: (spaceId: number) =>
+    request<KnowledgeDashboard>(`/api/space/${spaceId}/knowledge/dashboard`),
+  listKnowledgeDocuments: (
+    spaceId: number,
+    payload: { category?: string; tag?: string; profileStatus?: string } = {}
+  ) => request<KnowledgeDocument[]>(`/api/space/${spaceId}/knowledge/documents?${params(payload)}`),
+  listKnowledgeTasks: (spaceId: number) =>
+    request<KnowledgePipelineTask[]>(`/api/space/${spaceId}/knowledge/pipeline/tasks`),
+  listKnowledgeTaskEvents: (spaceId: number, taskId: number) =>
+    request<KnowledgePipelineEvent[]>(`/api/space/${spaceId}/knowledge/pipeline/tasks/${taskId}/events`),
+  retryKnowledgeTask: (spaceId: number, taskId: number) =>
+    request<KnowledgePipelineTask>(`/api/space/${spaceId}/knowledge/pipeline/tasks/${taskId}/retry`, { method: "POST" }),
+  retryFailedKnowledgeTasks: (spaceId: number) =>
+    request<KnowledgePipelineTask[]>(`/api/space/${spaceId}/knowledge/pipeline/retry-failed`, { method: "POST" }),
+  runKnowledgePipeline: (spaceId: number) =>
+    request<KnowledgePipelineTask>(`/api/space/${spaceId}/knowledge/pipeline/run-all`, { method: "POST" }),
+  regenerateKnowledgeProfile: (spaceId: number, documentId: number) =>
+    request<KnowledgePipelineTask>(`/api/space/${spaceId}/knowledge/documents/${documentId}/regenerate`, { method: "POST" }),
+  reclassifyKnowledgeDocument: (spaceId: number, documentId: number) =>
+    request<KnowledgePipelineTask>(`/api/space/${spaceId}/knowledge/documents/${documentId}/reclassify`, { method: "POST" }),
+  getKnowledgeProfile: (spaceId: number, documentId: number) =>
+    request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/profile`),
+  listKnowledgeProfileVersions: (spaceId: number, documentId: number) =>
+    request<KnowledgeProfileVersion[]>(`/api/space/${spaceId}/knowledge/documents/${documentId}/versions`),
+  diffKnowledgeProfileVersion: (spaceId: number, documentId: number, versionId: number, compareTo?: number) =>
+    request<KnowledgeProfileDiff>(
+      `/api/space/${spaceId}/knowledge/documents/${documentId}/versions/${versionId}/diff${compareTo ? `?compareTo=${compareTo}` : ""}`
+    ),
+  restoreKnowledgeProfileVersion: (spaceId: number, documentId: number, versionId: number) =>
+    request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/versions/${versionId}/restore`, { method: "POST" }),
+  updateKnowledgeProfile: (
+    spaceId: number,
+    documentId: number,
+    payload: { title?: string; summary?: string; category?: string; tags?: string[]; keywords?: string[]; questions?: string[]; profileStatus?: string }
+  ) =>
+    request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/profile`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
+  classifyKnowledgeDocument: (spaceId: number, documentId: number, payload: { category?: string; tags?: string[] }) =>
+    request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/classify`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }),
+  markKnowledgeProfileReviewed: (spaceId: number, documentId: number) =>
+    request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/reviewed`, { method: "POST" }),
+  listKnowledgeCategories: (spaceId: number) =>
+    request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/categories`),
+  listKnowledgeTags: (spaceId: number) =>
+    request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/tags`)
 };

@@ -78,6 +78,8 @@ public class RagCandidateMerger {
         weights.put("metadata",safe(retrieval.getMetadataWeight(),0.12));
         weights.put("title",safe(retrieval.getTitleWeight(),0.10));
         weights.put("structure",safe(retrieval.getStructureWeight(),0.05));
+        weights.put("profile_summary",0.18);
+        weights.put("generated_question",0.20);
         weights.put("multi_query",safe(retrieval.getQueryExpansionWeight(),0.70));
         weights.put("hyde",safe(retrieval.getHydeWeight(),0.20));
         weights.put("stepback",safe(retrieval.getStepBackWeight(),0.18));

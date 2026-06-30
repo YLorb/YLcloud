@@ -6,6 +6,7 @@ import com.ylcloud.DTO.SpaceRagQueryDTO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.SpaceDocumentChunkHitVO;
 import com.ylcloud.VO.SpaceDocumentSearchVO;
+import com.ylcloud.VO.SpaceKnowledgePipelineTaskVO;
 import com.ylcloud.VO.SpaceRagConfigVO;
 import com.ylcloud.VO.SpaceRagCitationVO;
 import com.ylcloud.VO.SpaceRagDocumentVO;
@@ -100,6 +101,8 @@ public class SpaceRagService {
     private final StructuredChunker structuredChunker;
     private final QueryRewriteService queryRewriteService;
     private final RagTaskExecutorService ragTaskExecutorService;
+    private final KnowledgePipelineService knowledgePipelineService;
+    private final KnowledgePipelineExecutorService knowledgePipelineExecutorService;
 
     /**
      * 初始化 SpaceRagService 对象。
@@ -140,7 +143,9 @@ public class SpaceRagService {
                            DocumentParser documentParser,
                            StructuredChunker structuredChunker,
                            QueryRewriteService queryRewriteService,
-                           RagTaskExecutorService ragTaskExecutorService) {
+                           RagTaskExecutorService ragTaskExecutorService,
+                           KnowledgePipelineService knowledgePipelineService,
+                           KnowledgePipelineExecutorService knowledgePipelineExecutorService) {
         this.spaceRagMapper = spaceRagMapper;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
         this.fileRagChunkMapper = fileRagChunkMapper;
@@ -160,6 +165,8 @@ public class SpaceRagService {
         this.structuredChunker = structuredChunker;
         this.queryRewriteService = queryRewriteService;
         this.ragTaskExecutorService = ragTaskExecutorService;
+        this.knowledgePipelineService = knowledgePipelineService;
+        this.knowledgePipelineExecutorService = knowledgePipelineExecutorService;
     }
 
     /**
@@ -635,6 +642,21 @@ public class SpaceRagService {
         }
         qdrantVectorStoreService.upsertSpaceChunks(document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
         spaceRagDocumentMapper.updateIndexResult(document.getId(),SpaceConstant.RAG_INDEX_SUCCESS,refCount,null,LocalDateTime.now());
+        submitKnowledgeProfileTask(document.getSpaceId(),document.getId(),userId);
+    }
+
+    private void submitKnowledgeProfileTask(Long spaceId, Long documentId, Long userId) {
+        try {
+            SpaceKnowledgePipelineTaskVO task = knowledgePipelineService.submitDocumentProfileTaskIfAbsent(spaceId,documentId,userId);
+            if(task == null) {
+                log.info("Knowledge pipeline task skipped because an active task exists: spaceId={}, documentId={}",spaceId,documentId);
+                return;
+            }
+            knowledgePipelineExecutorService.runDocumentTask(task.getId());
+            log.info("Knowledge pipeline task submitted: spaceId={}, documentId={}, taskId={}",spaceId,documentId,task.getId());
+        } catch (Exception ex) {
+            log.warn("Knowledge pipeline task submit failed: spaceId={}, documentId={}",spaceId,documentId,ex);
+        }
     }
 
     /**

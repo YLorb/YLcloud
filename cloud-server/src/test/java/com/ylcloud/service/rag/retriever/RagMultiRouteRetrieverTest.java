@@ -11,10 +11,12 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -50,6 +52,10 @@ class RagMultiRouteRetrieverTest {
         });
         when(mapper.searchBySpaceAndKeyword(anyLong(),anyString(),anyInt())).thenReturn(List.of(chunks.get(0)));
         when(mapper.searchBySpaceAndMetadata(anyLong(),anyString(),anyInt())).thenReturn(List.of(chunks.get(1)));
+        when(mapper.searchBySpaceAndKnowledgeProfile(anyLong(),anyString(),anyInt(),anyInt(),anyInt(),anyBoolean()))
+                .thenReturn(List.of(chunks.get(2)));
+        when(mapper.searchBySpaceAndKnowledgeQuestion(anyLong(),anyString(),anyInt(),anyInt(),anyInt(),anyBoolean()))
+                .thenReturn(List.of(chunks.get(3)));
         RagMultiRouteRetriever retriever = new RagMultiRouteRetriever(
                 properties,
                 mapper,
@@ -75,6 +81,8 @@ class RagMultiRouteRetrieverTest {
         verify(vectorStore).search(1L,"HyDE 假设答案",chunks,20,null);
         verify(mapper,atLeastOnce()).searchBySpaceAndKeyword(anyLong(),anyString(),anyInt());
         verify(mapper,atLeastOnce()).searchBySpaceAndMetadata(anyLong(),anyString(),anyInt());
+        verify(mapper,atLeastOnce()).searchBySpaceAndKnowledgeProfile(anyLong(),anyString(),anyInt(),eq(80),eq(20),eq(true));
+        verify(mapper,atLeastOnce()).searchBySpaceAndKnowledgeQuestion(anyLong(),anyString(),anyInt(),eq(80),eq(20),eq(true));
     }
 
     private FileRagChunk chunk(Long id, String content) {

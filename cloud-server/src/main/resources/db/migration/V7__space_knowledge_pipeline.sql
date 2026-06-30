@@ -1,0 +1,62 @@
+create table if not exists space_knowledge_document_profile (
+    id bigint primary key auto_increment,
+    space_id bigint not null,
+    document_id bigint not null,
+    space_file_id bigint not null,
+    title varchar(255),
+    summary longtext,
+    keywords_json longtext,
+    tags_json longtext,
+    category varchar(100),
+    language varchar(50),
+    document_type varchar(100),
+    quality_score decimal(5,2) default 0.00,
+    profile_status varchar(20) not null default 'PENDING',
+    error_message varchar(1000),
+    status int not null default 1,
+    createtime timestamp not null,
+    updatetime timestamp not null,
+    unique key uk_space_knowledge_profile_document (space_id, document_id),
+    index idx_space_knowledge_profile_space_id (space_id),
+    index idx_space_knowledge_profile_space_file_id (space_file_id),
+    index idx_space_knowledge_profile_category (category),
+    index idx_space_knowledge_profile_status (profile_status)
+);
+
+create table if not exists space_knowledge_question (
+    id bigint primary key auto_increment,
+    space_id bigint not null,
+    document_id bigint not null,
+    question varchar(500) not null,
+    source varchar(30) not null default 'GENERATED',
+    confidence decimal(5,2) default 0.00,
+    status int not null default 1,
+    createtime timestamp not null,
+    updatetime timestamp not null,
+    index idx_space_knowledge_question_space_id (space_id),
+    index idx_space_knowledge_question_document_id (document_id)
+);
+
+create table if not exists space_knowledge_pipeline_task (
+    id bigint primary key auto_increment,
+    space_id bigint not null,
+    document_id bigint,
+    task_type varchar(30) not null,
+    task_status varchar(20) not null default 'PENDING',
+    stage varchar(40) not null default 'PENDING',
+    progress int not null default 0,
+    total_count int not null default 0,
+    success_count int not null default 0,
+    failed_count int not null default 0,
+    error_message varchar(1000),
+    created_by bigint not null,
+    started_time timestamp null,
+    finished_time timestamp null,
+    createtime timestamp not null,
+    updatetime timestamp not null,
+    index idx_space_knowledge_task_space_id (space_id),
+    index idx_space_knowledge_task_document_id (document_id),
+    index idx_space_knowledge_task_status (task_status),
+    index idx_space_knowledge_task_stage (stage),
+    index idx_space_knowledge_task_type (task_type)
+);

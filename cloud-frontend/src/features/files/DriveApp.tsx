@@ -7,6 +7,7 @@ import { NoticeBar } from "../../components/NoticeBar";
 import { categoryMeta, extOf, fileIcon, fileTypeLabel, formatSize, formatTime, imageTypes, matchesCategory } from "../../fileUtils";
 import { AsyncTasksView } from "../async/AsyncTasksView";
 import { ChatView } from "../chat/ChatView";
+import { KnowledgeOpsView } from "../knowledge/KnowledgeOpsView";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { SpacesView } from "../spaces/SpacesView";
 
@@ -311,7 +312,7 @@ export function DriveApp({
   onNavigate: (path: string) => void;
   onLogout: () => void;
 }) {
-  const [mainView, setMainView] = useState<MainView>(path === "/settings" ? "settings" : path === "/chat" ? "chat" : path === "/async" ? "async" : "files");
+  const [mainView, setMainView] = useState<MainView>(path === "/settings" ? "settings" : path === "/chat" ? "chat" : path === "/async" ? "async" : path === "/knowledge" ? "knowledge" : "files");
   const [category, setCategory] = useState<Category>("all");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selected, setSelected] = useState<FileItem | null>(null);
@@ -331,8 +332,9 @@ export function DriveApp({
   const isSettingsPage = isAdmin && path === "/settings";
   const isChatPage = path === "/chat";
   const isAsyncPage = path === "/async";
+  const isKnowledgePage = path === "/knowledge";
   const siteName = publicSettings?.siteName || "YL Cloud";
-  const effectiveView: MainView = isSettingsPage ? "settings" : isChatPage ? "chat" : isAsyncPage ? "async" : mainView === "settings" ? "files" : mainView;
+  const effectiveView: MainView = isSettingsPage ? "settings" : isChatPage ? "chat" : isAsyncPage ? "async" : isKnowledgePage ? "knowledge" : mainView === "settings" ? "files" : mainView;
 
   useEffect(() => {
     if (isSettingsPage) {
@@ -341,10 +343,12 @@ export function DriveApp({
       setMainView("chat");
     } else if (isAsyncPage) {
       setMainView("async");
+    } else if (isKnowledgePage) {
+      setMainView("knowledge");
     } else if (mainView === "settings") {
       setMainView("files");
     }
-  }, [isSettingsPage, isChatPage, isAsyncPage, mainView]);
+  }, [isSettingsPage, isChatPage, isAsyncPage, isKnowledgePage, mainView]);
 
   const filteredFiles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -553,6 +557,8 @@ export function DriveApp({
         ? "智能问答"
       : effectiveView === "async"
         ? "异步任务"
+      : effectiveView === "knowledge"
+        ? "知识库运维"
       : effectiveView === "spaces"
         ? "团队空间"
         : categoryMeta.find((item) => item.key === category)?.label || "全部文件";
@@ -563,6 +569,8 @@ export function DriveApp({
         ? "像 ChatGPT 一样提问，可选择知识库作为检索范围。"
       : effectiveView === "async"
         ? "独立查看后台任务执行进度、阶段和结果。"
+      : effectiveView === "knowledge"
+        ? "查看知识库文件、画像质量、标签分类和运维任务。"
       : effectiveView === "spaces"
         ? "成员协作、版本管理和 RAG 问答。"
         : "现代化文件管理，适配当前 YLCloud 后端接口。";
@@ -622,6 +630,17 @@ export function DriveApp({
             <Clock3 size={18} />
             异步任务
           </button>
+          <button
+            className={effectiveView === "knowledge" ? "active" : ""}
+            type="button"
+            onClick={() => {
+              setMainView("knowledge");
+              onNavigate("/knowledge");
+            }}
+          >
+            <Network size={18} />
+            知识库运维
+          </button>
           {isAdmin && (
             <button
               className={`side-section-start ${effectiveView === "settings" ? "active" : ""}`}
@@ -673,6 +692,8 @@ export function DriveApp({
           <SettingsPanel onNotice={showNotice} />
         ) : effectiveView === "chat" ? (
           <ChatView showNotice={showNotice} />
+        ) : effectiveView === "knowledge" ? (
+          <KnowledgeOpsView showNotice={showNotice} />
         ) : effectiveView === "async" ? (
           <AsyncTasksView showNotice={showNotice} />
         ) : effectiveView === "spaces" ? (

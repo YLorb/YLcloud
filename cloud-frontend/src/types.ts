@@ -207,6 +207,169 @@ export type RagTask = {
   updatetime?: string;
 };
 
+export type KnowledgePipelineTask = {
+  id: number;
+  spaceId: number;
+  documentId?: number | null;
+  taskType?: string;
+  taskStatus?: string;
+  stage?: string;
+  progress?: number;
+  totalCount?: number;
+  successCount?: number;
+  failedCount?: number;
+  errorMessage?: string;
+  forceRebuild?: boolean;
+  terminalStage?: string;
+  terminalReason?: string;
+  incrementalAction?: string;
+  incrementalDetail?: string;
+  createdBy?: number;
+  startedTime?: string;
+  finishedTime?: string;
+  createtime?: string;
+  updatetime?: string;
+};
+
+export type KnowledgePipelineEvent = {
+  id: number;
+  taskId: number;
+  spaceId: number;
+  documentId?: number | null;
+  stage?: string;
+  eventType?: string;
+  eventStatus?: string;
+  message?: string;
+  inputSummary?: string;
+  outputSummary?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  eventTime?: string;
+  durationMs?: number;
+  traceId?: string;
+  attemptNo?: number;
+  createdAt?: string;
+};
+
+export type KnowledgeFacet = {
+  name: string;
+  count: number;
+};
+
+export type KnowledgeDocument = {
+  documentId: number;
+  spaceId: number;
+  spaceFileId: number;
+  fileUuid?: string;
+  fileName: string;
+  fileType?: string;
+  indexStatus?: string;
+  chunkCount?: number;
+  profileStatus?: string;
+  reviewStatus?: string;
+  reviewReason?: string;
+  qualityIssueJson?: string;
+  sourceChunkCount?: number;
+  repairAttempt?: number;
+  title?: string;
+  summary?: string;
+  category?: string;
+  tags?: string[];
+  keywords?: string[];
+  qualityScore?: number;
+  errorMessage?: string;
+  updatetime?: string;
+};
+
+export type KnowledgeDashboard = {
+  spaceId: number;
+  documentCount: number;
+  indexedCount: number;
+  profiledCount: number;
+  failedProfileCount: number;
+  needsReviewCount: number;
+  averageQualityScore: number;
+  categoryCount: number;
+  tagCount: number;
+  pendingTaskCount: number;
+  runningTaskCount: number;
+  failedTaskCount: number;
+  categories?: KnowledgeFacet[];
+  tags?: KnowledgeFacet[];
+  recentFailedTasks?: KnowledgePipelineTask[];
+};
+
+export type KnowledgeProfile = {
+  id: number;
+  spaceId: number;
+  documentId: number;
+  spaceFileId: number;
+  title?: string;
+  summary?: string;
+  keywords?: string[];
+  tags?: string[];
+  category?: string;
+  language?: string;
+  documentType?: string;
+  qualityScore?: number;
+  profileStatus?: string;
+  qualityDetailJson?: string;
+  qualityIssueJson?: string;
+  scoreBeforeRepair?: number;
+  scoreAfterRepair?: number;
+  reviewStatus?: string;
+  reviewReason?: string;
+  sourceChunkCount?: number;
+  sourceCharacterCount?: number;
+  schemaValid?: boolean;
+  repairAttempt?: number;
+  repairReason?: string;
+  profileVersion?: number;
+  currentVersionId?: number;
+  latestVersionId?: number;
+  sourceFileHash?: string;
+  sourceParserVersion?: string;
+  profileSchemaVersion?: string;
+  errorMessage?: string;
+  questions?: string[];
+  createtime?: string;
+  updatetime?: string;
+};
+
+export type KnowledgeProfileVersion = {
+  id: number;
+  profileId: number;
+  spaceId: number;
+  documentId: number;
+  versionNo: number;
+  documentVersionId?: number | null;
+  sourceType?: string;
+  modelName?: string;
+  promptVersion?: string;
+  schemaVersion?: string;
+  qualityScore?: number;
+  profileSnapshot?: string;
+  changeSummary?: string;
+  createdBy?: number;
+  createdTime?: string;
+};
+
+export type KnowledgeProfileDiff = {
+  beforeVersionId?: number | null;
+  afterVersionId?: number | null;
+  summaryChanged?: boolean;
+  categoryBefore?: string;
+  categoryAfter?: string;
+  tagsAdded?: string[];
+  tagsRemoved?: string[];
+  keywordsAdded?: string[];
+  keywordsRemoved?: string[];
+  questionsAdded?: string[];
+  questionsRemoved?: string[];
+  qualityScoreBefore?: string;
+  qualityScoreAfter?: string;
+};
+
 export type AsyncTask = {
   id?: string | number;
   taskId?: string | number;

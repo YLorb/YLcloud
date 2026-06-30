@@ -153,8 +153,12 @@ public class MinioclientUtil {
     }
 
     /**
-     * 鍒犻櫎鏂囦欢瀵硅薄銆?     *
-     * @param file 鏂囦欢鍏冩暟鎹?     * @throws Exception 鍒犻櫎澶辫触鏃舵姏鍑?     */
+     *
+     * @param uploadFile
+     * @param objectName
+     * @return
+     * @throws Exception
+     */
     public String putObjectAndReturnVersionId(MultipartFile uploadFile, String objectName) throws Exception {
         ObjectWriteResponse response = minioClient.putObject(PutObjectArgs.builder()
                 .bucket(defaultBucket)
@@ -232,9 +236,14 @@ public class MinioclientUtil {
     }
 
     /**
-     * 涓嬭浇瀵硅薄鍒版湰鍦版枃浠躲€?     *
-     * @param fileDTO 鏂囦欢淇℃伅
-     * @param response HTTP 鍝嶅簲锛屽綋鍓嶆柟娉曟湭浣跨敤璇ュ弬鏁?     * @throws Exception 涓嬭浇澶辫触鏃舵姏鍑?     */
+     *
+     * @param fileUuid
+     * @param versionId
+     * @param fileName
+     * @param contentType
+     * @param response
+     * @throws Exception
+     */
     public void previewObject(String fileUuid, String versionId, String fileName, String contentType, HttpServletResponse response) throws Exception {
         InputStream inputStream = getObjectStream(fileUuid,versionId);
         response.setContentType(contentType);
