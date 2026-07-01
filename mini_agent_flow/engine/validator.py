@@ -40,15 +40,15 @@ class WorkflowValidator:
         self.allowed_tools = allowed_tools
 
     def validate_file(self, path: str | Path) -> Workflow:
-        """读取 JSON workflow 文件并完成校验。
+        """读取 workflow 文件并完成校验。
 
-        这是兼容入口。文件读取与 JSON 解析已经交给 JsonWorkflowLoader，
+        这是兼容入口。文件读取与格式解析已经交给 WorkflowLoader，
         新代码应优先直接使用 Loader。
         """
 
-        from mini_agent_flow.engine.loader import JsonWorkflowLoader
+        from mini_agent_flow.engine.loader import WorkflowLoader
 
-        return JsonWorkflowLoader(validator=self).load(path)
+        return WorkflowLoader(validator=self).load(path)
 
     def validate_data(self, data: dict[str, Any]) -> Workflow:
         """校验已解析为 dict 的 workflow 数据并返回 Workflow 对象。"""

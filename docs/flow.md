@@ -2193,3 +2193,116 @@ compileall 通过
 5. Trace 脱敏逻辑继续生效。
 6. Condition 不支持 retry，避免对配置错误做无意义重试。
 ```
+
+## 统一 WorkflowLoader 实现记录
+
+### 本次目标
+
+新增统一 Loader 入口：
+
+```text
+WorkflowLoader
+```
+
+调用方只需要传入 workflow 文件路径，Loader 根据文件后缀自动分发：
+
+```text
+.json  -> JsonWorkflowLoader
+.yaml  -> YamlWorkflowLoader
+.yml   -> YamlWorkflowLoader
+其他   -> WorkflowLoadError
+```
+
+这样后续 CLI、Planner 或测试代码不需要自己判断文件格式。
+
+### 新增模块行为
+
+已在：
+
+```text
+mini_agent_flow/engine/loader.py
+```
+
+新增：
+
+```text
+WorkflowLoader.load(path)
+WorkflowLoader.load_data(data)
+```
+
+其中：
+
+```text
+1. load(path) 负责根据后缀选择具体 Loader。
+2. load_data(data) 负责把已解析 dict 交给 WorkflowValidator。
+3. JsonWorkflowLoader 和 YamlWorkflowLoader 保留，避免破坏已有调用方。
+4. WorkflowLoader 会复用传入的 Validator，所以 allowed_tools 等策略仍然生效。
+```
+
+### Validator 兼容入口更新
+
+已更新：
+
+```text
+mini_agent_flow/engine/validator.py
+```
+
+将：
+
+```text
+WorkflowValidator.validate_file(path)
+```
+
+从只调用 `JsonWorkflowLoader` 改为调用统一的 `WorkflowLoader`。
+
+现在它可以加载：
+
+```text
+workflow.json
+workflow.yaml
+workflow.yml
+```
+
+### 测试覆盖
+
+已更新：
+
+```text
+tests/test_workflow_loader.py
+```
+
+新增覆盖：
+
+```text
+1. WorkflowLoader 可以根据 .json 后缀加载 JSON workflow。
+2. WorkflowLoader 可以根据 .yaml 后缀加载 YAML workflow。
+3. WorkflowLoader 可以根据 .yml 后缀加载 YAML workflow。
+4. WorkflowLoader 遇到未知后缀会抛 WorkflowLoadError。
+5. WorkflowLoader.load_data(dict) 可以返回 Workflow 对象。
+6. WorkflowLoader.load_data 非 dict 顶层会失败。
+7. WorkflowValidator.validate_file() 可以通过统一 Loader 加载 YAML。
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. 已新增统一 WorkflowLoader。
+2. JSON / YAML / YML 三种入口都走现有具体 Loader，不重复解析逻辑。
+3. load_data 仍然复用 WorkflowValidator。
+4. 原有 JsonWorkflowLoader / YamlWorkflowLoader 保持兼容。
+5. WorkflowValidator.validate_file 已升级为格式无关入口。
+6. 测试覆盖了成功路径和未知后缀失败路径。
+```
+
+第二次审查：安全性
+
+```text
+1. WorkflowLoader 只根据文件后缀分发，不执行外部命令。
+2. YAML 解析仍使用 yaml.safe_load。
+3. 所有加载结果仍必须经过 WorkflowValidator。
+4. allowed_tools 白名单策略仍由同一个 Validator 控制。
+5. 未知后缀会拒绝加载，不会猜测解析。
+6. 没有引入动态 import、eval、exec 或网络访问。
+```

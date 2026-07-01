@@ -13,9 +13,45 @@ from mini_agent_flow.engine.validator import WorkflowValidator
 class WorkflowLoadError(ValueError):
     """workflow 文件加载失败时抛出的异常。
 
-    Loader 只负责“文件与 JSON 层面”的错误，例如文件不存在、路径不是文件、
+    Loader 只负责“文件与格式层面”的错误，例如文件不存在、路径不是文件、
     后缀不符合 Loader 要求、配置语法错误，或顶层不是 object。
     """
+
+
+class WorkflowLoader:
+    """统一 Workflow Loader。
+
+    这个类是调用方优先使用的统一入口：它根据文件后缀选择 JSON 或 YAML Loader，
+    让 CLI、Planner 和测试代码不需要散落一堆格式判断。
+    """
+
+    def __init__(self, validator: WorkflowValidator | None = None) -> None:
+        """创建统一 Loader，并复用同一个 Validator 配置。"""
+
+        self.validator = validator or WorkflowValidator()
+
+    def load(self, path: str | Path) -> Workflow:
+        """根据文件后缀自动加载 .json / .yaml / .yml workflow。"""
+
+        workflow_path = Path(path)
+        suffix = workflow_path.suffix.lower()
+
+        if suffix == ".json":
+            return JsonWorkflowLoader(validator=self.validator).load(workflow_path)
+        if suffix in {".yaml", ".yml"}:
+            return YamlWorkflowLoader(validator=self.validator).load(workflow_path)
+
+        raise WorkflowLoadError(
+            f"workflow file must use .json, .yaml or .yml extension: {workflow_path}"
+        )
+
+    def load_data(self, data: Any) -> Workflow:
+        """加载已解析的 dict 数据，供 AI 生成 workflow 后复用同一套校验。"""
+
+        if not isinstance(data, dict):
+            raise WorkflowLoadError("workflow data root must be an object")
+
+        return self.validator.validate_data(data)
 
 
 class JsonWorkflowLoader:

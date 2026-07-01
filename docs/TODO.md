@@ -111,3 +111,50 @@ ContextStore.load(ref) -> value
 ```text
 mini_agent_flow/engine/context_store.py
 ```
+
+## 后续：Loop Node 执行机制
+
+状态：暂缓实现
+
+目标：
+
+```text
+支持 workflow 对一组数据重复执行同一段节点逻辑，
+例如逐个处理搜索结果、逐个总结网页、逐个分析文件或逐个运行检查项。
+```
+
+当前决策：
+
+```text
+1. 当前阶段先跳过 Loop Node，优先完成 Level 1 可运行 Demo。
+2. LoopNode 模型和 Validator 的基础引用校验可以先保留。
+3. Executor 暂不实现 loop 执行语义，避免过早引入复杂控制流。
+4. 后续再设计循环体边界、结果聚合、失败策略和 trace 展示。
+```
+
+后续设计时需要明确：
+
+```text
+1. items 是否只支持 list，还是支持 dict、tuple、字符串等可迭代对象。
+2. 每轮 item 写入 context 的变量名如何约定。
+3. loop body 是按 body 列表顺序执行，还是继续依赖节点自己的 next。
+4. 循环体是否允许 condition、retry、嵌套 loop。
+5. 每轮输出是覆盖同一个 key，还是自动 append 到结果列表。
+6. 单轮失败后是立即终止、跳过当前 item，还是继续后续 item。
+7. trace 如何展示 loop 总览和每一轮 body 节点执行细节。
+8. 如何配合 max_steps 防止异常循环。
+```
+
+候选执行语义：
+
+```text
+LoopNode
+  ↓
+解析 items
+  ↓
+for item in items:
+  context[item_var] = item
+  执行 body 节点链
+  ↓
+全部完成后进入 next
+```

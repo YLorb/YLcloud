@@ -5,11 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from mini_agent_flow.engine.loader import JsonWorkflowLoader, WorkflowLoadError
+from mini_agent_flow.engine.loader import JsonWorkflowLoader, WorkflowLoader, WorkflowLoadError
 from mini_agent_flow.engine.validator import WorkflowValidationError, WorkflowValidator
 
 
 EXAMPLE_PATH = Path("examples/level1_manual_workflow.json")
+YAML_EXAMPLE_PATH = Path("examples/level1_manual_workflow.yaml")
 
 
 @pytest.fixture()
@@ -101,3 +102,73 @@ def test_allowed_tools_validator_is_used(valid_workflow_data: dict) -> None:
 
     with pytest.raises(WorkflowValidationError, match="unsupported tools"):
         loader.load_data(valid_workflow_data)
+
+
+def test_workflow_loader_loads_json_by_extension() -> None:
+    """统一 WorkflowLoader 应能根据 .json 后缀选择 JSON Loader。"""
+
+    workflow = WorkflowLoader(
+        validator=WorkflowValidator(allowed_tools={"mock_search"})
+    ).load(EXAMPLE_PATH)
+
+    assert workflow.name == "research_summarizer"
+    assert len(workflow.nodes) == 5
+
+
+def test_workflow_loader_loads_yaml_by_extension() -> None:
+    """统一 WorkflowLoader 应能根据 .yaml 后缀选择 YAML Loader。"""
+
+    workflow = WorkflowLoader(
+        validator=WorkflowValidator(allowed_tools={"mock_search"})
+    ).load(YAML_EXAMPLE_PATH)
+
+    assert workflow.name == "research_summarizer"
+    assert len(workflow.nodes) == 5
+
+
+def test_workflow_loader_loads_yml_by_extension(tmp_path: Path) -> None:
+    """统一 WorkflowLoader 应支持 .yml 后缀。"""
+
+    workflow_path = tmp_path / "workflow.yml"
+    workflow_path.write_text(YAML_EXAMPLE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+
+    workflow = WorkflowLoader(
+        validator=WorkflowValidator(allowed_tools={"mock_search"})
+    ).load(workflow_path)
+
+    assert workflow.name == "research_summarizer"
+
+
+def test_workflow_loader_unknown_extension_fails(tmp_path: Path) -> None:
+    """统一 WorkflowLoader 遇到未知后缀时应抛出加载错误。"""
+
+    workflow_path = tmp_path / "workflow.txt"
+    workflow_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(WorkflowLoadError, match=".json, .yaml or .yml"):
+        WorkflowLoader().load(workflow_path)
+
+
+def test_workflow_loader_load_data_returns_workflow(valid_workflow_data: dict) -> None:
+    """统一 WorkflowLoader.load_data 应复用 Validator 返回 Workflow 对象。"""
+
+    workflow = WorkflowLoader(
+        validator=WorkflowValidator(allowed_tools={"mock_search"})
+    ).load_data(valid_workflow_data)
+
+    assert workflow.name == "research_summarizer"
+
+
+def test_workflow_loader_load_data_root_must_be_object() -> None:
+    """统一 WorkflowLoader.load_data 只接受 dict 顶层数据。"""
+
+    with pytest.raises(WorkflowLoadError, match="root must be an object"):
+        WorkflowLoader().load_data([])
+
+
+def test_validator_validate_file_uses_unified_loader_for_yaml() -> None:
+    """WorkflowValidator.validate_file 应通过统一 Loader 支持 YAML。"""
+
+    workflow = WorkflowValidator(allowed_tools={"mock_search"}).validate_file(YAML_EXAMPLE_PATH)
+
+    assert workflow.name == "research_summarizer"
