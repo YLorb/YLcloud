@@ -903,3 +903,209 @@ compileall 通过
 5. 当前仍未实现 Executor，因此本轮不会实际执行 workflow tool 节点。
 6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
 ```
+
+## 追加更新：顺序执行器
+
+### 已完成内容
+
+已新增 Level 1 顺序执行器：
+
+```text
+mini_agent_flow/engine/executor.py
+```
+
+已新增 LLM 抽象与本地 Mock LLM：
+
+```text
+mini_agent_flow/llm/__init__.py
+mini_agent_flow/llm/base.py
+mini_agent_flow/llm/mock.py
+```
+
+顺序执行器负责把现有组件串起来：
+
+```text
+Workflow
+  ↓
+WorkflowContext
+  ↓
+VariableResolver
+  ↓
+LLMClient / ToolRegistry
+  ↓
+WorkflowRunResult
+```
+
+### 已实现接口
+
+```text
+SequentialWorkflowExecutor.run(workflow)
+```
+
+执行结果：
+
+```text
+WorkflowRunResult
+```
+
+字段：
+
+```text
+workflow_name
+context
+final_output
+executed_nodes
+```
+
+### 支持节点
+
+当前支持：
+
+```text
+start
+llm
+tool
+end
+```
+
+执行规则：
+
+```text
+start:
+  跳转到 next
+
+llm:
+  使用 VariableResolver 渲染 prompt
+  调用 llm.generate(prompt)
+  将结果写入 context[node.output]
+  跳转到 next
+
+tool:
+  使用 VariableResolver 解析 node.input
+  通过 ToolRegistry.get(node.tool) 获取工具
+  调用工具
+  将结果写入 context[node.output]
+  跳转到 next
+
+end:
+  停止执行并返回 WorkflowRunResult
+```
+
+### 暂不支持节点
+
+当前顺序执行器暂不支持：
+
+```text
+condition
+loop
+retry
+并发 DAG
+```
+
+遇到未支持节点会抛出：
+
+```text
+WorkflowExecutionError
+```
+
+### Mock LLM
+
+已新增：
+
+```text
+MockLLM
+```
+
+行为：
+
+```text
+1. prompt 包含“搜索关键词”或“关键词”时，返回 ["AI Agent", "Workflow Engine", "Tool Calling"]
+2. 其他 prompt 返回 "Mock response: {prompt}"
+```
+
+MockLLM 不联网、不需要 API key，只用于测试和 Level 1 演示。
+
+### 调用方式
+
+```python
+from mini_agent_flow.engine.executor import SequentialWorkflowExecutor
+from mini_agent_flow.engine.loader import JsonWorkflowLoader
+from mini_agent_flow.engine.validator import WorkflowValidator
+from mini_agent_flow.llm.mock import MockLLM
+from mini_agent_flow.tools.builtin import create_default_tool_registry
+
+registry = create_default_tool_registry()
+
+workflow = JsonWorkflowLoader(
+    validator=WorkflowValidator(allowed_tools=registry.names())
+).load("examples/level1_manual_workflow.json")
+
+executor = SequentialWorkflowExecutor(
+    llm=MockLLM(),
+    tool_registry=registry,
+)
+
+result = executor.run(workflow)
+```
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_sequential_executor.py
+```
+
+覆盖场景：
+
+```text
+1. 可以执行 examples/level1_manual_workflow.json
+2. 执行结果 context 包含 goal / keywords / search_results / final_answer
+3. executed_nodes 顺序正确
+4. final_output 等于 context["final_answer"]
+5. tool_registry 缺少工具时执行失败
+6. 缺变量时执行失败
+7. 遇到 condition 节点时执行失败
+8. max_steps 可以防止循环
+9. max_steps 小于等于 0 时会失败
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+78 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. 顺序执行器已能跑通 Level 1 示例 workflow。
+2. LLM 节点会渲染 prompt、调用 llm.generate、写回 context。
+3. Tool 节点会解析 input、从 registry 获取工具、调用工具、写回 context。
+4. executed_nodes 能反映真实执行顺序。
+5. max_steps 能防止错误 workflow 无限循环。
+6. 测试覆盖成功路径和主要失败路径。
+```
+
+第二次审查：安全性
+
+```text
+1. Executor 不动态导入工具。
+2. Tool 调用只能通过 ToolRegistry.get 获取已注册工具。
+3. MockLLM 不联网、不访问外部 API。
+4. condition / loop / retry 暂不执行，避免未设计清楚前引入不受控行为。
+5. max_steps 限制避免无限循环。
+6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```
