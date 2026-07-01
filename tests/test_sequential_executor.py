@@ -113,6 +113,62 @@ def test_executor_runs_condition_node() -> None:
     assert result.trace[1]["output"]["selected_branch"] == "if_true"
 
 
+def test_executor_returns_multiple_declared_outputs() -> None:
+    """workflow.outputs 声明多个字段时，final_output 应返回 dict。"""
+
+    workflow = Workflow.model_validate(
+        {
+            "version": "1.0",
+            "name": "multiple_outputs_workflow",
+            "inputs": {"first": "one", "second": "two"},
+            "outputs": ["first", "second"],
+            "nodes": [
+                {"id": "start", "type": "start", "next": "end"},
+                {"id": "end", "type": "end"},
+            ],
+        }
+    )
+    executor = SequentialWorkflowExecutor(
+        llm=MockLLM(),
+        tool_registry=create_default_tool_registry(),
+    )
+
+    result = executor.run(workflow)
+
+    assert result.final_output == {"first": "one", "second": "two"}
+    assert result.trace[-1]["input"] == {"outputs": ["first", "second"]}
+    assert result.trace[-1]["output"] == {
+        "final_output": {"first": "one", "second": "two"}
+    }
+
+
+def test_executor_fails_when_declared_output_is_missing_at_runtime() -> None:
+    """声明的输出字段如果运行结束时不存在，应显式失败。"""
+
+    workflow = Workflow.model_validate(
+        {
+            "version": "1.0",
+            "name": "missing_output_workflow",
+            "outputs": ["answer"],
+            "nodes": [
+                {"id": "start", "type": "start", "next": "end"},
+                {"id": "end", "type": "end"},
+            ],
+        }
+    )
+    executor = SequentialWorkflowExecutor(
+        llm=MockLLM(),
+        tool_registry=create_default_tool_registry(),
+    )
+
+    with pytest.raises(WorkflowExecutionError, match="final output") as exc_info:
+        executor.run(workflow)
+
+    assert exc_info.value.trace[-1]["node_id"] == "end"
+    assert exc_info.value.trace[-1]["status"] == "failed"
+    assert exc_info.value.trace[-1]["input"] == {"outputs": ["answer"]}
+
+
 def test_executor_max_steps_prevents_infinite_loop() -> None:
     """max_steps 可以防止错误 workflow 造成无限循环。"""
 

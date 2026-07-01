@@ -22,6 +22,14 @@
       "additionalProperties": true,
       "default": {}
     },
+    "outputs": {
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/variableName"
+      }
+    },
     "metadata": {
       "type": "object",
       "additionalProperties": true,

@@ -56,6 +56,9 @@ name: research_summarizer
 inputs:
   goal: "总结最近 AI Agent 的发展趋势"
 
+outputs:
+  - final_answer
+
 nodes:
   - id: start
     type: start

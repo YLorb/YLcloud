@@ -2306,3 +2306,156 @@ tests/test_workflow_loader.py
 5. 未知后缀会拒绝加载，不会猜测解析。
 6. 没有引入动态 import、eval、exec 或网络访问。
 ```
+
+## 最终输出机制实现记录
+
+### 本次目标
+
+将最终输出从 Executor 中硬编码的：
+
+```text
+context["final_answer"]
+```
+
+改为 workflow 顶层显式声明：
+
+```yaml
+outputs:
+  - final_answer
+```
+
+核心职责划分：
+
+```text
+End 节点：只表示控制流结束。
+Workflow.outputs：声明执行结束后要返回哪些 context 字段。
+```
+
+这样可以避免 End 节点承担数据出口职责，也避免不同 workflow 被迫统一使用
+`final_answer` 这个固定 key。
+
+### 模型与 Schema 更新
+
+已更新：
+
+```text
+mini_agent_flow/engine/models.py
+schemas/workflow.schema.json
+```
+
+新增顶层字段：
+
+```text
+outputs: list[str]
+```
+
+规则：
+
+```text
+1. outputs 可选，默认空列表。
+2. outputs 中的字段名必须符合 context 变量名规则。
+3. 不声明 outputs 时，Executor 返回 final_output = None。
+4. 声明一个 output 时，final_output 返回该字段原始值。
+5. 声明多个 output 时，final_output 返回 dict。
+```
+
+### Validator 更新
+
+已更新：
+
+```text
+mini_agent_flow/engine/validator.py
+```
+
+新增校验：
+
+```text
+1. workflow.outputs 不允许重复字段。
+2. workflow.outputs 中的字段必须来自 workflow.inputs 或 LLM/Tool 节点 output。
+```
+
+这一步可以提前发现明显拼写错误，例如：
+
+```yaml
+outputs:
+  - fina_answer
+```
+
+### Executor 更新
+
+已更新：
+
+```text
+mini_agent_flow/engine/executor.py
+```
+
+执行到 EndNode 时：
+
+```text
+1. 读取 workflow.outputs。
+2. 从 WorkflowContext 中 require 对应字段。
+3. 组装 final_output。
+4. 将最终输出写入 end 节点 trace。
+5. 如果声明字段运行时不存在，end 节点记录 failed trace 并抛 WorkflowExecutionError。
+```
+
+### 示例更新
+
+已更新：
+
+```text
+examples/level1_manual_workflow.json
+examples/level1_manual_workflow.yaml
+docs/AGENTS.md
+```
+
+Level 1 示例现在显式声明：
+
+```yaml
+outputs:
+  - final_answer
+```
+
+### 测试覆盖
+
+已更新：
+
+```text
+tests/test_sequential_executor.py
+tests/test_workflow_schema.py
+```
+
+新增覆盖：
+
+```text
+1. 单个 outputs 字段返回原始值。
+2. 多个 outputs 字段返回 dict。
+3. 不声明 outputs 时 final_output 为 None。
+4. 声明字段运行时不存在时，Executor 在 end 节点失败。
+5. outputs 声明不存在字段时，Validator 失败。
+6. outputs 重复声明时，Validator 失败。
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. 已去掉 Executor 对 final_answer 的硬编码依赖。
+2. Workflow 顶层 outputs 成为唯一最终输出声明来源。
+3. EndNode 职责保持为控制流终点，没有新增节点级 outputs。
+4. 示例 JSON/YAML 已同步新格式。
+5. Validator 和 Executor 都覆盖了输出字段缺失场景。
+6. 测试覆盖单输出、多输出、空输出、声明错误和运行时缺失。
+```
+
+第二次审查：安全性
+
+```text
+1. outputs 只读取 WorkflowContext 中已有字段，不触发工具、命令或文件访问。
+2. 输出字段名受变量名正则约束，避免任意 key 形态。
+3. 输出组装使用 context.require，缺失字段显式失败。
+4. final_output 写入 trace 时继续走 TraceRecorder 脱敏逻辑。
+5. 没有引入 eval、exec、动态 import、shell 或网络访问。
+6. EndNode 不接收额外动态表达式，避免输出阶段出现新的执行面。
+```

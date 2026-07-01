@@ -113,3 +113,25 @@ def test_unsupported_tool_fails(valid_workflow_data: dict) -> None:
 
     with pytest.raises(WorkflowValidationError, match="unsupported tools"):
         WorkflowValidator(allowed_tools={"file_reader"}).validate_data(valid_workflow_data)
+
+
+def test_declared_output_must_exist_in_inputs_or_node_outputs(
+    valid_workflow_data: dict,
+) -> None:
+    """workflow.outputs 只能声明已有输入或节点会写入的 output。"""
+
+    data = copy.deepcopy(valid_workflow_data)
+    data["outputs"] = ["missing_answer"]
+
+    with pytest.raises(WorkflowValidationError, match="outputs are not produced"):
+        WorkflowValidator(allowed_tools={"mock_search"}).validate_data(data)
+
+
+def test_declared_outputs_must_be_unique(valid_workflow_data: dict) -> None:
+    """workflow.outputs 中不应重复声明同一个字段。"""
+
+    data = copy.deepcopy(valid_workflow_data)
+    data["outputs"] = ["final_answer", "final_answer"]
+
+    with pytest.raises(WorkflowValidationError, match="duplicate"):
+        WorkflowValidator(allowed_tools={"mock_search"}).validate_data(data)

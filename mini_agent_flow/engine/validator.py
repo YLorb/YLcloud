@@ -60,6 +60,7 @@ class WorkflowValidator:
 
         self._validate_edges(workflow)
         self._validate_allowed_tools(workflow)
+        self._validate_declared_outputs(workflow)
         self._validate_reachability(workflow)
         self._validate_path_to_end(workflow)
         return workflow
@@ -93,6 +94,33 @@ class WorkflowValidator:
         if invalid_tools:
             joined_tools = ", ".join(sorted(set(invalid_tools)))
             raise WorkflowValidationError(f"workflow references unsupported tools: {joined_tools}")
+
+    def _validate_declared_outputs(self, workflow: Workflow) -> None:
+        """校验 workflow.outputs 声明的字段有明确来源。"""
+
+        duplicate_outputs = sorted(
+            output_name
+            for output_name in set(workflow.outputs)
+            if workflow.outputs.count(output_name) > 1
+        )
+        if duplicate_outputs:
+            joined_outputs = ", ".join(duplicate_outputs)
+            raise WorkflowValidationError(f"workflow outputs contain duplicate keys: {joined_outputs}")
+
+        available_outputs = set(workflow.inputs)
+        available_outputs.update(
+            node.output
+            for node in workflow.nodes
+            if isinstance(node, (LLMNode, ToolNode))
+        )
+        missing_outputs = sorted(
+            output_name
+            for output_name in workflow.outputs
+            if output_name not in available_outputs
+        )
+        if missing_outputs:
+            joined_outputs = ", ".join(missing_outputs)
+            raise WorkflowValidationError(f"workflow outputs are not produced by inputs or nodes: {joined_outputs}")
 
     def _validate_reachability(self, workflow: Workflow) -> None:
         """校验所有节点都能从 start 节点到达。

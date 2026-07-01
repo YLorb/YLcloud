@@ -4,6 +4,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+VariableName = Annotated[str, Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
+
 
 class RetryPolicy(BaseModel):
     """节点级重试策略。
@@ -124,6 +126,7 @@ class Workflow(BaseModel):
 
     Workflow 是固定 JSON 格式的顶层模型。它只负责结构层面的基础约束；
     跨节点引用、可达性、tool 白名单等语义规则由 WorkflowValidator 继续校验。
+    outputs 用来声明最终返回给调用方的 context 字段，end 节点只负责结束控制流。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -132,6 +135,7 @@ class Workflow(BaseModel):
     name: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_-]*$")
     description: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: list[VariableName] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     nodes: list[WorkflowNode] = Field(min_length=2)
 

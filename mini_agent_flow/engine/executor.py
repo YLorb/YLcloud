@@ -96,11 +96,11 @@ class SequentialWorkflowExecutor:
                 continue
 
             if isinstance(node, EndNode):
-                self._execute_end_node(node, context, trace_recorder)
+                final_output = self._execute_end_node(node, context, trace_recorder, workflow)
                 return WorkflowRunResult(
                     workflow_name=workflow.name,
                     context=context.to_dict(),
-                    final_output=context.get("final_answer", None),
+                    final_output=final_output,
                     executed_nodes=executed_nodes,
                     trace=trace_recorder.to_list(),
                 )
@@ -188,20 +188,39 @@ class SequentialWorkflowExecutor:
         node: EndNode,
         context: WorkflowContext,
         trace_recorder: TraceRecorder,
-    ) -> None:
-        """执行 end 节点并记录 trace。"""
+        workflow: Workflow,
+    ) -> Any | None:
+        """执行 end 节点、组装最终输出并记录 trace。"""
 
         context_before = context.to_dict()
         span = trace_recorder.start_span()
+
+        try:
+            final_output = self._build_final_output(workflow, context)
+        except Exception as exc:
+            error = WorkflowExecutionError(f"failed to build final output at end node: {node.id}")
+            trace_recorder.record_failure(
+                node_id=node.id,
+                node_type=node.type,
+                input_data={"outputs": workflow.outputs},
+                error=error,
+                context_before=context_before,
+                context_after=context.to_dict(),
+                span=span,
+            )
+            error.trace = trace_recorder.to_list()
+            raise error from exc
+
         trace_recorder.record_success(
             node_id=node.id,
             node_type=node.type,
-            input_data={},
-            output_data={},
+            input_data={"outputs": workflow.outputs},
+            output_data={"final_output": final_output} if workflow.outputs else {},
             context_before=context_before,
             context_after=context.to_dict(),
             span=span,
         )
+        return final_output
 
     def _execute_with_retry(
         self,
@@ -370,6 +389,15 @@ class SequentialWorkflowExecutor:
                 "if_false": node.if_false,
             }
         return {}
+
+    def _build_final_output(self, workflow: Workflow, context: WorkflowContext) -> Any | None:
+        """根据 workflow.outputs 从 Context 中组装最终输出。"""
+
+        if not workflow.outputs:
+            return None
+        if len(workflow.outputs) == 1:
+            return context.require(workflow.outputs[0])
+        return {output_name: context.require(output_name) for output_name in workflow.outputs}
 
     def _evaluate_condition_value(self, value: Any) -> bool:
         """把解析后的 condition 值转换为 bool。

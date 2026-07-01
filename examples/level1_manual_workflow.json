@@ -5,6 +5,9 @@
   "inputs": {
     "goal": "总结 AI Agent 工作流系统的核心组成"
   },
+  "outputs": [
+    "final_answer"
+  ],
   "nodes": [
     {
       "id": "start",
