@@ -225,3 +225,51 @@ next
 5. Tool Registry
 6. Level 1 Executor
 ```
+
+## 追加更新：中文注释与注释规范
+
+### 已完成内容
+
+已为当前已有核心代码补充中文注释：
+
+```text
+mini_agent_flow/engine/models.py
+mini_agent_flow/engine/validator.py
+tests/test_workflow_schema.py
+```
+
+注释重点说明：
+
+```text
+1. 每个 Pydantic 模型的职责
+2. 不同节点类型在 workflow 中的含义
+3. Validator 与后续 Loader / Executor 的职责边界
+4. 边引用校验、可达性校验、start 到 end 路径校验的目的
+5. tool 白名单作为安全边界的意义
+6. 每个测试用例对应的业务规则
+```
+
+### AGENTS.md 更新
+
+已在项目规则中追加：
+
+```text
+docs/AGENTS.md
+```
+
+新增小节：
+
+```text
+代码注释要求
+```
+
+该小节要求后续核心模型、核心流程、非显然校验逻辑、安全限制和测试意图使用中文注释说明。
+
+### 本次未做
+
+```text
+1. 未实现 JSON Workflow Loader
+2. 未修改 workflow schema 格式
+3. 未改变 validator 行为
+4. 未新增功能逻辑
+```
