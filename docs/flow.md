@@ -526,3 +526,380 @@ compileall 通过
 4. require 缺失变量时显式失败，避免节点静默使用 None。
 5. 未新增 API Key、token、secret 等敏感信息处理逻辑。
 ```
+
+## 追加更新：Variable Resolver
+
+### 已完成内容
+
+已新增变量解析器：
+
+```text
+mini_agent_flow/engine/resolver.py
+```
+
+Resolver 的职责是把 workflow 配置中的变量引用映射到 `WorkflowContext` 中已有的值：
+
+```text
+{{ goal }}
+{{ search_results }}
+{{ final_answer }}
+```
+
+### 已实现接口
+
+```text
+VariableResolver.resolve_template(template, context)
+VariableResolver.resolve_value(value, context)
+VariableResolver.extract_variables(template)
+```
+
+### 解析规则
+
+当前只支持简单变量引用：
+
+```text
+{{ key }}
+```
+
+不支持：
+
+```text
+1. 函数调用
+2. 过滤器
+3. 表达式计算
+4. 条件语句
+5. 循环语句
+6. 属性访问
+```
+
+变量名规则沿用 Context：
+
+```text
+^[A-Za-z_][A-Za-z0-9_]*$
+```
+
+### 完整变量引用与嵌入模板
+
+如果整个字段就是变量引用：
+
+```text
+"{{ search_results }}"
+```
+
+Resolver 返回原始对象，保留类型：
+
+```text
+list / dict / int / bool / str / None
+```
+
+如果变量嵌入字符串：
+
+```text
+"请总结：{{ search_results }}"
+```
+
+Resolver 会把变量值格式化为字符串后替换进去。
+
+其中：
+
+```text
+1. list / dict 使用 json.dumps(..., ensure_ascii=False)
+2. None 转为空字符串
+3. 其他类型使用 str(value)
+```
+
+### 递归解析
+
+`resolve_value()` 支持递归解析 list 和 dict 的值：
+
+```json
+{
+  "query": "{{ keywords }}",
+  "limit": "{{ limit }}",
+  "message": "搜索 {{ limit }} 条"
+}
+```
+
+可以解析为：
+
+```python
+{
+    "query": ["agent", "workflow"],
+    "limit": 5,
+    "message": "搜索 5 条"
+}
+```
+
+### 缺失变量策略
+
+Resolver 只解析 Context 中已经拥有的字段。
+
+如果模板引用不存在的变量：
+
+```text
+{{ missing_key }}
+```
+
+会抛出：
+
+```text
+VariableResolveError
+```
+
+这样可以避免缺变量时静默生成错误 prompt 或错误 tool input。
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_variable_resolver.py
+```
+
+覆盖场景：
+
+```text
+1. 普通字符串没有变量时原样返回
+2. 字符串模板可以替换变量
+3. 完整变量引用返回原始对象
+4. 完整数字变量保留 int 类型
+5. 嵌入字符串的数字会变成字符串片段
+6. list 中的变量可以递归解析
+7. dict 中的变量可以递归解析
+8. 嵌套 dict/list 可以解析
+9. 缺失变量会抛 VariableResolveError
+10. 非法变量语法会抛 VariableResolveError
+11. 多个变量可以在同一字符串中替换
+12. 非字符串标量会原样返回
+13. list/dict 嵌入 prompt 时使用 JSON 字符串
+14. None 嵌入字符串模板时转换为空字符串
+15. extract_variables 可以提取模板变量名
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+55 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. Resolver 已能区分完整变量引用和嵌入字符串模板。
+2. 完整变量引用保留原始类型，适合后续 tool input。
+3. 嵌入字符串模板会格式化变量值，适合后续 LLM prompt。
+4. list/dict 支持递归解析。
+5. 缺失变量和非法模板语法会显式失败。
+6. 测试覆盖了核心成功路径、失败路径和多类型数据。
+```
+
+第二次审查：安全性
+
+```text
+1. Resolver 不使用 eval 或 exec。
+2. Resolver 不开放 Jinja2 高级语法。
+3. Resolver 不执行函数、表达式、属性访问、循环或条件。
+4. Resolver 只读取 WorkflowContext 中已有变量。
+5. 变量名受固定正则限制，避免不受控模板语法进入执行流程。
+6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```
+
+## 追加更新：本地 Tool Registry
+
+### 已完成内容
+
+已新增本地工具注册包：
+
+```text
+mini_agent_flow/tools/__init__.py
+mini_agent_flow/tools/registry.py
+mini_agent_flow/tools/builtin.py
+```
+
+Tool Registry 的职责是把 workflow 中的 tool 名称映射到受控的本地 Python callable。
+
+### 已实现接口
+
+```text
+ToolRegistry.register(name, tool)
+ToolRegistry.get(name)
+ToolRegistry.has(name)
+ToolRegistry.names()
+ToolRegistry.unregister(name)
+```
+
+错误类型：
+
+```text
+ToolRegistryError
+```
+
+工具函数类型：
+
+```text
+ToolCallable = Callable[[Any], Any]
+```
+
+### 工具名规则
+
+工具名沿用 workflow ToolNode.tool 字段规则：
+
+```text
+^[A-Za-z_][A-Za-z0-9_-]*$
+```
+
+允许示例：
+
+```text
+mock_search
+file_reader
+http-fetch
+```
+
+拒绝示例：
+
+```text
+""
+"1tool"
+"bad name"
+"tool.name"
+```
+
+### 内置工具
+
+已新增两个安全内置工具：
+
+```text
+echo
+mock_search
+```
+
+`echo`：
+
+```text
+返回输入原值，用于测试工具调用链路。
+```
+
+`mock_search`：
+
+```text
+不联网、不读取文件，只根据输入构造本地假搜索结果。
+```
+
+默认注册表：
+
+```text
+create_default_tool_registry()
+```
+
+会注册：
+
+```text
+mock_search
+echo
+```
+
+### 与 Validator 的关系
+
+当前没有修改 `WorkflowValidator` 接口。
+
+推荐调用方式：
+
+```python
+registry = create_default_tool_registry()
+validator = WorkflowValidator(allowed_tools=registry.names())
+loader = JsonWorkflowLoader(validator=validator)
+workflow = loader.load("examples/level1_manual_workflow.json")
+```
+
+也就是说：
+
+```text
+ToolRegistry：
+  保存工具名到 callable 的映射。
+
+WorkflowValidator：
+  只接收 allowed_tools 集合，检查 workflow 中的 tool 名是否在白名单里。
+
+Executor：
+  后续真正执行 tool 节点时，再通过 registry.get(name) 取出 callable 并调用。
+```
+
+这样可以降低 Validator 与 Tool Registry 的耦合。
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_tool_registry.py
+```
+
+覆盖场景：
+
+```text
+1. 可以注册并获取工具
+2. get 未注册工具会失败
+3. 非法工具名会失败
+4. 注册非 callable 会失败
+5. 重复注册同名工具会失败
+6. has 可以判断工具是否存在
+7. names 返回已注册工具名副本
+8. unregister 可以移除工具
+9. unregister 未注册工具会失败
+10. create_default_tool_registry 包含 mock_search 和 echo
+11. echo 返回输入原值
+12. mock_search 对 str 输入返回 mock 结果
+13. mock_search 对 list 输入返回 mock 结果
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+72 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. ToolRegistry 已实现注册、读取、存在性判断、名称导出和注销。
+2. 工具名规则与 workflow ToolNode.tool 保持一致。
+3. 默认注册表包含 mock_search 和 echo。
+4. mock_search 支持 str/list 输入并返回稳定本地假数据。
+5. 测试覆盖了核心成功路径、失败路径和内置工具行为。
+```
+
+第二次审查：安全性
+
+```text
+1. ToolRegistry 不支持从 workflow 动态 import 任意 Python 函数。
+2. 只有代码显式注册过的工具可以被获取。
+3. 重复注册默认失败，避免误覆盖已有工具实现。
+4. mock_search 不联网、不读写文件、不执行命令。
+5. 当前仍未实现 Executor，因此本轮不会实际执行 workflow tool 节点。
+6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```
