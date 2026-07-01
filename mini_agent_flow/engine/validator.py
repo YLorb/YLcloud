@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import json
 from pathlib import Path
 from typing import Any
 
@@ -44,19 +42,13 @@ class WorkflowValidator:
     def validate_file(self, path: str | Path) -> Workflow:
         """读取 JSON workflow 文件并完成校验。
 
-        当前 Loader 尚未独立实现，所以这里临时包含文件读取逻辑。后续新增
-        JsonWorkflowLoader 后，文件读取与 JSON 解析会迁移到 Loader 中。
+        这是兼容入口。文件读取与 JSON 解析已经交给 JsonWorkflowLoader，
+        新代码应优先直接使用 Loader。
         """
 
-        workflow_path = Path(path)
-        try:
-            data = json.loads(workflow_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise WorkflowValidationError(f"invalid JSON workflow: {exc}") from exc
-        except OSError as exc:
-            raise WorkflowValidationError(f"cannot read workflow file: {workflow_path}") from exc
+        from mini_agent_flow.engine.loader import JsonWorkflowLoader
 
-        return self.validate_data(data)
+        return JsonWorkflowLoader(validator=self).load(path)
 
     def validate_data(self, data: dict[str, Any]) -> Workflow:
         """校验已解析为 dict 的 workflow 数据并返回 Workflow 对象。"""

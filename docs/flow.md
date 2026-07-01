@@ -273,3 +273,256 @@ docs/AGENTS.md
 3. 未改变 validator 行为
 4. 未新增功能逻辑
 ```
+
+## 追加更新：JSON Workflow Loader
+
+### 已完成内容
+
+已新增 JSON Workflow Loader：
+
+```text
+mini_agent_flow/engine/loader.py
+```
+
+Loader 的职责是：
+
+```text
+1. 检查 workflow 文件路径是否存在
+2. 检查路径是否是文件
+3. 检查文件后缀是否为 .json
+4. 读取并解析 JSON
+5. 确保 JSON 顶层是 object
+6. 调用 WorkflowValidator.validate_data()
+7. 返回已校验的 Workflow 对象
+```
+
+### 职责边界
+
+当前边界为：
+
+```text
+JsonWorkflowLoader：
+  负责文件读取、JSON 解析、文件级错误处理。
+
+WorkflowValidator：
+  负责 workflow 结构校验、节点引用校验、可达性校验、tool 白名单校验。
+
+Workflow：
+  作为加载和校验后的标准对象，交给后续 Executor / CLI / Planner 使用。
+```
+
+### 兼容调整
+
+已保留：
+
+```text
+WorkflowValidator.validate_file()
+```
+
+但该方法现在只作为兼容入口，内部转交给：
+
+```text
+JsonWorkflowLoader(validator=self).load(path)
+```
+
+后续新代码应优先直接使用 `JsonWorkflowLoader`。
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_workflow_loader.py
+```
+
+覆盖场景：
+
+```text
+1. 合法 JSON workflow 文件可以被 load
+2. 不存在的文件会抛 WorkflowLoadError
+3. 目录路径会抛 WorkflowLoadError
+4. 非 .json 后缀会抛 WorkflowLoadError
+5. JSON 语法错误会抛 WorkflowLoadError
+6. JSON 顶层不是 object 会抛 WorkflowLoadError
+7. load_data 直接接收数据时，顶层也必须是 object
+8. 结构合法但语义非法时，透出 WorkflowValidationError
+9. allowed_tools 可以通过传入的 validator 生效
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+19 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. Loader 已返回 Workflow 对象，符合本轮目标。
+2. 文件级错误和 workflow 内容校验错误已分离。
+3. WorkflowValidator.validate_file() 保持兼容，不破坏已有测试。
+4. 新增测试覆盖了 Loader 的核心成功与失败路径。
+```
+
+第二次审查：安全性
+
+```text
+1. Loader 只读取用户显式传入的本地路径。
+2. Loader 限制文件后缀为 .json。
+3. Loader 不执行任何 workflow、tool 或 shell 命令。
+4. JSON 顶层不是 object 时直接拒绝，避免后续校验器接收不确定结构。
+5. tool 白名单仍由 WorkflowValidator 控制。
+6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```
+
+## 追加更新：Workflow Context
+
+### 已完成内容
+
+已新增 Workflow Context：
+
+```text
+mini_agent_flow/engine/context.py
+```
+
+Context 的职责是作为 workflow 执行时的共享变量表：
+
+```text
+1. 从 workflow.inputs 初始化运行时变量
+2. 节点执行时按 key 读取变量
+3. 节点执行完成后按 output key 写入结果
+4. 为后续 Trace Recorder 提供状态快照
+```
+
+### 已实现接口
+
+```text
+WorkflowContext()
+WorkflowContext.from_workflow(workflow)
+get(key, default=None)
+require(key)
+set(key, value)
+update(values)
+has(key)
+to_dict()
+snapshot()
+```
+
+### 变量名规则
+
+Context 变量名与 workflow output 字段保持一致：
+
+```text
+^[A-Za-z_][A-Za-z0-9_]*$
+```
+
+允许示例：
+
+```text
+goal
+keywords
+search_results
+final_answer
+```
+
+拒绝示例：
+
+```text
+""
+"1abc"
+"user-name"
+"foo.bar"
+```
+
+### 设计说明
+
+Context 是 key-value 型共享状态，不是节点之间直接传值。
+
+执行时的数据流是：
+
+```text
+节点 A 执行结果
+  ↓
+写入 context["some_key"]
+  ↓
+节点 B 根据 workflow 配置读取 context["some_key"]
+```
+
+这保证 Level 1 的数据流是显式、可检查、可追踪的。
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_workflow_context.py
+```
+
+覆盖场景：
+
+```text
+1. 空 Context 可以创建
+2. initial_values 会被复制保存
+3. from_workflow 会读取 workflow.inputs
+4. get 可以读取存在变量
+5. get 读取不存在变量时返回 default
+6. require 读取不存在变量时抛 WorkflowContextError
+7. set 可以写入合法变量名
+8. set 非法变量名会失败
+9. update 可以批量写入
+10. update 非 dict 会失败
+11. update 中有非法 key 时不会产生半更新状态
+12. has 可以判断变量是否存在
+13. to_dict 返回副本
+14. snapshot 返回副本，适合后续 trace 使用
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+37 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. Context 已能从 Workflow.inputs 初始化。
+2. get / require / set / update / has / to_dict / snapshot 均已实现。
+3. initial_values、set、update、to_dict、snapshot 都使用深拷贝，避免外部修改污染运行时状态。
+4. update 先校验所有 key 再写入，避免半更新状态。
+5. 测试覆盖了核心成功路径、失败路径和副本隔离。
+```
+
+第二次审查：安全性
+
+```text
+1. Context 不执行 workflow、tool、shell 命令或表达式。
+2. Context 只在内存中保存显式传入的数据。
+3. 变量名被限制为安全的标识符格式，避免后续模板变量引用混乱。
+4. require 缺失变量时显式失败，避免节点静默使用 None。
+5. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```
