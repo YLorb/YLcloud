@@ -1109,3 +1109,125 @@ compileall 通过
 5. max_steps 限制避免无限循环。
 6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
 ```
+
+## 追加更新：Mock Tool 端到端测试
+
+### 本次补充目标
+
+补充 Mock Tool 测试，用来验证当前 Level 1 的完整链路是否真正跑通：
+
+```text
+Workflow JSON / dict
+  ↓
+JsonWorkflowLoader
+  ↓
+WorkflowValidator
+  ↓
+SequentialWorkflowExecutor
+  ↓
+WorkflowContext
+  ↓
+VariableResolver
+  ↓
+ToolRegistry
+  ↓
+Mock Tool
+  ↓
+Context / WorkflowRunResult
+```
+
+### 新增测试文件
+
+```text
+tests/test_mock_tool_workflow.py
+```
+
+### 覆盖场景
+
+```text
+1. echo 最小工具链路：
+   start -> echo -> end
+   验证完整变量引用 "{{ message }}" 会保留 dict 原始类型。
+
+2. mock_search 列表输入链路：
+   start -> mock_search -> end
+   验证 "{{ keywords }}" 会保留 list 原始类型，并写入 search_results。
+
+3. 嵌入字符串模板链路：
+   input: "query={{ keyword }}"
+   验证嵌入模板会转换成字符串后传给工具。
+
+4. 未注册工具失败链路：
+   Validator allowed_tools 允许 missing_tool。
+   Executor 的 ToolRegistry 未注册 missing_tool。
+   验证执行阶段仍会失败。
+
+5. 示例文件完整链路：
+   加载 examples/level1_manual_workflow.json。
+   执行 start -> plan -> search -> summarize -> end。
+   验证 context 包含 goal / keywords / search_results / final_answer。
+```
+
+### 职责边界验证
+
+本次测试进一步确认：
+
+```text
+1. Validator 只负责判断 workflow 是否引用允许的工具名。
+2. ToolRegistry 才负责保存实际可调用工具。
+3. Executor 运行 tool 节点时必须从 ToolRegistry 获取 callable。
+4. VariableResolver 会根据模板形态决定保留原始类型或转换为字符串。
+5. Context 是节点之间传递数据的唯一共享状态。
+```
+
+### 本次未改动
+
+```text
+1. 未修改 Executor 业务逻辑。
+2. 未修改 Resolver 业务逻辑。
+3. 未修改 ToolRegistry 业务逻辑。
+4. 未修改 Validator 业务逻辑。
+5. 未引入真实网络、真实 LLM 或真实文件工具。
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest tests/test_mock_tool_workflow.py -q
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+tests/test_mock_tool_workflow.py：5 passed
+全量测试：83 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. 新增测试覆盖了 echo、mock_search、嵌入模板、未注册工具失败和示例文件完整链路。
+2. 测试通过 Loader + Validator 加载 workflow，没有绕过当前主要入口。
+3. 测试验证了完整变量引用会保留 dict/list 原始类型。
+4. 测试验证了嵌入字符串模板会转换为字符串。
+5. 测试验证了 allowed_tools 白名单与 ToolRegistry 实际注册表是两个独立边界。
+6. 未修改业务代码，因此本次变更只增强回归保护。
+```
+
+第二次审查：安全性
+
+```text
+1. 新增测试只调用 echo 和 mock_search 两个本地 mock 工具。
+2. mock_search 不联网、不读取文件、不执行命令。
+3. 未引入真实 LLM、真实 API、API Key、token 或 secret。
+4. 未新增动态 import、eval、exec 或 shell 调用业务逻辑。
+5. 未注册工具失败测试覆盖了执行阶段的工具调用边界。
+6. 文档更新不包含敏感信息。
+```
