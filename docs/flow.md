@@ -1231,3 +1231,136 @@ compileall 通过
 5. 未注册工具失败测试覆盖了执行阶段的工具调用边界。
 6. 文档更新不包含敏感信息。
 ```
+
+## 追加更新：YAML Workflow Importer
+
+### 已完成内容
+
+已新增 YAML Workflow Loader：
+
+```text
+mini_agent_flow/engine/loader.py
+```
+
+新增类：
+
+```text
+YamlWorkflowLoader
+```
+
+YAML Loader 的职责与 JSON Loader 保持一致：
+
+```text
+1. 检查 workflow 文件路径是否存在
+2. 检查路径是否是文件
+3. 检查文件后缀是否为 .yaml 或 .yml
+4. 使用 yaml.safe_load() 解析 YAML
+5. 确保 YAML 顶层是 object/mapping
+6. 调用 WorkflowValidator.validate_data()
+7. 返回已校验的 Workflow 对象
+```
+
+### 新增示例文件
+
+已新增 Level 1 YAML 示例：
+
+```text
+examples/level1_manual_workflow.yaml
+```
+
+该示例与 JSON 示例等价：
+
+```text
+start
+  ↓
+llm: plan
+  ↓
+tool: search
+  ↓
+llm: summarize
+  ↓
+end
+```
+
+### 与 JSON Loader 的关系
+
+当前保留两个明确入口：
+
+```text
+JsonWorkflowLoader：
+  只加载 .json。
+
+YamlWorkflowLoader：
+  只加载 .yaml / .yml。
+```
+
+本轮没有实现根据后缀自动分发的统一 Loader，避免扩大范围。后续可以新增：
+
+```text
+WorkflowLoader.load(path)
+```
+
+由它根据文件后缀分发给 JSON 或 YAML Loader。
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_yaml_workflow_loader.py
+```
+
+覆盖场景：
+
+```text
+1. 合法 .yaml workflow 文件可以被加载
+2. .yml 后缀可以被加载
+3. 非 .yaml / .yml 后缀会失败
+4. YAML 语法错误会失败
+5. 空 YAML 文件会失败
+6. YAML 顶层不是 object/mapping 会失败
+7. allowed_tools 配置会在 YAML Loader 中生效
+8. YAML 示例可以跑通 Loader、Validator、Executor、MockLLM 和 Mock Tool 全链路
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest tests/test_yaml_workflow_loader.py -q
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+tests/test_yaml_workflow_loader.py：8 passed
+全量测试：91 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. YamlWorkflowLoader 已支持 .yaml 和 .yml。
+2. YAML Loader 与 JSON Loader 一样返回 Workflow 对象。
+3. YAML Loader 会复用 WorkflowValidator，因此节点引用、可达性和 allowed_tools 规则一致。
+4. 空 YAML、数组顶层、语法错误、错误后缀均已覆盖。
+5. YAML 示例文件可以通过顺序执行器跑完整 Level 1 链路。
+6. 本轮没有改变 JSON Loader 行为。
+```
+
+第二次审查：安全性
+
+```text
+1. YAML 解析使用 yaml.safe_load()，没有使用 yaml.load()。
+2. YAML Loader 只读取用户显式传入的本地 .yaml / .yml 文件。
+3. YAML Loader 不执行 workflow、tool、shell 命令或表达式。
+4. 真实工具调用仍由 Executor 通过 ToolRegistry 获取已注册 callable。
+5. allowed_tools 白名单仍由 WorkflowValidator 控制。
+6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```

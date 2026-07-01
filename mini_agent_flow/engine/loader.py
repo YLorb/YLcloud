@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from mini_agent_flow.engine.models import Workflow
 from mini_agent_flow.engine.validator import WorkflowValidator
 
@@ -12,7 +14,7 @@ class WorkflowLoadError(ValueError):
     """workflow 文件加载失败时抛出的异常。
 
     Loader 只负责“文件与 JSON 层面”的错误，例如文件不存在、路径不是文件、
-    后缀不是 .json、JSON 语法错误，或 JSON 顶层不是 object。
+    后缀不符合 Loader 要求、配置语法错误，或顶层不是 object。
     """
 
 
@@ -81,5 +83,64 @@ class JsonWorkflowLoader:
 
         if not isinstance(data, dict):
             raise WorkflowLoadError("workflow JSON root must be an object")
+
+        return data
+
+
+class YamlWorkflowLoader:
+    """YAML Workflow Loader。
+
+    YAML Loader 与 JSON Loader 的输出保持一致：只负责把 .yaml / .yml 文件解析成
+    dict，再交给 WorkflowValidator 校验，最后返回标准 Workflow 对象。
+    """
+
+    def __init__(self, validator: WorkflowValidator | None = None) -> None:
+        """创建 YAML Loader。"""
+
+        self.validator = validator or WorkflowValidator()
+
+    def load(self, path: str | Path) -> Workflow:
+        """从 .yaml / .yml 文件加载并校验 workflow。"""
+
+        workflow_path = Path(path)
+        self._validate_path(workflow_path)
+        data = self._read_yaml(workflow_path)
+        return self.load_data(data)
+
+    def load_data(self, data: Any) -> Workflow:
+        """加载已解析的 YAML 数据。"""
+
+        if not isinstance(data, dict):
+            raise WorkflowLoadError("workflow YAML root must be an object")
+
+        return self.validator.validate_data(data)
+
+    def _validate_path(self, path: Path) -> None:
+        """校验输入路径是一个存在的 YAML 文件。"""
+
+        if not path.exists():
+            raise WorkflowLoadError(f"workflow file does not exist: {path}")
+        if not path.is_file():
+            raise WorkflowLoadError(f"workflow path is not a file: {path}")
+        if path.suffix.lower() not in {".yaml", ".yml"}:
+            raise WorkflowLoadError(f"workflow file must use .yaml or .yml extension: {path}")
+
+    def _read_yaml(self, path: Path) -> dict[str, Any]:
+        """读取 YAML 文件，并确保顶层结构是 object。"""
+
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise WorkflowLoadError(f"invalid YAML workflow: {exc}") from exc
+        except OSError as exc:
+            raise WorkflowLoadError(f"cannot read workflow file: {path}") from exc
+
+        return self._ensure_yaml_object(data)
+
+    def _ensure_yaml_object(self, data: Any) -> dict[str, Any]:
+        """确保 YAML 顶层是 object/mapping，并返回可交给 Validator 的 dict。"""
+
+        if not isinstance(data, dict):
+            raise WorkflowLoadError("workflow YAML root must be an object")
 
         return data
