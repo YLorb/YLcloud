@@ -1765,3 +1765,204 @@ compileall 通过
 5. 脱敏只影响 trace，不会修改真实 context。
 6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
 ```
+
+## 追加更新：节点级 Retry 执行机制
+
+### 已完成内容
+
+已在顺序执行器中实现节点级 retry：
+
+```text
+mini_agent_flow/engine/executor.py
+```
+
+复用现有模型：
+
+```text
+RetryPolicy
+```
+
+支持字段：
+
+```text
+max_attempts
+backoff_seconds
+```
+
+示例：
+
+```json
+{
+  "id": "search",
+  "type": "tool",
+  "tool": "mock_search",
+  "input": "{{ keywords }}",
+  "output": "search_results",
+  "next": "summarize",
+  "retry": {
+    "max_attempts": 3,
+    "backoff_seconds": 0
+  }
+}
+```
+
+### 支持范围
+
+当前支持 retry 的节点：
+
+```text
+llm
+tool
+```
+
+当前不对以下节点执行 retry：
+
+```text
+start
+end
+condition
+loop
+unsupported node
+```
+
+原因：
+
+```text
+1. start / end 没有外部调用，不需要 retry。
+2. condition / loop 当前还没有执行语义。
+3. unsupported node retry 没有意义，应直接失败。
+```
+
+### 执行语义
+
+每个支持 retry 的节点按如下流程执行：
+
+```text
+attempt = 1
+  ↓
+执行节点
+  ↓
+成功：
+    记录 success trace
+    跳转 next
+  ↓
+失败：
+    记录 failed trace
+    如果 attempt < max_attempts：
+        等待 backoff_seconds
+        继续下一次 attempt
+    否则：
+        抛 WorkflowExecutionError
+```
+
+没有配置 retry 时：
+
+```text
+max_attempts = 1
+```
+
+也就是失败后不重试。
+
+### Trace 记录
+
+每次 attempt 都会生成独立 TraceEvent。
+
+示例：
+
+```text
+call_tool attempt=1 failed
+call_tool attempt=2 success
+```
+
+如果全部失败：
+
+```text
+call_tool attempt=1 failed
+call_tool attempt=2 failed
+call_tool attempt=3 failed
+```
+
+失败异常仍会携带完整 trace：
+
+```text
+WorkflowExecutionError.trace
+```
+
+### Context 写入边界
+
+当前 llm / tool 节点只有在成功拿到结果后才写入：
+
+```text
+context[node.output]
+```
+
+如果某次 attempt 失败，不会提前写入 output key。
+
+本轮没有实现完整 context rollback，因为当前节点执行模型不存在半写入状态：
+
+```text
+执行成功后才写 context。
+执行失败不会写 output。
+```
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_retry_executor.py
+```
+
+覆盖场景：
+
+```text
+1. tool 节点第一次失败、第二次成功，workflow 继续执行
+2. trace 中记录 failed attempt=1 和 success attempt=2
+3. tool 节点超过 max_attempts 后失败
+4. 失败异常携带全部 retry trace
+5. 未配置 retry 时默认只执行一次
+6. llm 节点第一次失败、第二次成功
+7. retry 全部失败时不会提前写入 output key
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest tests/test_retry_executor.py -q
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+tests/test_retry_executor.py：5 passed
+全量测试：110 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. Executor 已读取 node.retry 并应用 max_attempts / backoff_seconds。
+2. llm / tool 节点均支持 retry。
+3. 每次 attempt 都会单独记录 trace。
+4. 未配置 retry 时默认 max_attempts=1，不改变旧行为。
+5. retry 全部失败时会抛 WorkflowExecutionError，并携带完整 trace。
+6. 失败 attempt 不会提前写入节点 output key。
+```
+
+第二次审查：安全性
+
+```text
+1. Retry 不引入动态 import、shell 命令或任意代码执行。
+2. Retry 只重复调用已由 Executor 允许执行的 llm / tool 节点。
+3. Tool 调用仍必须通过 ToolRegistry.get() 获取已注册 callable。
+4. Workflow 中的 tool 仍受 WorkflowValidator.allowed_tools 控制。
+5. Trace 脱敏逻辑继续生效，每次 attempt 的 input / output 都会经过脱敏。
+6. backoff 使用标准库 sleep，测试中使用 0 秒避免拖慢测试。
+```

@@ -8,8 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class RetryPolicy(BaseModel):
     """节点级重试策略。
 
-    当前阶段只定义数据结构，不实际执行 retry。后续 Executor 可以读取该配置，
-    在节点失败时根据 max_attempts 和 backoff_seconds 决定是否重试。
+    Executor 会读取该配置，在支持 retry 的节点失败时，根据 max_attempts 和
+    backoff_seconds 决定是否重试。当前顺序执行器支持 llm / tool 节点重试。
     """
 
     model_config = ConfigDict(extra="forbid")
