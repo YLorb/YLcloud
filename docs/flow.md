@@ -1966,3 +1966,230 @@ compileall 通过
 5. Trace 脱敏逻辑继续生效，每次 attempt 的 input / output 都会经过脱敏。
 6. backoff 使用标准库 sleep，测试中使用 0 秒避免拖慢测试。
 ```
+
+## 追加更新：Condition Node 执行机制
+
+### 已完成内容
+
+已在顺序执行器中实现 Condition 节点：
+
+```text
+mini_agent_flow/engine/executor.py
+```
+
+Condition 模型已存在：
+
+```text
+ConditionNode
+```
+
+字段：
+
+```text
+expression
+if_true
+if_false
+```
+
+### 执行语义
+
+Condition 节点执行流程：
+
+```text
+读取 expression
+  ↓
+使用 VariableResolver.resolve_value() 解析变量
+  ↓
+对解析后的值做安全 truthy 判断
+  ↓
+True  -> 跳转 if_true
+False -> 跳转 if_false
+  ↓
+记录 trace
+```
+
+示例：
+
+```json
+{
+  "id": "check_results",
+  "type": "condition",
+  "expression": "{{ search_results }}",
+  "if_true": "summarize",
+  "if_false": "fallback"
+}
+```
+
+### Truthy 判断规则
+
+当前不使用：
+
+```text
+eval
+exec
+表达式语言
+Jinja2 条件语法
+```
+
+只做基础值判断：
+
+```text
+bool:
+  True / False 原样使用
+
+None:
+  False
+
+int / float:
+  0 为 False
+  非 0 为 True
+
+str:
+  "" / "false" / "no" / "0" 为 False
+  "true" / "yes" / "1" 为 True
+  其他非空字符串为 True
+
+list / dict / tuple / set:
+  空为 False
+  非空为 True
+
+其他对象:
+  使用 bool(value)
+```
+
+### Trace 记录
+
+Condition 成功时记录：
+
+```json
+{
+  "input": {
+    "expression": "{{ search_results }}",
+    "resolved_value": [],
+    "if_true": "summarize",
+    "if_false": "fallback"
+  },
+  "output": {
+    "condition_result": false,
+    "selected_branch": "if_false",
+    "next": "fallback"
+  }
+}
+```
+
+Condition 失败时记录：
+
+```json
+{
+  "status": "failed",
+  "input": {
+    "expression": "{{ missing_key }}",
+    "if_true": "summarize",
+    "if_false": "fallback"
+  }
+}
+```
+
+本轮仍不记录未走分支的 skipped trace。
+
+原因：
+
+```text
+未走分支是否记录 skipped，属于后续分支/DAG trace 语义。
+当前先记录 selected_branch 和 next，避免过早引入 skipped 语义复杂度。
+```
+
+### Retry 关系
+
+Condition 不支持 retry。
+
+原因：
+
+```text
+1. Condition 是本地确定性判断，不调用外部 LLM 或工具。
+2. Condition 失败通常表示变量缺失或 workflow 配置错误。
+3. 对配置错误重试没有意义。
+```
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_condition_executor.py
+```
+
+覆盖场景：
+
+```text
+1. bool True 走 if_true
+2. bool False 走 if_false
+3. 空 list 走 if_false
+4. 非空 list 走 if_true
+5. 字符串 "false" 走 if_false
+6. condition trace 记录 expression、resolved_value、selected_branch、next
+7. 缺失变量时执行失败，并携带 failed trace
+8. condition 当前不产生 skipped trace
+```
+
+已更新：
+
+```text
+tests/test_sequential_executor.py
+```
+
+将原来的：
+
+```text
+condition unsupported
+```
+
+改为：
+
+```text
+condition 可以正常执行
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest tests/test_condition_executor.py -q
+python -m pytest tests/test_sequential_executor.py -q
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+tests/test_condition_executor.py：8 passed
+tests/test_sequential_executor.py：6 passed
+全量测试：118 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. Executor 已支持 ConditionNode。
+2. expression 会通过 VariableResolver 解析，不绕过现有变量规则。
+3. truthy 判断覆盖 bool、None、数字、字符串和集合类型。
+4. Condition 成功 trace 会记录解析值、判断结果、分支和 next。
+5. Condition 缺失变量会失败，并携带 failed trace。
+6. 旧的 unsupported condition 测试已更新为支持执行。
+```
+
+第二次审查：安全性
+
+```text
+1. Condition 不使用 eval、exec 或任意表达式执行。
+2. Condition 不调用 shell、外部文件、网络或动态 import。
+3. Condition 只读取 WorkflowContext 中已有变量。
+4. 缺失变量会显式失败，不会静默走默认分支。
+5. Trace 脱敏逻辑继续生效。
+6. Condition 不支持 retry，避免对配置错误做无意义重试。
+```

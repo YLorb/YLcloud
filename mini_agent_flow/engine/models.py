@@ -84,8 +84,8 @@ class ToolNode(BaseNode):
 class ConditionNode(BaseNode):
     """条件分支节点。
 
-    expression 只保存条件表达式文本，当前阶段不执行表达式。后续 Executor 需要在
-    受控环境中解释它，并根据结果跳转到 if_true 或 if_false。
+    expression 保存条件表达式文本。当前 Executor 不执行 eval 或复杂表达式，
+    只支持把 `{{ key }}` 解析成 Context 中的值，再做安全 truthy 判断。
     """
 
     type: Literal["condition"]

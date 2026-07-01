@@ -5,7 +5,15 @@ from time import sleep
 from typing import Any
 
 from mini_agent_flow.engine.context import WorkflowContext
-from mini_agent_flow.engine.models import EndNode, LLMNode, StartNode, ToolNode, Workflow, WorkflowNode
+from mini_agent_flow.engine.models import (
+    ConditionNode,
+    EndNode,
+    LLMNode,
+    StartNode,
+    ToolNode,
+    Workflow,
+    WorkflowNode,
+)
 from mini_agent_flow.engine.resolver import VariableResolver
 from mini_agent_flow.engine.trace import TraceRecorder
 from mini_agent_flow.llm.base import LLMClient
@@ -41,8 +49,8 @@ class SequentialWorkflowExecutor:
     """Level 1 顺序执行器。
 
     执行器从 start 节点开始，按每个节点的 next 字段顺序执行，直到遇到 end。
-    当前只支持 start / llm / tool / end；llm/tool 支持节点级 retry，
-    暂不处理 condition、loop 或并发。
+    当前支持 start / llm / tool / condition / end；llm/tool 支持节点级 retry，
+    暂不处理 loop 或并发。
     """
 
     def __init__(
@@ -83,6 +91,10 @@ class SequentialWorkflowExecutor:
                 current_node_id = self._execute_with_retry(node, context, trace_recorder)
                 continue
 
+            if isinstance(node, ConditionNode):
+                current_node_id = self._execute_condition_node(node, context, trace_recorder)
+                continue
+
             if isinstance(node, EndNode):
                 self._execute_end_node(node, context, trace_recorder)
                 return WorkflowRunResult(
@@ -120,6 +132,56 @@ class SequentialWorkflowExecutor:
             span=span,
         )
         return node.next
+
+    def _execute_condition_node(
+        self,
+        node: ConditionNode,
+        context: WorkflowContext,
+        trace_recorder: TraceRecorder,
+    ) -> str:
+        """执行 condition 节点：解析表达式、判断真假、选择分支。"""
+
+        context_before = context.to_dict()
+        span = trace_recorder.start_span()
+
+        try:
+            resolved_value = self.resolver.resolve_value(node.expression, context)
+            condition_result = self._evaluate_condition_value(resolved_value)
+            selected_branch = "if_true" if condition_result else "if_false"
+            next_node_id = node.if_true if condition_result else node.if_false
+        except Exception as exc:
+            error = WorkflowExecutionError(f"failed to execute condition node: {node.id}")
+            trace_recorder.record_failure(
+                node_id=node.id,
+                node_type=node.type,
+                input_data=self._failure_input_for_node(node),
+                error=error,
+                context_before=context_before,
+                context_after=context.to_dict(),
+                span=span,
+            )
+            error.trace = trace_recorder.to_list()
+            raise error from exc
+
+        trace_recorder.record_success(
+            node_id=node.id,
+            node_type=node.type,
+            input_data={
+                "expression": node.expression,
+                "resolved_value": resolved_value,
+                "if_true": node.if_true,
+                "if_false": node.if_false,
+            },
+            output_data={
+                "condition_result": condition_result,
+                "selected_branch": selected_branch,
+                "next": next_node_id,
+            },
+            context_before=context_before,
+            context_after=context.to_dict(),
+            span=span,
+        )
+        return next_node_id
 
     def _execute_end_node(
         self,
@@ -301,4 +363,31 @@ class SequentialWorkflowExecutor:
             return {"prompt_template": node.prompt}
         if isinstance(node, ToolNode):
             return {"tool": node.tool, "raw_input": node.input}
+        if isinstance(node, ConditionNode):
+            return {
+                "expression": node.expression,
+                "if_true": node.if_true,
+                "if_false": node.if_false,
+            }
         return {}
+
+    def _evaluate_condition_value(self, value: Any) -> bool:
+        """把解析后的 condition 值转换为 bool。
+
+        这里不执行表达式语言，只做 Python 基础类型的安全 truthy 判断。
+        """
+
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            normalized_value = value.strip().lower()
+            if normalized_value in {"", "false", "no", "0"}:
+                return False
+            if normalized_value in {"true", "yes", "1"}:
+                return True
+            return True
+        return bool(value)

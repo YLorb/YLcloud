@@ -81,8 +81,8 @@ def test_executor_fails_when_variable_is_missing() -> None:
         executor.run(workflow)
 
 
-def test_executor_fails_on_unsupported_condition_node() -> None:
-    """当前顺序执行器不支持 condition 节点。"""
+def test_executor_runs_condition_node() -> None:
+    """顺序执行器可以根据 condition 节点选择分支。"""
 
     workflow = Workflow.model_validate(
         {
@@ -107,8 +107,10 @@ def test_executor_fails_on_unsupported_condition_node() -> None:
         tool_registry=create_default_tool_registry(),
     )
 
-    with pytest.raises(WorkflowExecutionError, match="unsupported node type"):
-        executor.run(workflow)
+    result = executor.run(workflow)
+
+    assert result.executed_nodes == ["start", "check", "end"]
+    assert result.trace[1]["output"]["selected_branch"] == "if_true"
 
 
 def test_executor_max_steps_prevents_infinite_loop() -> None:
