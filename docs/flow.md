@@ -1364,3 +1364,168 @@ compileall 通过
 5. allowed_tools 白名单仍由 WorkflowValidator 控制。
 6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
 ```
+
+## 追加更新：MCP Tool Provider 基础结构
+
+### 已完成内容
+
+已新增 Tool Provider 抽象：
+
+```text
+mini_agent_flow/tools/provider.py
+```
+
+新增协议：
+
+```text
+ToolProvider
+```
+
+它规定任何工具来源只要能返回：
+
+```text
+dict[str, ToolCallable]
+```
+
+就可以被导入 `ToolRegistry`。
+
+### ToolRegistry 更新
+
+已更新：
+
+```text
+mini_agent_flow/tools/registry.py
+```
+
+新增：
+
+```text
+ToolRegistry.register_many()
+```
+
+用于批量注册 Provider 返回的工具。
+
+注册规则：
+
+```text
+1. 入参必须是 mapping
+2. 所有工具名必须合法
+3. 所有工具对象必须是 callable
+4. 不允许覆盖已有工具
+5. 先完整校验，全部通过后再写入，避免半注册状态
+```
+
+### Fake MCP Provider
+
+已新增：
+
+```text
+mini_agent_flow/tools/mcp_provider.py
+```
+
+新增：
+
+```text
+FakeMCPToolProvider
+```
+
+它不连接真实 MCP Server，只模拟 MCP 工具来源：
+
+```text
+外部工具来源
+  ↓
+load_tools()
+  ↓
+dict[str, ToolCallable]
+  ↓
+ToolRegistry.register_many()
+```
+
+本轮没有接入真实 MCP SDK，也没有启动 MCP Server。
+
+### 当前架构
+
+当前工具导入链路为：
+
+```text
+FakeMCPToolProvider
+  ↓
+load_tools()
+  ↓
+ToolRegistry.register_many()
+  ↓
+WorkflowValidator.allowed_tools
+  ↓
+SequentialWorkflowExecutor
+  ↓
+registry.get(tool_name)
+  ↓
+tool(input)
+  ↓
+context[output]
+```
+
+这验证了后续接真实 MCP 时，Executor 不需要关心工具来源。
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_tool_provider.py
+```
+
+覆盖场景：
+
+```text
+1. FakeMCPToolProvider.load_tools() 返回工具映射副本
+2. ToolRegistry.register_many() 可以批量注册 Provider 工具
+3. register_many() 拒绝非 mapping 入参
+4. register_many() 拒绝非法工具名
+5. register_many() 拒绝非 callable 工具
+6. register_many() 拒绝覆盖已有工具
+7. register_many() 失败时不会产生半注册状态
+8. Provider 导入的工具可以被 workflow tool 节点调用
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest tests/test_tool_provider.py -q
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+tests/test_tool_provider.py：8 passed
+全量测试：99 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. ToolProvider 协议已定义工具来源的统一接口。
+2. ToolRegistry.register_many() 已支持 Provider 工具批量导入。
+3. 批量注册失败时不会留下部分注册状态。
+4. FakeMCPToolProvider 能模拟外部 MCP 工具来源。
+5. 新测试验证了 Provider 工具能通过 Executor 完整执行。
+6. Executor 不需要修改，仍只依赖 ToolRegistry.get()。
+```
+
+第二次审查：安全性
+
+```text
+1. 本轮没有接入真实 MCP Server，不产生网络连接。
+2. ToolRegistry 仍不支持从 workflow 动态 import 任意函数。
+3. Provider 返回的工具必须经过工具名和 callable 校验。
+4. 批量注册不允许覆盖已有工具，避免外部 Provider 替换安全工具。
+5. Provider 导入后的工具仍受 WorkflowValidator.allowed_tools 控制。
+6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```

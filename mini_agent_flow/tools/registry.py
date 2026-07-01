@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any, Callable
 
 
@@ -41,6 +42,27 @@ class ToolRegistry:
             raise ToolRegistryError(f"tool is already registered: {name}")
 
         self._tools[name] = tool
+
+    def register_many(self, tools: Mapping[str, ToolCallable]) -> None:
+        """批量注册工具。
+
+        Provider 导入外部工具时会一次返回多个 callable。这里先完整校验所有工具，
+        再统一写入注册表，避免中途失败造成“只注册了一半”的不一致状态。
+        """
+
+        if not isinstance(tools, Mapping):
+            raise ToolRegistryError("tools must be a mapping")
+
+        validated_tools: dict[str, ToolCallable] = {}
+        for name, tool in tools.items():
+            self._validate_name(name)
+            if not callable(tool):
+                raise ToolRegistryError(f"tool must be callable: {name}")
+            if name in self._tools:
+                raise ToolRegistryError(f"tool is already registered: {name}")
+            validated_tools[name] = tool
+
+        self._tools.update(validated_tools)
 
     def get(self, name: str) -> ToolCallable:
         """按工具名获取 callable。"""
