@@ -2459,3 +2459,133 @@ tests/test_workflow_schema.py
 5. 没有引入 eval、exec、动态 import、shell 或网络访问。
 6. EndNode 不接收额外动态表达式，避免输出阶段出现新的执行面。
 ```
+
+## CLI 入口实现记录
+
+### 本次目标
+
+为 Level 1 Demo 增加命令行入口，让用户可以直接运行：
+
+```bash
+python -m mini_agent_flow run examples/level1_manual_workflow.yaml
+```
+
+也支持 JSON：
+
+```bash
+python -m mini_agent_flow run examples/level1_manual_workflow.json
+```
+
+### 新增入口
+
+已新增：
+
+```text
+mini_agent_flow/cli.py
+mini_agent_flow/__main__.py
+```
+
+其中：
+
+```text
+1. cli.py 使用 Typer 定义 run 命令。
+2. __main__.py 支持 python -m mini_agent_flow。
+3. pyproject.toml 增加 mini-agent-flow 脚本入口。
+```
+
+安装项目后也可以运行：
+
+```bash
+mini-agent-flow run examples/level1_manual_workflow.yaml
+```
+
+### CLI 执行流程
+
+```text
+CLI run(path)
+  ↓
+create_default_tool_registry()
+  ↓
+WorkflowValidator(allowed_tools=registry.names())
+  ↓
+WorkflowLoader.load(path)
+  ↓
+SequentialWorkflowExecutor(MockLLM, registry)
+  ↓
+executor.run(workflow)
+  ↓
+Rich 输出 workflow / final_output / executed_nodes / context / trace
+```
+
+### 错误处理
+
+CLI 捕获：
+
+```text
+WorkflowLoadError
+WorkflowValidationError
+WorkflowExecutionError
+```
+
+并返回非 0 exit code。
+
+如果执行错误携带 trace，CLI 会展示已产生的 trace 摘要，方便定位失败节点。
+
+### 文档更新
+
+已更新：
+
+```text
+README.md
+```
+
+补充：
+
+```text
+1. 安装依赖。
+2. 运行 YAML 示例。
+3. 运行 JSON 示例。
+4. CLI 输出内容。
+5. 当前核心能力列表。
+```
+
+### 测试覆盖
+
+已新增：
+
+```text
+tests/test_cli.py
+```
+
+覆盖：
+
+```text
+1. CLI run YAML 示例成功。
+2. CLI run JSON 示例成功。
+3. CLI 遇到不存在文件时返回非 0。
+4. 输出中包含 workflow 名称、final_output、trace 和执行节点。
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. CLI 使用统一 WorkflowLoader，不绕过 JSON/YAML 自动分发。
+2. CLI 使用 WorkflowValidator，并把 allowed_tools 限制为默认注册工具。
+3. CLI 使用 SequentialWorkflowExecutor、MockLLM 和默认工具注册表跑通 Level 1。
+4. python -m mini_agent_flow 和 mini-agent-flow 两种入口都已具备。
+5. README 已提供可复制的运行命令。
+6. CLI 测试覆盖成功路径和加载失败路径。
+```
+
+第二次审查：安全性
+
+```text
+1. CLI 不接受任意命令字符串，也不调用 shell。
+2. CLI 只执行已通过 Validator 的 workflow。
+3. Tool 调用仍受 ToolRegistry 和 allowed_tools 白名单限制。
+4. YAML 仍通过 WorkflowLoader 内部的 yaml.safe_load 解析。
+5. 执行 trace 输出继续使用 TraceRecorder 的脱敏结果。
+6. 错误处理不会吞掉失败状态，失败时返回非 0 exit code。
+```

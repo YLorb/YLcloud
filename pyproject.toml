@@ -26,6 +26,9 @@ dev = [
     "pytest>=8.0.0",
 ]
 
+[project.scripts]
+mini-agent-flow = "mini_agent_flow.cli:app"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
