@@ -6,6 +6,7 @@ from typing import Any
 from mini_agent_flow.engine.context import WorkflowContext
 from mini_agent_flow.engine.models import EndNode, LLMNode, StartNode, ToolNode, Workflow, WorkflowNode
 from mini_agent_flow.engine.resolver import VariableResolver
+from mini_agent_flow.engine.trace import TraceRecorder
 from mini_agent_flow.llm.base import LLMClient
 from mini_agent_flow.tools.registry import ToolRegistry
 
@@ -17,6 +18,12 @@ class WorkflowExecutionError(RuntimeError):
     未支持节点类型、工具/LLM 调用失败和意外循环。
     """
 
+    def __init__(self, message: str, trace: list[dict[str, Any]] | None = None) -> None:
+        """创建执行异常，并可携带已记录的 trace。"""
+
+        super().__init__(message)
+        self.trace = trace or []
+
 
 @dataclass(frozen=True)
 class WorkflowRunResult:
@@ -26,6 +33,7 @@ class WorkflowRunResult:
     context: dict[str, Any]
     final_output: Any | None
     executed_nodes: list[str]
+    trace: list[dict[str, Any]]
 
 
 class SequentialWorkflowExecutor:
@@ -59,36 +67,101 @@ class SequentialWorkflowExecutor:
         node_by_id = self._index_nodes(workflow)
         current_node_id = self._find_start_node(workflow).id
         executed_nodes: list[str] = []
+        trace_recorder = TraceRecorder()
 
         for _ in range(self.max_steps):
             node = self._get_node(node_by_id, current_node_id)
             executed_nodes.append(node.id)
+            context_before = context.to_dict()
+            span = trace_recorder.start_span()
 
-            if isinstance(node, StartNode):
-                current_node_id = node.next
-                continue
+            try:
+                if isinstance(node, StartNode):
+                    current_node_id = node.next
+                    trace_recorder.record_success(
+                        node_id=node.id,
+                        node_type=node.type,
+                        input_data={"next": node.next},
+                        output_data={"next": node.next},
+                        context_before=context_before,
+                        context_after=context.to_dict(),
+                        span=span,
+                    )
+                    continue
 
-            if isinstance(node, LLMNode):
-                current_node_id = self._execute_llm_node(node, context)
-                continue
+                if isinstance(node, LLMNode):
+                    current_node_id, input_data, output_data = self._execute_llm_node(node, context)
+                    trace_recorder.record_success(
+                        node_id=node.id,
+                        node_type=node.type,
+                        input_data=input_data,
+                        output_data=output_data,
+                        context_before=context_before,
+                        context_after=context.to_dict(),
+                        span=span,
+                    )
+                    continue
 
-            if isinstance(node, ToolNode):
-                current_node_id = self._execute_tool_node(node, context)
-                continue
+                if isinstance(node, ToolNode):
+                    current_node_id, input_data, output_data = self._execute_tool_node(node, context)
+                    trace_recorder.record_success(
+                        node_id=node.id,
+                        node_type=node.type,
+                        input_data=input_data,
+                        output_data=output_data,
+                        context_before=context_before,
+                        context_after=context.to_dict(),
+                        span=span,
+                    )
+                    continue
 
-            if isinstance(node, EndNode):
-                return WorkflowRunResult(
-                    workflow_name=workflow.name,
-                    context=context.to_dict(),
-                    final_output=context.get("final_answer", None),
-                    executed_nodes=executed_nodes,
+                if isinstance(node, EndNode):
+                    trace_recorder.record_success(
+                        node_id=node.id,
+                        node_type=node.type,
+                        input_data={},
+                        output_data={},
+                        context_before=context_before,
+                        context_after=context.to_dict(),
+                        span=span,
+                    )
+                    return WorkflowRunResult(
+                        workflow_name=workflow.name,
+                        context=context.to_dict(),
+                        final_output=context.get("final_answer", None),
+                        executed_nodes=executed_nodes,
+                        trace=trace_recorder.to_list(),
+                    )
+
+                raise WorkflowExecutionError(f"unsupported node type: {node.type}")
+            except Exception as exc:
+                trace_recorder.record_failure(
+                    node_id=node.id,
+                    node_type=node.type,
+                    input_data=self._failure_input_for_node(node),
+                    error=exc,
+                    context_before=context_before,
+                    context_after=context.to_dict(),
+                    span=span,
                 )
+                if isinstance(exc, WorkflowExecutionError):
+                    exc.trace = trace_recorder.to_list()
+                    raise
+                raise WorkflowExecutionError(
+                    f"failed to execute node: {node.id}",
+                    trace=trace_recorder.to_list(),
+                ) from exc
 
-            raise WorkflowExecutionError(f"unsupported node type: {node.type}")
+        raise WorkflowExecutionError(
+            f"workflow exceeded max steps: {self.max_steps}",
+            trace=trace_recorder.to_list(),
+        )
 
-        raise WorkflowExecutionError(f"workflow exceeded max steps: {self.max_steps}")
-
-    def _execute_llm_node(self, node: LLMNode, context: WorkflowContext) -> str:
+    def _execute_llm_node(
+        self,
+        node: LLMNode,
+        context: WorkflowContext,
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """执行 LLM 节点：渲染 prompt、调用 llm、写入 output。"""
 
         try:
@@ -98,9 +171,13 @@ class SequentialWorkflowExecutor:
         except Exception as exc:
             raise WorkflowExecutionError(f"failed to execute llm node: {node.id}") from exc
 
-        return node.next
+        return node.next, {"prompt": prompt}, {node.output: result}
 
-    def _execute_tool_node(self, node: ToolNode, context: WorkflowContext) -> str:
+    def _execute_tool_node(
+        self,
+        node: ToolNode,
+        context: WorkflowContext,
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """执行 Tool 节点：解析 input、获取工具、调用工具、写入 output。"""
 
         try:
@@ -111,7 +188,11 @@ class SequentialWorkflowExecutor:
         except Exception as exc:
             raise WorkflowExecutionError(f"failed to execute tool node: {node.id}") from exc
 
-        return node.next
+        return (
+            node.next,
+            {"tool": node.tool, "tool_input": tool_input},
+            {node.output: result},
+        )
 
     def _index_nodes(self, workflow: Workflow) -> dict[str, WorkflowNode]:
         """建立 node_id 到节点对象的映射。"""
@@ -134,3 +215,13 @@ class SequentialWorkflowExecutor:
         except KeyError as exc:
             raise WorkflowExecutionError(f"workflow points to unknown node: {node_id}") from exc
 
+    def _failure_input_for_node(self, node: WorkflowNode) -> dict[str, Any]:
+        """为失败 trace 生成可读的原始输入信息。"""
+
+        if isinstance(node, StartNode):
+            return {"next": node.next}
+        if isinstance(node, LLMNode):
+            return {"prompt_template": node.prompt}
+        if isinstance(node, ToolNode):
+            return {"tool": node.tool, "raw_input": node.input}
+        return {}

@@ -1529,3 +1529,239 @@ compileall 通过
 5. Provider 导入后的工具仍受 WorkflowValidator.allowed_tools 控制。
 6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
 ```
+
+## 追加更新：Trace Recorder
+
+### 已完成内容
+
+已新增内存 Trace Recorder：
+
+```text
+mini_agent_flow/engine/trace.py
+```
+
+新增结构：
+
+```text
+TraceStatus
+TraceError
+ContextDiff
+TraceEvent
+TraceSpan
+TraceRecorder
+```
+
+Trace Recorder 用于记录 workflow 每个节点的结构化执行过程，不是普通 print 日志。
+
+### TraceEvent 记录内容
+
+当前每个节点 trace 记录：
+
+```text
+node_id
+node_type
+status
+input
+output
+error
+context_before_keys
+context_after_keys
+context_diff
+started_at
+ended_at
+duration_ms
+attempt
+```
+
+状态枚举预留：
+
+```text
+success
+failed
+skipped
+```
+
+当前顺序执行器只主动产生：
+
+```text
+success
+failed
+```
+
+`skipped` 保留给后续 condition、loop、DAG 或 disabled node 语义。
+
+### Context 记录策略
+
+本轮没有在每个 TraceEvent 中保存完整：
+
+```text
+context_before
+context_after
+```
+
+原因是完整 context 可能包含大文本、搜索结果、网页内容、代码内容或 LLM 长输出。
+如果每个节点都复制完整 context，会造成不必要的内存占用。
+
+当前只记录：
+
+```text
+context_before_keys
+context_after_keys
+context_diff
+```
+
+示例：
+
+```json
+{
+  "context_before_keys": ["goal", "keywords"],
+  "context_after_keys": ["goal", "keywords", "search_results"],
+  "context_diff": {
+    "added": ["search_results"],
+    "updated": [],
+    "removed": []
+  }
+}
+```
+
+后续如果需要大对象持久化，将通过 TODO 中的 Context Store / Artifact Store 设计实现。
+
+### Executor 更新
+
+已更新：
+
+```text
+mini_agent_flow/engine/executor.py
+```
+
+`WorkflowRunResult` 新增：
+
+```text
+trace
+```
+
+执行成功时返回完整 trace：
+
+```text
+result.trace
+```
+
+执行失败时，`WorkflowExecutionError` 会携带已记录的 trace：
+
+```text
+exc.trace
+```
+
+这样失败节点也能被调试。
+
+### 当前支持节点
+
+Trace 当前覆盖顺序执行器已支持的节点：
+
+```text
+start
+llm
+tool
+end
+```
+
+LLM 节点记录：
+
+```text
+渲染后的 prompt
+写入的 output key/value
+```
+
+Tool 节点记录：
+
+```text
+tool name
+解析后的 tool input
+写入的 output key/value
+```
+
+### 敏感信息脱敏
+
+TraceRecorder 会对 input / output 中的敏感字段做基础脱敏。
+
+当前识别字段名包含：
+
+```text
+api_key
+apikey
+token
+secret
+password
+authorization
+```
+
+命中后记录为：
+
+```text
+[REDACTED]
+```
+
+注意：脱敏只影响 trace，不改变真实 workflow context。
+
+### 新增测试
+
+已新增：
+
+```text
+tests/test_trace_recorder.py
+```
+
+覆盖场景：
+
+```text
+1. 成功执行 workflow 会生成每个节点的 trace
+2. trace 节点顺序正确
+3. LLM trace 记录渲染后的 prompt 和 output
+4. Tool trace 记录 tool name、tool input 和 output
+5. trace 记录 context_before_keys / context_after_keys / context_diff
+6. trace 不记录完整 context_before / context_after
+7. 执行失败时 WorkflowExecutionError 携带 failed trace
+8. input / output 中的敏感字段会被脱敏
+```
+
+### 验证结果
+
+已运行：
+
+```bash
+python -m pytest tests/test_trace_recorder.py -q
+python -m pytest -q
+python -m compileall mini_agent_flow tests
+```
+
+结果：
+
+```text
+tests/test_trace_recorder.py：6 passed
+全量测试：105 passed
+compileall 通过
+```
+
+### 自我审查结果
+
+第一次审查：正确性与完整性
+
+```text
+1. TraceRecorder 已能记录 start / llm / tool / end 节点。
+2. WorkflowRunResult 已返回 trace。
+3. WorkflowExecutionError 已携带失败时的 trace。
+4. TraceEvent 已记录节点输入、输出、状态、错误、时间和 attempt。
+5. Context 只记录 keys 和 diff，没有保存完整快照。
+6. 测试覆盖了成功链路、失败链路、context diff 和敏感字段脱敏。
+```
+
+第二次审查：安全性
+
+```text
+1. TraceRecorder 不执行 workflow、tool、shell 命令或表达式。
+2. TraceRecorder 不读取环境变量或外部文件。
+3. input / output 中的常见敏感字段会被脱敏。
+4. Trace 不保存完整 context 快照，降低大对象和敏感数据扩散风险。
+5. 脱敏只影响 trace，不会修改真实 context。
+6. 未新增 API Key、token、secret 等敏感信息处理逻辑。
+```
