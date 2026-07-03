@@ -185,6 +185,51 @@ Workflow Engine 执行该 workflow
 - 使用 Level 1 的 Engine 执行选中的 workflow。
 - 如果没有合适模板，明确返回失败原因，而不是乱编行为。
 
+### 分阶段实现
+
+Level 2 不直接一次性跳到 AI Planner，建议拆成两个阶段：
+
+```text
+Level 2A：统一输入格式 + 执行安全增强 + 示例库
+Level 2B：AI / 规则从模板库选择 Workflow
+```
+
+Level 2A 目标：
+
+```text
+1. 支持 JSON、YAML 和 Markdown 内嵌 Workflow。
+2. 所有输入格式统一转换为 JSON IR。
+3. 支持顺序执行和简单条件分支。
+4. 支持节点重试、超时和全局限制。
+5. 支持本地 Tool 和 MCP Tool。
+6. 工具调用前进行 Schema、权限和风险检查。
+7. 可以查看每一步输入、输出、状态、耗时和异常。
+8. 使用 Mock Provider 完成稳定自动化测试。
+9. 至少提供两个可运行的示例 Workflow。
+```
+
+Level 2B 目标：
+
+```text
+1. 建立 workflow 模板库。
+2. 为模板补充 metadata，例如用途、输入、输出、适用场景和风险说明。
+3. 根据用户 goal 使用规则或 Mock LLM 选择模板。
+4. 输出 selected_workflow 和 selection_reason。
+5. 将用户输入填充到模板 inputs。
+6. 复用 Level 1 / Level 2A 的 Engine 执行选中的 workflow。
+7. 没有合适模板时明确失败，不编造 workflow。
+```
+
+当前实现状态：
+
+```text
+规则选择版本已实现：TemplateCatalog -> RuleBasedTemplateSelector
+-> Goal 输入填充 -> Validator -> Level 1 Executor -> Level2RunResult。
+
+当前提供 research_summarizer 和 python_error_analyzer 两个模板；
+真实 LLM Selector 作为后续增强，不阻塞 Level 2 的确定性演示。
+```
+
 ### 学到什么
 
 - Planner 和 Executor 分离
@@ -480,8 +525,9 @@ mini-agent-flow/
 7. Executor
 8. Trace Recorder
 9. Level 1 示例 workflow
-10. Level 2 Template Selector
-11. Level 3 Workflow Generator
+10. Level 2A：统一输入格式、执行安全增强和示例库
+11. Level 2B：Template Selector
+12. Level 3 Workflow Generator
 ```
 
 不要在 Level 1 稳定之前直接做 Level 3。

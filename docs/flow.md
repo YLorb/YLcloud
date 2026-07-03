@@ -2589,3 +2589,109 @@ tests/test_cli.py
 5. 执行 trace 输出继续使用 TraceRecorder 的脱敏结果。
 6. 错误处理不会吞掉失败状态，失败时返回非 0 exit code。
 ```
+
+## Level 2 规则模板选择与执行链路
+
+### 本次目标
+
+用户只提交 Goal，系统从模板库自动选择最合适的 Workflow，解释选择原因，
+填充模板输入，并复用 Level 1 Engine 完成校验、执行和 Trace 记录。
+
+### 新增模块
+
+```text
+mini_agent_flow/planner/models.py
+mini_agent_flow/planner/catalog.py
+mini_agent_flow/planner/selector.py
+mini_agent_flow/planner/service.py
+templates/research_summarizer.yaml
+templates/python_error_analyzer.yaml
+```
+
+### 执行流程
+
+```text
+CLI select --goal
+  ↓
+WorkflowTemplateCatalog.load()
+  ↓
+WorkflowLoader + WorkflowValidator
+  ↓
+TemplateMetadata 严格校验
+  ↓
+RuleBasedTemplateSelector.select()
+  ↓
+关键词得分 -> priority -> workflow name
+  ↓
+Level2WorkflowService 填充 workflow.inputs.goal
+  ↓
+Validator 二次校验
+  ↓
+SequentialWorkflowExecutor.run()
+  ↓
+Level2RunResult
+```
+
+### 选择规则
+
+```text
+1. 中文关键词使用子串匹配。
+2. 英文和数字关键词使用单词边界匹配。
+3. 匹配分数由关键词数量和关键词长度组成。
+4. 同分时依次比较 metadata.priority 和 workflow.name。
+5. 最高得分为 0 时抛出 NoMatchingTemplateError。
+```
+
+### CLI
+
+```bash
+python -m mini_agent_flow select --goal "分析这个 Python traceback 报错"
+python -m mini_agent_flow select --goal "调研 Agent 发展趋势" --no-trace
+```
+
+CLI 输出 selected_workflow、selection_reason、final_output、执行节点和可选 Trace。
+
+### 安全边界
+
+```text
+1. Catalog 只加载指定目录内的 JSON/YAML 文件，并检查解析后路径未逃逸目录。
+2. 模板必须通过 Loader、工具白名单和 WorkflowValidator。
+3. 模板 metadata 使用 extra=forbid 的 Pydantic 模型二次校验。
+4. Selector 不使用 eval，也不动态导入代码。
+5. 无匹配时明确失败，不生成或随意选择 Workflow。
+6. Goal 有非空和最大 10000 字符限制。
+```
+
+### 测试与自我审查
+
+新增测试覆盖：
+
+```text
+1. 模板目录加载、严格 metadata 和目录不存在错误。
+2. Python / research Goal 的模板选择。
+3. 空 Goal、超长 Goal 和无匹配模板失败。
+4. 同分时按 priority 和 workflow name 稳定选择。
+5. Goal 填充后完整执行 Level 1 Engine。
+6. CLI select 成功、隐藏 Trace 和无匹配退出码。
+```
+
+第一次审查：正确性与完整性
+
+```text
+1. Catalog、Selector、Service 和 Executor 职责分离。
+2. 模板在载入时校验，在填充 Goal 后再次校验。
+3. 选择结果包含模板名、原因、匹配关键词和得分。
+4. 无匹配模板明确失败，不静默选择默认模板。
+5. Level 1 原有测试保持通过。
+```
+
+第二次审查：安全性
+
+```text
+1. 模板解析路径受目录约束，符号链接不能逃逸模板目录。
+2. 不使用 eval、exec、动态 import、shell 或子进程。
+3. 模板中的 Tool 必须通过 allowed_tools 白名单。
+4. TemplateMetadata 拒绝未知字段、空关键词和重复关键词。
+5. 无匹配错误不回显完整 Goal，降低敏感输入泄露风险。
+6. CLI 仅展示 Trace 摘要，不打印完整节点输入。
+```

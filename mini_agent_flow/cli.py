@@ -13,6 +13,14 @@ from mini_agent_flow.engine.executor import SequentialWorkflowExecutor, Workflow
 from mini_agent_flow.engine.loader import WorkflowLoadError, WorkflowLoader
 from mini_agent_flow.engine.validator import WorkflowValidationError, WorkflowValidator
 from mini_agent_flow.llm.mock import MockLLM
+from mini_agent_flow.planner.catalog import TemplateCatalogError, WorkflowTemplateCatalog
+from mini_agent_flow.planner.models import Level2RunResult
+from mini_agent_flow.planner.selector import (
+    NoMatchingTemplateError,
+    RuleBasedTemplateSelector,
+    TemplateSelectionError,
+)
+from mini_agent_flow.planner.service import Level2ExecutionError, Level2WorkflowService
 from mini_agent_flow.tools.builtin import create_default_tool_registry
 
 
@@ -47,6 +55,50 @@ def run_workflow(
     _print_result(result)
 
 
+@app.command("select")
+def select_workflow(
+    goal: str = typer.Option(..., "--goal", help="Goal used to select a workflow template."),
+    templates_dir: Path = typer.Option(
+        Path("templates"),
+        "--templates",
+        help="Directory containing workflow templates.",
+    ),
+    show_trace: bool = typer.Option(
+        True,
+        "--trace/--no-trace",
+        help="Show the workflow execution trace.",
+    ),
+) -> None:
+    """Select and run a Level 2 workflow template for a Goal."""
+
+    registry = create_default_tool_registry()
+    validator = WorkflowValidator(allowed_tools=registry.names())
+    loader = WorkflowLoader(validator=validator)
+    catalog = WorkflowTemplateCatalog(templates_dir, loader=loader)
+    executor = SequentialWorkflowExecutor(llm=MockLLM(), tool_registry=registry)
+    service = Level2WorkflowService(
+        catalog=catalog,
+        selector=RuleBasedTemplateSelector(),
+        validator=validator,
+        executor=executor,
+    )
+
+    try:
+        result = service.run(goal)
+    except (
+        TemplateCatalogError,
+        TemplateSelectionError,
+        NoMatchingTemplateError,
+        Level2ExecutionError,
+        WorkflowValidationError,
+        WorkflowExecutionError,
+    ) as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+
+    _print_level2_result(result, show_trace=show_trace)
+
+
 def _print_result(result: Any) -> None:
     """Print a workflow run result in a readable CLI layout."""
 
@@ -55,6 +107,17 @@ def _print_result(result: Any) -> None:
     console.print(Panel(" -> ".join(result.executed_nodes), title="Executed Nodes", expand=False))
     console.print(Panel(_format_value(result.context), title="Context", expand=False))
     console.print(_build_trace_table(result.trace))
+
+
+def _print_level2_result(result: Level2RunResult, show_trace: bool) -> None:
+    """Print template selection details and the resulting workflow output."""
+
+    console.print(Panel(result.selected_workflow, title="Selected Workflow", expand=False))
+    console.print(Panel(result.selection_reason, title="Selection Reason", expand=False))
+    console.print(Panel(_format_value(result.final_output), title="Final Output", expand=False))
+    console.print(Panel(" -> ".join(result.executed_nodes), title="Executed Nodes", expand=False))
+    if show_trace:
+        console.print(_build_trace_table(result.trace))
 
 
 def _print_error(exc: Exception) -> None:

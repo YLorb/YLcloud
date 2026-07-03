@@ -1,5 +1,120 @@
 # TODO
 
+## Level 2A：统一输入格式 + 执行安全增强 + 示例库
+
+状态：待实现
+
+目标：
+
+```text
+在进入 AI / 规则模板选择之前，先把 Engine 的输入格式、执行安全和示例库补强。
+Level 2A 不负责根据 goal 选择 workflow，而是让各种 workflow 来源都能稳定进入统一执行链路。
+```
+
+需要支持：
+
+```text
+1. 支持 JSON、YAML 和 Markdown 内嵌 Workflow。
+2. 所有输入格式统一转换为 JSON IR。
+3. 支持顺序执行和简单条件分支。
+4. 支持节点重试、超时和全局限制。
+5. 支持本地 Tool 和 MCP Tool。
+6. 工具调用前进行 Schema、权限和风险检查。
+7. 可以查看每一步输入、输出、状态、耗时和异常。
+8. 使用 Mock Provider 完成稳定自动化测试。
+9. 至少提供两个可运行的示例 Workflow。
+```
+
+建议拆分任务：
+
+```text
+1. 明确 JSON IR 概念：JSON / YAML / Markdown -> dict -> Workflow。
+2. 实现 MarkdownWorkflowLoader，先支持 fenced code block 中的 yaml/json workflow。
+3. 让 WorkflowLoader 支持 .md。
+4. 增加第二个可运行示例 workflow，覆盖 condition 分支。
+5. 增加 CLI 对 .md workflow 的运行测试。
+6. 设计节点 timeout_seconds 和全局 max_duration_seconds。
+7. 为 ToolRegistry 引入 ToolSpec，描述 input_schema、permission 和 risk_level。
+8. 在 Tool 调用前做 schema、权限和风险检查。
+9. 用 FakeMCPToolProvider 覆盖 MCP Tool 自动化测试。
+```
+
+完成标准：
+
+```text
+1. python -m mini_agent_flow run examples/level1_manual_workflow.yaml 可以运行。
+2. python -m mini_agent_flow run examples/conditional_tool_workflow.yaml 可以运行。
+3. python -m mini_agent_flow run examples/markdown_embedded_workflow.md 可以运行。
+4. 全量测试通过。
+5. Trace 能展示每一步输入、输出、状态、耗时和异常。
+6. 未授权、schema 不匹配或高风险 tool 调用会在执行前被拒绝。
+```
+
+## Level 2B：AI / 规则从模板库选择 Workflow
+
+状态：规则选择版本已实现；LLM Selector 作为后续增强
+
+目标：
+
+```text
+用户只输入 goal，系统从模板库中选择最合适的 workflow，
+解释选择原因，填充 inputs，然后交给 Engine 执行。
+```
+
+需要支持：
+
+```text
+1. 建立 templates/ workflow 模板库。
+2. 每个模板包含 metadata。
+3. 使用规则或 Mock LLM 根据 goal 选择模板。
+4. 输出 selected_workflow 和 selection_reason。
+5. 没有合适模板时明确失败。
+6. 复用 Level 2A 的 Loader、Validator、Executor、Tool 安全检查和 Trace。
+```
+
+建议拆分任务：
+
+```text
+1. 定义 TemplateMetadata。
+2. 增加 templates/research_summarizer.yaml。
+3. 增加 templates/python_error_analyzer.yaml。
+4. 实现 TemplateSelector。
+5. 先用规则匹配实现稳定选择，再预留 LLM selector。
+6. CLI 增加 goal 入口，例如 mini-agent-flow select --goal "..."。
+7. 输出 selected_workflow、selection_reason、final_output 和 trace。
+```
+
+已完成：
+
+```text
+1. 定义 TemplateMetadata、TemplateCandidate、TemplateSelection 和 Level2RunResult。
+2. 实现受模板目录约束的 WorkflowTemplateCatalog。
+3. 实现 RuleBasedTemplateSelector，支持关键词得分、priority 和稳定同分处理。
+4. 提供 research_summarizer 与 python_error_analyzer 两个模板。
+5. 实现 Level2WorkflowService，完成 Goal 填充、二次校验和 Engine 执行。
+6. CLI 增加 select --goal、--templates 和 --trace/--no-trace。
+7. 无匹配模板时明确失败，不生成或随意选择 Workflow。
+8. 使用 MockLLM 和内置 Mock Tool 完成离线自动化测试。
+```
+
+后续增强：
+
+```text
+1. 增加 LLMTemplateSelector，并继续复用 TemplateSelector 协议。
+2. 在 Level 2A 完成后复用 Tool Schema、权限和风险检查。
+3. 增加更多模板和更丰富的 metadata 检索策略。
+```
+
+完成标准：
+
+```text
+1. 输入 research 类 goal，可以选择 research_summarizer 模板。
+2. 输入 Python 报错类 goal，可以选择 python_error_analyzer 模板。
+3. 选择原因可解释。
+4. 选中模板可以被 Engine 执行。
+5. 无匹配模板时明确返回失败原因。
+```
+
 ## 预留：Markdown Workflow Importer
 
 状态：待设计

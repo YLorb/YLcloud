@@ -2,7 +2,7 @@
 
 一个用于学习 Agent Workflow Engine、Tool Calling、Context 传递和 Planner-Executor 架构的 Python 项目。
 
-当前阶段聚焦于 Level 1：执行人工定义的 Workflow。
+当前已支持 Level 1 人工定义 Workflow，以及 Level 2 根据 Goal 从模板库自动选择并执行 Workflow。
 
 ## 安装依赖
 
@@ -45,6 +45,22 @@ CLI 会输出：
 5. trace 摘要
 ```
 
+## 运行 Level 2 Demo
+
+用户只提供 Goal，规则选择器会根据模板 metadata 自动选择并执行 Workflow：
+
+```powershell
+python -m mini_agent_flow select --goal "帮我分析这个 Python traceback 报错"
+```
+
+研究类 Goal 会选择研究总结模板：
+
+```powershell
+python -m mini_agent_flow select --goal "调研 Agent Workflow 的发展趋势并总结"
+```
+
+使用 `--no-trace` 可以隐藏 Trace 表格，使用 `--templates` 可以指定受控模板目录。
+
 ## 当前能力
 
 ```text
@@ -57,4 +73,7 @@ SequentialWorkflowExecutor：执行 start / llm / tool / condition / end
 TraceRecorder：记录节点输入、输出、状态和 context diff
 Retry：支持 LLM / Tool 节点级重试
 Final Output：通过 workflow 顶层 outputs 声明最终输出字段
+WorkflowTemplateCatalog：加载并校验带有严格 metadata 的模板库
+RuleBasedTemplateSelector：根据 Goal 关键词、优先级和模板名稳定选择模板
+Level2WorkflowService：完成模板选择、输入填充、校验和执行
 ```
