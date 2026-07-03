@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,9 @@ from rich.table import Table
 from mini_agent_flow.engine.executor import SequentialWorkflowExecutor, WorkflowExecutionError
 from mini_agent_flow.engine.loader import WorkflowLoadError, WorkflowLoader
 from mini_agent_flow.engine.validator import WorkflowValidationError, WorkflowValidator
-from mini_agent_flow.llm.mock import MockLLM
+from mini_agent_flow.llm.base import LLMClientError
+from mini_agent_flow.llm.deepseek import DEFAULT_DEEPSEEK_MODEL
+from mini_agent_flow.llm.factory import LLMProvider, create_llm
 from mini_agent_flow.planner.catalog import TemplateCatalogError, WorkflowTemplateCatalog
 from mini_agent_flow.planner.models import Level2RunResult
 from mini_agent_flow.planner.selector import (
@@ -33,22 +36,33 @@ error_console = Console(stderr=True, highlight=False)
 def main() -> None:
     """Mini Agent Flow command line interface."""
 
+    _configure_standard_streams()
+
 
 @app.command("run")
 def run_workflow(
     workflow_path: Path = typer.Argument(..., help="Path to a workflow .json/.yaml/.yml file."),
+    provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
+    model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
 ) -> None:
-    """Run a Level 1 workflow file with MockLLM and built-in tools."""
-
-    registry = create_default_tool_registry()
-    validator = WorkflowValidator(allowed_tools=registry.names())
-    loader = WorkflowLoader(validator=validator)
-    executor = SequentialWorkflowExecutor(llm=MockLLM(), tool_registry=registry)
+    """Run a Level 1 workflow file with the selected LLM provider."""
 
     try:
+        registry = create_default_tool_registry()
+        validator = WorkflowValidator(allowed_tools=registry.names())
+        loader = WorkflowLoader(validator=validator)
+        executor = SequentialWorkflowExecutor(
+            llm=create_llm(provider, model=model),
+            tool_registry=registry,
+        )
         workflow = loader.load(workflow_path)
         result = executor.run(workflow)
-    except (WorkflowLoadError, WorkflowValidationError, WorkflowExecutionError) as exc:
+    except (
+        LLMClientError,
+        WorkflowLoadError,
+        WorkflowValidationError,
+        WorkflowExecutionError,
+    ) as exc:
         _print_error(exc)
         raise typer.Exit(code=1) from exc
 
@@ -68,24 +82,29 @@ def select_workflow(
         "--trace/--no-trace",
         help="Show the workflow execution trace.",
     ),
+    provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
+    model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
 ) -> None:
     """Select and run a Level 2 workflow template for a Goal."""
 
-    registry = create_default_tool_registry()
-    validator = WorkflowValidator(allowed_tools=registry.names())
-    loader = WorkflowLoader(validator=validator)
-    catalog = WorkflowTemplateCatalog(templates_dir, loader=loader)
-    executor = SequentialWorkflowExecutor(llm=MockLLM(), tool_registry=registry)
-    service = Level2WorkflowService(
-        catalog=catalog,
-        selector=RuleBasedTemplateSelector(),
-        validator=validator,
-        executor=executor,
-    )
-
     try:
+        registry = create_default_tool_registry()
+        validator = WorkflowValidator(allowed_tools=registry.names())
+        loader = WorkflowLoader(validator=validator)
+        catalog = WorkflowTemplateCatalog(templates_dir, loader=loader)
+        executor = SequentialWorkflowExecutor(
+            llm=create_llm(provider, model=model),
+            tool_registry=registry,
+        )
+        service = Level2WorkflowService(
+            catalog=catalog,
+            selector=RuleBasedTemplateSelector(),
+            validator=validator,
+            executor=executor,
+        )
         result = service.run(goal)
     except (
+        LLMClientError,
         TemplateCatalogError,
         TemplateSelectionError,
         NoMatchingTemplateError,
@@ -157,3 +176,12 @@ def _format_value(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
+def _configure_standard_streams() -> None:
+    """在支持 reconfigure 的终端中使用 UTF-8，避免真实模型 Unicode 输出失败。"""
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8")

@@ -61,6 +61,36 @@ python -m mini_agent_flow select --goal "调研 Agent Workflow 的发展趋势�
 
 使用 `--no-trace` 可以隐藏 Trace 表格，使用 `--templates` 可以指定受控模板目录。
 
+## 使用 DeepSeek LLM
+
+项目通过 OpenAI 兼容接口接入 DeepSeek。默认仍使用 Mock Provider，只有显式指定
+`--provider deepseek` 才会产生真实 API 请求和费用。
+
+在项目根目录的 `.env.local` 中配置：
+
+```text
+DEEPSEEK_API_KEY=your-key
+```
+
+`.env.local` 已加入 `.gitignore`。运行 Level 1：
+
+```powershell
+python -m mini_agent_flow run examples/level1_manual_workflow.yaml `
+  --provider deepseek `
+  --model deepseek-v4-flash
+```
+
+运行 Level 2：
+
+```powershell
+python -m mini_agent_flow select `
+  --goal "分析这个 Python traceback 报错" `
+  --provider deepseek
+```
+
+当前允许 `deepseek-v4-flash` 和 `deepseek-v4-pro`。客户端默认使用非思考模式、
+60 秒超时和 1024 最大输出 token；API 请求失败后的重试继续由 Workflow 节点配置负责。
+
 ## 当前能力
 
 ```text
@@ -76,4 +106,5 @@ Final Output：通过 workflow 顶层 outputs 声明最终输出字段
 WorkflowTemplateCatalog：加载并校验带有严格 metadata 的模板库
 RuleBasedTemplateSelector：根据 Goal 关键词、优先级和模板名稳定选择模板
 Level2WorkflowService：完成模板选择、输入填充、校验和执行
+DeepSeekLLM：通过 OpenAI 兼容 API 执行真实 LLM 节点
 ```

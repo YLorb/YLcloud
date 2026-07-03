@@ -2695,3 +2695,93 @@ CLI 输出 selected_workflow、selection_reason、final_output、执行节点和
 5. 无匹配错误不回显完整 Goal，降低敏感输入泄露风险。
 6. CLI 仅展示 Trace 摘要，不打印完整节点输入。
 ```
+
+## DeepSeek OpenAI 兼容 LLM 接入
+
+### 设计目标
+
+在不修改 Executor 的前提下，让真实 DeepSeek Client 和 MockLLM 同时实现现有
+`LLMClient.generate(prompt)` 协议，并由 CLI 显式选择 Provider。
+
+### 新增模块
+
+```text
+mini_agent_flow/llm/deepseek.py
+mini_agent_flow/llm/factory.py
+tests/test_deepseek_llm.py
+```
+
+### 调用流程
+
+```text
+CLI --provider deepseek
+  ↓
+create_llm()
+  ↓
+读取本地 .env.local / DEEPSEEK_API_KEY
+  ↓
+DeepSeekLLM
+  ↓
+OpenAI(base_url=https://api.deepseek.com)
+  ↓
+chat.completions.create()
+  ↓
+返回 message.content
+```
+
+### 运行参数
+
+```text
+默认 Provider：mock
+默认 DeepSeek 模型：deepseek-v4-flash
+允许模型：deepseek-v4-flash / deepseek-v4-pro
+思考模式：disabled
+请求超时：60 秒
+SDK 内部重试：0
+最大输出：1024 tokens
+```
+
+关闭 SDK 重试是为了继续由 Workflow Node 的 retry 配置统一控制重试次数和 Trace。
+
+### 错误处理
+
+```text
+400：请求格式错误
+401：认证失败
+402：余额不足
+422：参数错误
+429：达到限速
+500：服务端错误
+503：服务繁忙
+```
+
+客户端只返回稳定的脱敏错误，不复制 SDK 原异常、请求头或 API Key。
+
+### 测试状态
+
+```text
+1. Fake OpenAI Client 请求格式测试通过。
+2. 缺少 Key、非法模型、空响应和认证错误脱敏测试通过。
+3. Mock Provider 的 Level 1 / Level 2 回归测试通过。
+4. 全量自动化测试：154 passed。
+5. 真实 API 已完成 Level 2 端到端测试。
+```
+
+### 真实 API 首次测试发现
+
+真实 DeepSeek 请求成功完成两个 LLM 节点，但模型输出包含 emoji 时，Windows GBK
+标准输出在 Rich 渲染阶段触发 `UnicodeEncodeError`。CLI callback 已增加标准流 UTF-8
+配置，并补充对应回归测试；这不会改变不支持 `reconfigure` 的测试或嵌入式流。
+
+修复后使用 `deepseek-v4-flash` 重新运行：
+
+```text
+Goal：分析一个 Python TypeError 报错并给出简短修复建议
+选中模板：python_error_analyzer.yaml
+真实 LLM 节点：analyze、suggest
+执行节点：start -> analyze -> normalize -> suggest -> end
+退出码：0
+端到端墙钟时间：约 17.2 秒
+```
+
+测试期间 API Key 仅存在于单次进程环境变量中，结束后立即清除，未写入项目文件。
