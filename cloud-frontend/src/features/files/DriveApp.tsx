@@ -921,7 +921,7 @@ export function DriveApp({
         ) : effectiveView === "async" ? (
           <AsyncTasksView showNotice={showNotice} />
         ) : effectiveView === "spaces" ? (
-          <SpacesView showNotice={showNotice} />
+          <SpacesView showNotice={showNotice} onNavigate={onNavigate} />
         ) : (
           <>
             <section className="file-panel">

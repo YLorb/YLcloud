@@ -1,5 +1,20 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { Bot, ChevronRight, FileText, Folder, FolderPlus, HardDrive, Loader2, Network, RefreshCw, Settings2, UploadCloud, UsersRound, X } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  ChevronRight,
+  FileText,
+  Folder,
+  FolderPlus,
+  HardDrive,
+  Loader2,
+  Network,
+  RefreshCw,
+  Settings2,
+  UploadCloud,
+  UsersRound,
+  X
+} from "lucide-react";
 import { api } from "../../api";
 import type { Crumb, Notice } from "../../appTypes";
 import type { FileItem, RagConfig, RagDocument, RagQuery, RagTask, Space, SpaceFile, SpaceMember } from "../../types";
@@ -320,7 +335,13 @@ function AddDocumentModal({
   );
 }
 
-export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => void }) {
+export function SpacesView({
+  showNotice,
+  onNavigate
+}: {
+  showNotice: (notice: Notice) => void;
+  onNavigate?: (path: string) => void;
+}) {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [active, setActive] = useState<Space | null>(null);
   const [files, setFiles] = useState<SpaceFile[]>([]);
@@ -468,9 +489,12 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
   return (
     <section className="spaces-view">
       <aside className="spaces-list">
-        <div className="section-heading">
-          <h2>团队空间</h2>
-          <span>{spaces.length} 个空间</span>
+        <div className="spaces-list-head">
+          <div>
+            <p>Spaces</p>
+            <h2>团队空间</h2>
+          </div>
+          <span>{spaces.length}</span>
         </div>
         <form className="compact-form" onSubmit={createSpace}>
           <input name="name" placeholder="新空间名称" />
@@ -489,9 +513,13 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
             >
               <strong>{space.name}</strong>
               <span>{space.description || "暂无描述"}</span>
-              <small>{space.role || "MEMBER"} · RAG {space.ragStatus ? "已启用" : "未启用"}</small>
+              <small>
+                {space.role || "MEMBER"}
+                <b>{space.ragStatus ? "RAG 已启用" : "RAG 未启用"}</b>
+              </small>
             </button>
           ))}
+          {!spaces.length && <p className="muted-line">创建一个空间后，可以导入文件并构建知识库。</p>}
         </div>
       </aside>
 
@@ -506,10 +534,11 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
           </div>
         ) : (
           <>
-            <div className="space-header">
+            <div className="space-header space-hero">
               <div>
+                <p>团队知识工作台</p>
                 <h2>{active.name}</h2>
-                <p>{active.description || "空间文件、成员、版本与 RAG 检索管理"}</p>
+                <span>{active.description || "空间文件、成员、版本与 RAG 检索管理"}</span>
               </div>
               <div className="toolbar-actions">
                 <button className="soft-button" type="button" onClick={() => void loadSpaceDetail(active)}>
@@ -528,23 +557,31 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
                   <Settings2 size={17} />
                   修复向量
                 </button>
+                <button className="soft-button" type="button" onClick={() => onNavigate?.("/knowledge/chat")}>
+                  <ArrowRight size={17} />
+                  完整问答
+                </button>
               </div>
             </div>
 
             <div className="space-metrics">
               <div>
+                <Folder size={18} />
                 <strong>{files.length}</strong>
                 <span>空间文件</span>
               </div>
               <div>
+                <UsersRound size={18} />
                 <strong>{members.length}</strong>
                 <span>成员</span>
               </div>
               <div>
+                <FileText size={18} />
                 <strong>{documents.length}</strong>
                 <span>RAG 文档</span>
               </div>
               <div>
+                <Bot size={18} />
                 <strong>{tasks.length}</strong>
                 <span>任务</span>
               </div>
@@ -664,8 +701,18 @@ export function SpacesView({ showNotice }: { showNotice: (notice: Notice) => voi
 
             <section className="rag-console">
               <div className="section-heading">
-                <h3>空间智能问答</h3>
+                <div>
+                  <h3>空间智能问答</h3>
+                  <p>这里保留轻量提问入口，完整会话体验请进入 Knowledge Base。</p>
+                </div>
+                <button className="soft-button" type="button" onClick={() => onNavigate?.("/knowledge/chat")}>
+                  <ArrowRight size={16} />
+                  打开 Knowledge Base
+                </button>
+              </div>
+              <div className="rag-console-note">
                 <span>{tasks.filter((task) => task.taskStatus === "RUNNING").length} 个运行中任务</span>
+                <span>{ragConfig?.enabled ? "RAG 已启用" : "RAG 未启用"}</span>
               </div>
               <form onSubmit={askRag}>
                 <div className="segmented-control" aria-label="检索范围">
