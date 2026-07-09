@@ -1,15 +1,57 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArchiveRestore, Bot, ChevronLeft, ChevronRight, Clock3, Download, Eye, Folder, FolderPlus, HardDrive, Loader2, LogOut, MoreHorizontal, Network, RefreshCw, Search, Settings, UploadCloud, UserRound, X } from "lucide-react";
+import {
+  ArchiveRestore,
+  BookOpen,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  CloudDownload,
+  Database,
+  Download,
+  Eye,
+  FileText,
+  Folder,
+  FolderPlus,
+  Gauge,
+  Grid3X3,
+  HardDrive,
+  Link2,
+  List,
+  Loader2,
+  LogOut,
+  MoreHorizontal,
+  Network,
+  Pencil,
+  RefreshCw,
+  Search,
+  Settings,
+  Share2,
+  Trash2,
+  UploadCloud,
+  UserRound,
+  UsersRound,
+  X
+} from "lucide-react";
 import { api, clearSession } from "../../api";
 import type { Category, Crumb, MainView, Notice } from "../../appTypes";
 import type { FileItem, FilePreview, PublicSiteSettings, Space, User } from "../../types";
 import { NoticeBar } from "../../components/NoticeBar";
 import { categoryMeta, extOf, fileIcon, fileTypeLabel, formatSize, formatTime, imageTypes, matchesCategory } from "../../fileUtils";
 import { AsyncTasksView } from "../async/AsyncTasksView";
-import { ChatView } from "../chat/ChatView";
-import { KnowledgeOpsView } from "../knowledge/KnowledgeOpsView";
+import { KnowledgeBaseView } from "../knowledge-base/KnowledgeBaseView";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { SpacesView } from "../spaces/SpacesView";
+
+type ViewMode = "grid" | "list";
+
+function viewFromPath(path: string, isAdmin: boolean): MainView {
+  if (path === "/chat" || path.startsWith("/knowledge")) return "knowledge";
+  if (path.startsWith("/spaces")) return "spaces";
+  if (path.startsWith("/async")) return "async";
+  if (path.startsWith("/settings") && isAdmin) return "settings";
+  return "files";
+}
 
 function EmptyState({ category }: { category: Category }) {
   const title = category === "recycle" ? "回收站是空的" : "这里还没有文件";
@@ -31,6 +73,106 @@ function EmptyState({ category }: { category: Category }) {
 function withStop(event: React.MouseEvent, action: () => void) {
   event.stopPropagation();
   action();
+}
+
+function FileActionMenu({
+  item,
+  category,
+  isOpen,
+  onToggle,
+  onClose,
+  onOpen,
+  onPreview,
+  onDownload,
+  onRename,
+  onDelete,
+  onRestore,
+  onDeleteForever,
+  onAddToKnowledge
+}: {
+  item: FileItem;
+  category: Category;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onOpen: (item: FileItem) => void;
+  onPreview: (item: FileItem) => void;
+  onDownload: (item: FileItem) => void;
+  onRename: (item: FileItem) => void;
+  onDelete: (item: FileItem) => void;
+  onRestore: (item: FileItem) => void;
+  onDeleteForever: (item: FileItem) => void;
+  onAddToKnowledge: (items: FileItem[]) => void;
+}) {
+  function run(event: React.MouseEvent, action: () => void) {
+    withStop(event, action);
+    onClose();
+  }
+
+  return (
+    <span className="row-actions">
+      <button
+        className="icon-button compact"
+        type="button"
+        aria-expanded={isOpen}
+        aria-label={`${item.name} 的更多操作`}
+        title="更多操作"
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+      >
+        <MoreHorizontal size={17} />
+      </button>
+      {isOpen && (
+        <span className="row-action-menu" role="menu">
+          {category === "recycle" ? (
+            <>
+              <button type="button" role="menuitem" onClick={(event) => run(event, () => onRestore(item))}>
+                <ArchiveRestore size={15} />
+                恢复
+              </button>
+              <button className="danger" type="button" role="menuitem" onClick={(event) => run(event, () => onDeleteForever(item))}>
+                <Trash2 size={15} />
+                彻底删除
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" role="menuitem" onClick={(event) => run(event, () => onOpen(item))}>
+                {item.isDir ? <Folder size={15} /> : <Eye size={15} />}
+                {item.isDir ? "进入文件夹" : "打开"}
+              </button>
+              {!item.isDir && (
+                <>
+                  <button type="button" role="menuitem" onClick={(event) => run(event, () => onPreview(item))}>
+                    <Eye size={15} />
+                    预览
+                  </button>
+                  <button type="button" role="menuitem" onClick={(event) => run(event, () => onDownload(item))}>
+                    <Download size={15} />
+                    下载
+                  </button>
+                  <button type="button" role="menuitem" onClick={(event) => run(event, () => onAddToKnowledge([item]))}>
+                    <BookOpen size={15} />
+                    添加到知识库
+                  </button>
+                </>
+              )}
+              <button type="button" role="menuitem" onClick={(event) => run(event, () => onRename(item))}>
+                <Pencil size={15} />
+                重命名
+              </button>
+              <button className="danger" type="button" role="menuitem" onClick={(event) => run(event, () => onDelete(item))}>
+                <Trash2 size={15} />
+                删除
+              </button>
+            </>
+          )}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function FileTable({
@@ -68,6 +210,8 @@ function FileTable({
   onAddToKnowledge: (items: FileItem[]) => void;
   onContextMenu: (item: FileItem, x: number, y: number) => void;
 }) {
+  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
+
   if (!files.length) return <EmptyState category={category} />;
 
   const selectableFiles = files.filter((item) => !item.isDir && category !== "recycle");
@@ -91,7 +235,7 @@ function FileTable({
         <span>大小</span>
         <span>类型</span>
         <span>修改时间</span>
-        <span>操作</span>
+        <span aria-label="操作" />
       </div>
       {files.map((item) => (
         <div
@@ -128,45 +272,91 @@ function FileTable({
           <span>{item.isDir ? "-" : formatSize(item.size)}</span>
           <span>{fileTypeLabel(item)}</span>
           <span>{formatTime(item.updateTime || item.createTime)}</span>
-          <span className="row-actions">
-            {category === "recycle" ? (
-              <>
-                <button type="button" onClick={(event) => withStop(event, () => onRestore(item))}>
-                  恢复
-                </button>
-                <button className="danger" type="button" onClick={(event) => withStop(event, () => onDeleteForever(item))}>
-                  删除
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" onClick={(event) => withStop(event, () => onOpen(item))}>
-                  {item.isDir ? "进入" : "打开"}
-                </button>
-                {!item.isDir && (
-                  <>
-                    <button type="button" onClick={(event) => withStop(event, () => onPreview(item))}>
-                      预览
-                    </button>
-                    <button type="button" onClick={(event) => withStop(event, () => onDownload(item))}>
-                      下载
-                    </button>
-                    <button type="button" onClick={(event) => withStop(event, () => onAddToKnowledge([item]))}>
-                      添加到知识库
-                    </button>
-                  </>
-                )}
-                <button type="button" onClick={(event) => withStop(event, () => onRename(item))}>
-                  重命名
-                </button>
-                <button className="danger" type="button" onClick={(event) => withStop(event, () => onDelete(item))}>
-                  删除
-                </button>
-              </>
-            )}
-          </span>
+          <FileActionMenu
+            item={item}
+            category={category}
+            isOpen={openMenuId === item.fileId}
+            onToggle={() => setOpenMenuId((current) => (current === item.fileId ? null : item.fileId))}
+            onClose={() => setOpenMenuId(null)}
+            onOpen={onOpen}
+            onPreview={onPreview}
+            onDownload={onDownload}
+            onRename={onRename}
+            onDelete={onDelete}
+            onRestore={onRestore}
+            onDeleteForever={onDeleteForever}
+            onAddToKnowledge={onAddToKnowledge}
+          />
         </div>
       ))}
+    </div>
+  );
+}
+
+function FileGrid({
+  files,
+  selected,
+  category,
+  onSelect,
+  onOpen,
+  onPreview
+}: {
+  files: FileItem[];
+  selected: FileItem | null;
+  category: Category;
+  onSelect: (item: FileItem) => void;
+  onOpen: (item: FileItem) => void;
+  onPreview: (item: FileItem) => void;
+}) {
+  if (!files.length) return <EmptyState category={category} />;
+  const folders = category === "all" ? files.filter((item) => item.isDir) : [];
+  const normalFiles = files.filter((item) => !item.isDir);
+
+  return (
+    <div className="cloud-file-grid">
+      {!!folders.length && (
+        <section>
+          <h3>文件夹</h3>
+          <div className="folder-grid">
+            {folders.map((item) => (
+              <button
+                className={`folder-tile ${selected?.fileId === item.fileId ? "selected" : ""}`}
+                key={item.fileId}
+                type="button"
+                onClick={() => onSelect(item)}
+                onDoubleClick={() => onOpen(item)}
+              >
+                <span className="file-mark folder">{fileIcon(item, 22)}</span>
+                <span>{item.name}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      <section>
+        <h3>{category === "recycle" ? "回收站文件" : "文件"}</h3>
+        <div className="file-card-grid">
+          {normalFiles.map((item) => (
+            <button
+              className={`file-card ${selected?.fileId === item.fileId ? "selected" : ""}`}
+              key={item.fileId}
+              type="button"
+              onClick={() => onSelect(item)}
+              onDoubleClick={() => onPreview(item)}
+            >
+              <span className="file-card-name">
+                <span className="file-mini-icon">{fileIcon(item, 18)}</span>
+                <span>{item.name}</span>
+              </span>
+              <span className="file-card-preview">{fileIcon(item, 54)}</span>
+              <small>
+                {fileTypeLabel(item)} · {formatSize(item.size)}
+              </small>
+            </button>
+          ))}
+          {!normalFiles.length && !folders.length && <EmptyState category={category} />}
+        </div>
+      </section>
     </div>
   );
 }
@@ -199,8 +389,8 @@ function PreviewModal({ preview, file, onClose }: { preview: FilePreview | null;
           ) : (
             <div className="preview-placeholder">
               <Eye size={34} />
-              <h4>预览占位</h4>
-              <p>后端已提供 `/api/file/preview/{`{fileUuid}`}` 接口。若需要内嵌流式预览，可继续补充可直接访问的预览 URL。</p>
+              <h4>暂不支持内嵌预览</h4>
+              <p>后端尚未返回可直接展示的预览地址，仍可通过下载查看文件。</p>
             </div>
           )}
         </div>
@@ -260,7 +450,7 @@ function KnowledgeTargetModal({
         <header>
           <div>
             <h3>添加到知识库</h3>
-            <p>选择一个有权限的团队空间，文件会导入对应知识库并进入索引流程。</p>
+            <p>选择一个有权限的空间，文件会导入对应知识库并进入索引流程。</p>
           </div>
           <button type="button" onClick={onClose} aria-label="关闭">
             <X size={18} />
@@ -299,6 +489,129 @@ function KnowledgeTargetModal({
   );
 }
 
+function Sidebar({
+  siteName,
+  effectiveView,
+  category,
+  isAdmin,
+  usedSize,
+  onCategory,
+  onView,
+  onNotice
+}: {
+  siteName: string;
+  effectiveView: MainView;
+  category: Category;
+  isAdmin: boolean;
+  usedSize: number;
+  onCategory: (category: Category) => void;
+  onView: (view: MainView, path: string) => void;
+  onNotice: (notice: Notice) => void;
+}) {
+  const [filesOpen, setFilesOpen] = useState(true);
+  const quota = 10 * 1024 * 1024 * 1024;
+  const percent = Math.min(100, Math.max(5, (usedSize / quota) * 100));
+  const fileChildren = categoryMeta.filter((item) => item.key !== "all");
+
+  function unavailable(label: string) {
+    onNotice({ type: "info", text: `${label} 需要后端接口补齐后启用` });
+  }
+
+  return (
+    <aside className="sidebar cloud-sidebar">
+      <div className="brand compact">
+        <span className="brand-icon">
+          <HardDrive size={22} />
+        </span>
+        <span>{siteName}</span>
+      </div>
+
+      <nav className="side-nav cloud-nav" aria-label="功能导航">
+        <button
+          className={effectiveView === "files" && category === "all" ? "active" : ""}
+          type="button"
+          onClick={() => {
+            setFilesOpen(true);
+            onCategory("all");
+          }}
+        >
+          <ChevronDown className={filesOpen ? "nav-chevron open" : "nav-chevron"} size={14} />
+          <HardDrive size={18} />
+          我的文件
+        </button>
+        {filesOpen && (
+          <div className="nav-children">
+            {fileChildren.map((item) => (
+              <button
+                className={effectiveView === "files" && category === item.key ? "active child-active" : ""}
+                key={item.key}
+                type="button"
+                onClick={() => onCategory(item.key)}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="nav-group">
+          <button type="button" onClick={() => unavailable("与我共享")}>
+            <UsersRound size={18} />
+            与我共享
+          </button>
+          <button type="button" onClick={() => unavailable("我的分享")}>
+            <Share2 size={18} />
+            我的分享
+          </button>
+          <button type="button" onClick={() => unavailable("连接与挂载")}>
+            <Link2 size={18} />
+            连接与挂载
+          </button>
+          <button type="button" onClick={() => onView("async", "/async")}>
+            <Clock3 size={18} />
+            后台任务
+          </button>
+          <button type="button" onClick={() => unavailable("离线下载")}>
+            <CloudDownload size={18} />
+            离线下载
+          </button>
+        </div>
+
+        <div className="nav-group">
+          <button className={effectiveView === "knowledge" ? "active" : ""} type="button" onClick={() => onView("knowledge", "/knowledge/dashboard")}>
+            <BookOpen size={18} />
+            Knowledge Base
+          </button>
+          <button className={effectiveView === "spaces" ? "active" : ""} type="button" onClick={() => onView("spaces", "/spaces")}>
+            <Network size={18} />
+            团队空间
+          </button>
+          {isAdmin && (
+            <button className={effectiveView === "settings" ? "active" : ""} type="button" onClick={() => onView("settings", "/settings")}>
+              <Settings size={18} />
+              管理面板
+            </button>
+          )}
+        </div>
+      </nav>
+
+      <div className="storage-card">
+        <div>
+          <strong>存储空间</strong>
+          <span>{Math.round(percent)}%</span>
+        </div>
+        <div className="storage-bar">
+          <span style={{ width: `${percent}%` }} />
+        </div>
+        <p>
+          {formatSize(usedSize)} / {formatSize(quota)}
+        </p>
+      </div>
+    </aside>
+  );
+}
+
 export function DriveApp({
   user,
   publicSettings,
@@ -312,7 +625,8 @@ export function DriveApp({
   onNavigate: (path: string) => void;
   onLogout: () => void;
 }) {
-  const [mainView, setMainView] = useState<MainView>(path === "/settings" ? "settings" : path === "/chat" ? "chat" : path === "/async" ? "async" : path === "/knowledge" ? "knowledge" : "files");
+  const isAdmin = user.role?.toUpperCase() === "ADMIN";
+  const [mainView, setMainView] = useState<MainView>(() => viewFromPath(path, isAdmin));
   const [category, setCategory] = useState<Category>("all");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selected, setSelected] = useState<FileItem | null>(null);
@@ -326,29 +640,18 @@ export function DriveApp({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [knowledgeFiles, setKnowledgeFiles] = useState<FileItem[]>([]);
   const [contextMenu, setContextMenu] = useState<{ item: FileItem; x: number; y: number } | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const uploadInput = useRef<HTMLInputElement>(null);
   const parentId = crumbs[crumbs.length - 1]?.id ?? 0;
-  const isAdmin = user.role?.toUpperCase() === "ADMIN";
-  const isSettingsPage = isAdmin && path === "/settings";
-  const isChatPage = path === "/chat";
-  const isAsyncPage = path === "/async";
-  const isKnowledgePage = path === "/knowledge";
   const siteName = publicSettings?.siteName || "YL Cloud";
-  const effectiveView: MainView = isSettingsPage ? "settings" : isChatPage ? "chat" : isAsyncPage ? "async" : isKnowledgePage ? "knowledge" : mainView === "settings" ? "files" : mainView;
 
   useEffect(() => {
-    if (isSettingsPage) {
-      setMainView("settings");
-    } else if (isChatPage) {
-      setMainView("chat");
-    } else if (isAsyncPage) {
-      setMainView("async");
-    } else if (isKnowledgePage) {
-      setMainView("knowledge");
-    } else if (mainView === "settings") {
-      setMainView("files");
-    }
-  }, [isSettingsPage, isChatPage, isAsyncPage, isKnowledgePage, mainView]);
+    const next = viewFromPath(path, isAdmin);
+    setMainView(next);
+    if (path === "/chat") onNavigate("/knowledge/chat");
+  }, [path, isAdmin]);
+
+  const effectiveView = mainView;
 
   const filteredFiles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -360,6 +663,7 @@ export function DriveApp({
   }, [files, category, query]);
 
   const totalSize = useMemo(() => files.reduce((sum, item) => sum + (item.size || 0), 0), [files]);
+  const batchFiles = filteredFiles.filter((item) => selectedIds.has(item.fileId) && !item.isDir);
 
   async function loadFiles(nextParentId = parentId, nextCategory = category) {
     setLoading(true);
@@ -387,8 +691,13 @@ export function DriveApp({
     if (next) window.setTimeout(() => setNotice(null), 3200);
   }
 
+  function switchView(view: MainView, nextPath: string) {
+    setMainView(view);
+    onNavigate(nextPath);
+  }
+
   async function switchCategory(next: Category) {
-    onNavigate("/");
+    onNavigate("/files");
     setMainView("files");
     setCategory(next);
     setQuery("");
@@ -443,7 +752,7 @@ export function DriveApp({
   }
 
   async function deleteFile(item: FileItem) {
-    if (!window.confirm(`确认删除「${item.name}」？文件会进入回收站。`)) return;
+    if (!window.confirm(`确认删除“${item.name}”？文件会进入回收站。`)) return;
     try {
       await api.deleteFile(item.fileUuid, item.parentId ?? parentId);
       await loadFiles(parentId, category);
@@ -464,7 +773,7 @@ export function DriveApp({
   }
 
   async function deleteForever(item: FileItem) {
-    if (!window.confirm(`确认彻底删除「${item.name}」？此操作不可恢复。`)) return;
+    if (!window.confirm(`确认彻底删除“${item.name}”？此操作不可恢复。`)) return;
     try {
       await api.deleteRecycle(item.fileId);
       await loadFiles(0, "recycle");
@@ -548,124 +857,39 @@ export function DriveApp({
     onLogout();
   }
 
-  const batchFiles = filteredFiles.filter((item) => selectedIds.has(item.fileId) && !item.isDir);
-
   const topbarTitle =
     effectiveView === "settings"
-      ? "系统设置"
-      : effectiveView === "chat"
-        ? "智能问答"
+      ? "管理面板"
       : effectiveView === "async"
-        ? "异步任务"
-      : effectiveView === "knowledge"
-        ? "知识库运维"
-      : effectiveView === "spaces"
-        ? "团队空间"
-        : categoryMeta.find((item) => item.key === category)?.label || "全部文件";
+        ? "后台任务"
+        : effectiveView === "knowledge"
+          ? "Knowledge Base"
+          : effectiveView === "spaces"
+            ? "团队空间"
+            : categoryMeta.find((item) => item.key === category)?.label || "我的文件";
   const topbarDescription =
     effectiveView === "settings"
-      ? "管理站点信息、访问网址和模型服务配置。"
-      : effectiveView === "chat"
-        ? "像 ChatGPT 一样提问，可选择知识库作为检索范围。"
+      ? "管理站点信息、访问地址和模型服务配置。"
       : effectiveView === "async"
-        ? "独立查看后台任务执行进度、阶段和结果。"
-      : effectiveView === "knowledge"
-        ? "查看知识库文件、画像质量、标签分类和运维任务。"
-      : effectiveView === "spaces"
-        ? "成员协作、版本管理和 RAG 问答。"
-        : "现代化文件管理，适配当前 YLCloud 后端接口。";
+        ? "查看后台任务进度、阶段和结果。"
+        : effectiveView === "knowledge"
+          ? "管理文档、索引任务、智能问答和检索分析。"
+          : effectiveView === "spaces"
+            ? "成员协作、版本管理和空间文件。"
+            : "浏览、上传和管理你的云端文件。";
 
   return (
     <main className="drive-shell">
-      <aside className="sidebar">
-        <div className="brand compact">
-          <span className="brand-icon">
-            <HardDrive size={22} />
-          </span>
-          <span>{siteName}</span>
-        </div>
-
-        <nav className="side-nav" aria-label="功能导航">
-          {categoryMeta.map((item) => (
-            <button
-              className={effectiveView === "files" && category === item.key ? "active" : ""}
-              key={item.key}
-              type="button"
-              onClick={() => void switchCategory(item.key)}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
-          <button
-            className={`side-section-start ${effectiveView === "spaces" ? "active" : ""}`}
-            type="button"
-            onClick={() => {
-              onNavigate("/");
-              setMainView("spaces");
-            }}
-          >
-            <Network size={18} />
-            团队空间
-          </button>
-          <button
-            className={effectiveView === "chat" ? "active" : ""}
-            type="button"
-            onClick={() => {
-              setMainView("chat");
-              onNavigate("/chat");
-            }}
-          >
-            <Bot size={18} />
-            智能问答
-          </button>
-          <button
-            className={effectiveView === "async" ? "active" : ""}
-            type="button"
-            onClick={() => {
-              setMainView("async");
-              onNavigate("/async");
-            }}
-          >
-            <Clock3 size={18} />
-            异步任务
-          </button>
-          <button
-            className={effectiveView === "knowledge" ? "active" : ""}
-            type="button"
-            onClick={() => {
-              setMainView("knowledge");
-              onNavigate("/knowledge");
-            }}
-          >
-            <Network size={18} />
-            知识库运维
-          </button>
-          {isAdmin && (
-            <button
-              className={`side-section-start ${effectiveView === "settings" ? "active" : ""}`}
-              type="button"
-              onClick={() => {
-                setMainView("settings");
-                onNavigate("/settings");
-              }}
-            >
-              <Settings size={18} />
-              系统设置
-            </button>
-          )}
-        </nav>
-
-        <div className="storage-card">
-          <div>
-            <strong>{formatSize(totalSize)}</strong>
-            <span>当前目录容量</span>
-          </div>
-          <div className="storage-bar">
-            <span style={{ width: `${Math.min(92, Math.max(8, totalSize / 1024 / 1024))}%` }} />
-          </div>
-        </div>
-      </aside>
+      <Sidebar
+        category={category}
+        effectiveView={effectiveView}
+        isAdmin={isAdmin}
+        siteName={siteName}
+        usedSize={totalSize}
+        onCategory={(next) => void switchCategory(next)}
+        onNotice={showNotice}
+        onView={switchView}
+      />
 
       <section className="content">
         <header className="topbar">
@@ -674,10 +898,12 @@ export function DriveApp({
             <p>{topbarDescription}</p>
           </div>
           <div className="topbar-right">
-            <label className="search-box">
-              <Search size={18} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件或文件夹" />
-            </label>
+            {effectiveView === "files" && (
+              <label className="search-box">
+                <Search size={18} />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件或文件夹" />
+              </label>
+            )}
             <div className="user-chip">
               <UserRound size={18} />
               <span>{user.nickname || user.username}</span>
@@ -690,10 +916,8 @@ export function DriveApp({
 
         {effectiveView === "settings" ? (
           <SettingsPanel onNotice={showNotice} />
-        ) : effectiveView === "chat" ? (
-          <ChatView showNotice={showNotice} />
         ) : effectiveView === "knowledge" ? (
-          <KnowledgeOpsView showNotice={showNotice} />
+          <KnowledgeBaseView path={path} onNavigate={onNavigate} showNotice={showNotice} />
         ) : effectiveView === "async" ? (
           <AsyncTasksView showNotice={showNotice} />
         ) : effectiveView === "spaces" ? (
@@ -717,7 +941,7 @@ export function DriveApp({
                   </div>
                   <p>
                     {filteredFiles.length} 项
-                    {query && `，匹配「${query}」`}
+                    {query && `，匹配“${query}”`}
                   </p>
                 </div>
 
@@ -730,6 +954,22 @@ export function DriveApp({
                   )}
                   <button className="icon-button" type="button" onClick={() => void loadFiles(parentId, category)} title="刷新">
                     <RefreshCw size={18} />
+                  </button>
+                  <button
+                    className={`icon-button ${viewMode === "grid" ? "active-icon" : ""}`}
+                    type="button"
+                    onClick={() => setViewMode("grid")}
+                    title="网格视图"
+                  >
+                    <Grid3X3 size={18} />
+                  </button>
+                  <button
+                    className={`icon-button ${viewMode === "list" ? "active-icon" : ""}`}
+                    type="button"
+                    onClick={() => setViewMode("list")}
+                    title="列表视图"
+                  >
+                    <List size={18} />
                   </button>
                   {category !== "recycle" && (
                     <>
@@ -777,7 +1017,17 @@ export function DriveApp({
                   正在同步文件列表
                 </div>
               ) : (
-                !error && (
+                !error &&
+                (viewMode === "grid" ? (
+                  <FileGrid
+                    category={category}
+                    files={filteredFiles}
+                    selected={selected}
+                    onOpen={(item) => void openItem(item)}
+                    onPreview={(item) => void previewItem(item)}
+                    onSelect={setSelected}
+                  />
+                ) : (
                   <FileTable
                     files={filteredFiles}
                     selected={selected}
@@ -796,7 +1046,7 @@ export function DriveApp({
                     onAddToKnowledge={(items) => openAddToKnowledge(items)}
                     onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
                   />
-                )
+                ))
               )}
             </section>
 
@@ -824,7 +1074,7 @@ export function DriveApp({
                         </button>
                         {category !== "recycle" && (
                           <button type="button" onClick={() => openAddToKnowledge([selected])}>
-                            <Bot size={16} />
+                            <BookOpen size={16} />
                             添加到知识库
                           </button>
                         )}

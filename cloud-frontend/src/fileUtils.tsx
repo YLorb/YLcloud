@@ -1,19 +1,21 @@
-import { File, FileArchive, FileAudio, FileImage, FileText, FileVideo, Folder, HardDrive, Image, Trash2 } from "lucide-react";
+import { File, FileArchive, FileAudio, FileImage, FileText, FileVideo, Folder, HardDrive, Image, Music, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Category } from "./appTypes";
 import type { FileItem } from "./types";
 
 export const categoryMeta: Array<{ key: Category; label: string; icon: ReactNode }> = [
-  { key: "all", label: "全部文件", icon: <HardDrive size={18} /> },
+  { key: "all", label: "我的文件", icon: <HardDrive size={18} /> },
   { key: "images", label: "图片", icon: <Image size={18} /> },
-  { key: "documents", label: "文档", icon: <FileText size={18} /> },
   { key: "videos", label: "视频", icon: <FileVideo size={18} /> },
+  { key: "music", label: "音乐", icon: <Music size={18} /> },
+  { key: "documents", label: "文档", icon: <FileText size={18} /> },
   { key: "recycle", label: "回收站", icon: <Trash2 size={18} /> }
 ];
 
 export const imageTypes = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic"]);
 export const documentTypes = new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf", "txt", "md", "csv", "json"]);
 export const videoTypes = new Set(["mp4", "mov", "mkv", "webm", "avi", "flv", "m4v"]);
+export const audioTypes = new Set(["mp3", "wav", "flac", "aac", "ogg", "m4a"]);
 
 export function extOf(item: FileItem) {
   if (item.isDir) return "folder";
@@ -25,8 +27,9 @@ export function matchesCategory(item: FileItem, category: Category) {
   if (item.isDir) return false;
   const ext = extOf(item);
   if (category === "images") return imageTypes.has(ext);
-  if (category === "documents") return documentTypes.has(ext);
   if (category === "videos") return videoTypes.has(ext);
+  if (category === "music") return audioTypes.has(ext);
+  if (category === "documents") return documentTypes.has(ext);
   return true;
 }
 
@@ -59,8 +62,9 @@ export function fileTypeLabel(item: FileItem) {
   if (item.isDir) return "文件夹";
   const ext = extOf(item);
   if (imageTypes.has(ext)) return "图片";
-  if (documentTypes.has(ext)) return "文档";
   if (videoTypes.has(ext)) return "视频";
+  if (audioTypes.has(ext)) return "音乐";
+  if (documentTypes.has(ext)) return "文档";
   return ext.toUpperCase();
 }
 
@@ -71,6 +75,6 @@ export function fileIcon(item: FileItem, size = 20) {
   if (videoTypes.has(ext)) return <FileVideo size={size} />;
   if (documentTypes.has(ext)) return <FileText size={size} />;
   if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return <FileArchive size={size} />;
-  if (["mp3", "wav", "flac", "aac"].includes(ext)) return <FileAudio size={size} />;
+  if (audioTypes.has(ext)) return <FileAudio size={size} />;
   return <File size={size} />;
 }
