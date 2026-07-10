@@ -23,13 +23,21 @@
 
 Cloudreve 风格重构后的前后端未对齐点（2026-07-09）：
 
-1. 左侧栏“存储空间”卡片目前缺少后端容量汇总接口。前端只能基于当前已加载文件列表估算已用容量，并临时使用 10GB 作为展示上限。后续需要提供用户级/空间级 quota、used、available、策略名称等接口。
+1. 左侧栏“存储空间”卡片已补用户级容量汇总接口：`GET /api/storage/quota`。当前后端仍使用默认 10GB 策略名 `default-10gb`，后续如果要支持管理员配置容量策略，需要新增 quota policy 表或接入已有用户套餐字段。
 2. 左侧栏中的“与我共享”“我的分享”“连接与挂载”“离线下载”是 Cloudreve 风格所需的信息架构入口，但当前前端没有找到完整对应 API。现阶段只能作为占位说明或复用非常有限的分享能力，后续需要明确这些模块的后端模型和接口。
-3. Knowledge Base / Chat 当前只能调用 `queryRag(spaceId, question, ...)` 查询单个知识库/空间，尚不能满足“允许多知识库同时询问”。后续需要支持多 `spaceId` 或统一 scope 查询，并在响应中返回来源知识库信息。
-4. Knowledge Base / Chat 会话历史目前只能在前端本地持久化，无法跨设备、跨浏览器恢复，也无法由后端审计。后续需要会话列表、会话详情、消息追加、删除/重命名等接口。
-5. Knowledge Base / Analytics 目前只能基于 dashboard、documents、tasks 做派生统计。缺少真实检索分析接口，例如查询日志、召回片段分数、低分查询、无答案问题、引用覆盖率、用户反馈等。
-6. Knowledge Base 设置项仍不完整。需求中提到管理者/所有者可配置 Top-k、温度等 RAG 参数，并记录修改日志；当前前端只能展示现有 profile/task/document 信息，缺少可保存配置的后端接口。
+3. Knowledge Base / Chat 已补多知识库聚合问答入口：`POST /api/knowledge/rag/query`，支持一次最多 5 个 `spaceId`，并在结果、引用中返回 `spaceId` / `spaceName`。当前实现是逐个知识库调用现有单空间 RAG 后聚合答案，不是跨库统一召回后统一生成；如后续需要更自然的融合回答，需要新增跨空间 retriever/generator。
+4. Knowledge Base / Chat 已补后端会话持久化基础接口：`/api/knowledge/chat/sessions`，支持会话列表、详情、创建、重命名、删除、追加消息。前端仍需要接入这些接口，才能实现跨设备恢复对话。
+5. Knowledge Base / Analytics 已补基础检索分析接口：`/api/space/{spaceId}/rag/analytics/summary`、`queries`、`no-answer`、`config-logs`。当前查询日志没有保存召回分数明细、用户反馈、低分阈值判定，因此“低分查询”和“用户反馈分析”仍需扩展日志结构。
+6. Knowledge Base 设置项后端已有 `GET/PUT /api/space/{spaceId}/rag/config`，Top-k、temperature 调整会写入配置修改日志；本轮新增了配置日志查询接口。前端仍需要在 Knowledge Base 设置页接入保存与日志展示。
 7. `/spaces` 中仍保留了轻量 RAG Console，而完整知识库体验已迁移到 `Knowledge Base`。后续需要决定空间页的 RAG 区域是保留为快捷入口，还是彻底跳转到 `Knowledge Base / Chat`，避免同一能力出现两套交互。
+
+后端补全记录（2026-07-10）：
+
+- 新增 `GET /api/storage/quota`，用于 Cloudreve 风格侧边栏存储空间卡片。
+- 新增知识库会话持久化表与接口，覆盖会话列表、详情、创建、重命名、删除、消息追加。
+- 新增 `POST /api/knowledge/rag/query`，用于多知识库同时问答。
+- 新增 RAG Analytics 查询日志、无答案问题、配置变更日志与摘要接口。
+- 已通过 `mvn test`，共 29 个测试通过。
 
 # 其他
 

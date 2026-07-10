@@ -9,6 +9,8 @@ import java.util.List;
  */
 @Data
 public class SpaceRagQueryVO {
+    private Long spaceId;
+    private String spaceName;
     private String question;
     private String answer;
     private List<Long> hitChunkIds;

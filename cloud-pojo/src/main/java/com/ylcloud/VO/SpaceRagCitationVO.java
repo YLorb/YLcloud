@@ -5,6 +5,8 @@ import lombok.Data;
 @Data
 public class SpaceRagCitationVO {
     private Integer index;
+    private Long spaceId;
+    private String spaceName;
     private Long chunkId;
     private Long documentId;
     private Long spaceFileId;
