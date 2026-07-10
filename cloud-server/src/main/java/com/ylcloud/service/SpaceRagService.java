@@ -253,6 +253,7 @@ public class SpaceRagService {
                 chatResult.isSuccess(),chatResult.getErrorMessage());
 
         SpaceRagQueryVO vo = new SpaceRagQueryVO();
+        vo.setSpaceId(spaceId);
         vo.setQuestion(dto.getQuestion());
         vo.setAnswer(answer);
         vo.setHitChunkIds(hitChunkIds);
@@ -1021,6 +1022,7 @@ public class SpaceRagService {
             SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceAndChunkId(spaceId,chunk.getId());
             SpaceRagCitationVO citation = new SpaceRagCitationVO();
             citation.setIndex(i + 1);
+            citation.setSpaceId(spaceId);
             citation.setChunkId(chunk.getId());
             citation.setContentSummary(truncate(chunk.getContent(),240));
             if(document != null) {

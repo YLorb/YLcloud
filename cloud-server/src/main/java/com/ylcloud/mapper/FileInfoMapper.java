@@ -542,4 +542,15 @@ public interface FileInfoMapper {
     @Select("select count from file_info " +
             "where file_uuid = #{fileUuid}")
     int getFileCount(@Param("fileUuid") String fileUuid);
+
+    @Select("select coalesce(sum(fi.size), 0) " +
+            "from (select distinct file_uuid from user_file where user_id = #{userId} and is_dir = 0 and status = 1) uf " +
+            "join file_info fi on fi.file_uuid = uf.file_uuid and fi.status = 1")
+    Long sumUserStorageBytes(@Param("userId") Long userId);
+
+    @Select("select count(distinct uf.file_uuid) " +
+            "from user_file uf " +
+            "join file_info fi on fi.file_uuid = uf.file_uuid and fi.status = 1 " +
+            "where uf.user_id = #{userId} and uf.is_dir = 0 and uf.status = 1")
+    Integer countUserStorageFiles(@Param("userId") Long userId);
 }
