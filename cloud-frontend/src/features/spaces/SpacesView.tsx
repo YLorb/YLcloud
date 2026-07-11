@@ -557,7 +557,7 @@ export function SpacesView({
                   <Settings2 size={17} />
                   修复向量
                 </button>
-                <button className="soft-button" type="button" onClick={() => onNavigate?.("/knowledge/chat")}>
+                <button className="soft-button" type="button" onClick={() => onNavigate?.("/assistant/chat")}>
                   <ArrowRight size={17} />
                   完整问答
                 </button>
@@ -705,7 +705,7 @@ export function SpacesView({
                   <h3>空间智能问答</h3>
                   <p>这里保留轻量提问入口，完整会话体验请进入 Knowledge Base。</p>
                 </div>
-                <button className="soft-button" type="button" onClick={() => onNavigate?.("/knowledge/chat")}>
+                <button className="soft-button" type="button" onClick={() => onNavigate?.("/assistant/chat")}>
                   <ArrowRight size={16} />
                   打开 Knowledge Base
                 </button>

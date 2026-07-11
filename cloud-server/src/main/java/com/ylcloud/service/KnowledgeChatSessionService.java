@@ -2,6 +2,7 @@ package com.ylcloud.service;
 
 import com.ylcloud.DTO.KnowledgeChatMessageCreateDTO;
 import com.ylcloud.DTO.KnowledgeChatSessionCreateDTO;
+import com.ylcloud.DTO.KnowledgeChatSessionScopeUpdateDTO;
 import com.ylcloud.DTO.KnowledgeChatSessionUpdateDTO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.KnowledgeChatMessageVO;
@@ -74,6 +75,21 @@ public class KnowledgeChatSessionService {
         int rows = sessionMapper.updateTitle(sessionId,userId,dto.getTitle().trim(),LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("会话标题更新失败");
+        }
+        return detail(userId,sessionId);
+    }
+
+    @Transactional
+    public KnowledgeChatSessionVO updateScope(Long userId, Long sessionId, KnowledgeChatSessionScopeUpdateDTO dto) {
+        requireSession(userId,sessionId);
+        List<Long> spaceIds = normalizeSpaceIds(dto.getSpaceIds());
+        if(spaceIds.isEmpty()) {
+            throw new BaseException("至少选择一个知识库");
+        }
+        requireSpaces(userId,spaceIds);
+        int rows = sessionMapper.updateScope(sessionId,userId,resolveScopeMode(null,spaceIds),joinSpaceIds(spaceIds),LocalDateTime.now());
+        if(rows == 0) {
+            throw new BaseException("会话知识库范围更新失败");
         }
         return detail(userId,sessionId);
     }

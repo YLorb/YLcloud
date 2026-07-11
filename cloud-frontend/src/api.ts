@@ -7,6 +7,8 @@ import type {
   FilePreview,
   FileVersion,
   KnowledgeDashboard,
+  KnowledgeChatMessage,
+  KnowledgeChatSession,
   KnowledgeDocument,
   KnowledgeFacet,
   KnowledgePipelineEvent,
@@ -14,10 +16,14 @@ import type {
   KnowledgeProfile,
   KnowledgeProfileDiff,
   KnowledgeProfileVersion,
+  KnowledgeRagQuery,
+  RagAnalyticsSummary,
+  RagConfigLog,
   RagConfig,
   RagChatMessage,
   RagDocument,
   RagQuery,
+  RagQueryLog,
   RagTask,
   ShareFile,
   Space,
@@ -26,6 +32,7 @@ import type {
   SpaceMember,
   PublicSiteSettings,
   SiteSetting,
+  StorageQuota,
   User
 } from "./types";
 
@@ -132,6 +139,7 @@ export const api = {
     }),
   listAsyncTasks: () => request<AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }>("/api/async"),
   currentUser: () => request<number>("/api/user/current"),
+  storageQuota: () => request<StorageQuota>("/api/storage/quota"),
   listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`),
   uploadFile: (file: File, parentId = 0) => {
     const body = new FormData();
@@ -283,6 +291,53 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ question, retrievalMode, history })
     }),
+  queryKnowledgeRag: (payload: {
+    spaceIds: number[];
+    question: string;
+    retrievalMode?: "precise" | "balanced" | "broad";
+    history?: RagChatMessage[];
+  }) =>
+    request<KnowledgeRagQuery>("/api/knowledge/rag/query", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  listKnowledgeChatSessions: (keyword?: string, limit = 50) =>
+    request<KnowledgeChatSession[]>(`/api/knowledge/chat/sessions?${params({ keyword, limit })}`),
+  createKnowledgeChatSession: (payload: { title?: string; scopeMode?: string; spaceIds?: number[] }) =>
+    request<KnowledgeChatSession>("/api/knowledge/chat/sessions", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  getKnowledgeChatSession: (sessionId: number) =>
+    request<KnowledgeChatSession>(`/api/knowledge/chat/sessions/${sessionId}`),
+  updateKnowledgeChatSessionTitle: (sessionId: number, title: string) =>
+    request<KnowledgeChatSession>(`/api/knowledge/chat/sessions/${sessionId}`, {
+      method: "PUT",
+      body: JSON.stringify({ title })
+    }),
+  updateKnowledgeChatSessionScope: (sessionId: number, spaceIds: number[]) =>
+    request<KnowledgeChatSession>(`/api/knowledge/chat/sessions/${sessionId}/scope`, {
+      method: "PUT",
+      body: JSON.stringify({ spaceIds })
+    }),
+  deleteKnowledgeChatSession: (sessionId: number) =>
+    request<boolean>(`/api/knowledge/chat/sessions/${sessionId}`, { method: "DELETE" }),
+  appendKnowledgeChatMessage: (
+    sessionId: number,
+    payload: { role: "user" | "assistant" | "system"; content: string; citationsJson?: string }
+  ) =>
+    request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/messages`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  ragAnalyticsSummary: (spaceId: number) =>
+    request<RagAnalyticsSummary>(`/api/space/${spaceId}/rag/analytics/summary`),
+  ragAnalyticsQueries: (spaceId: number, limit = 50) =>
+    request<RagQueryLog[]>(`/api/space/${spaceId}/rag/analytics/queries?${params({ limit })}`),
+  ragAnalyticsNoAnswer: (spaceId: number, limit = 50) =>
+    request<RagQueryLog[]>(`/api/space/${spaceId}/rag/analytics/no-answer?${params({ limit })}`),
+  ragAnalyticsConfigLogs: (spaceId: number, limit = 50) =>
+    request<RagConfigLog[]>(`/api/space/${spaceId}/rag/analytics/config-logs?${params({ limit })}`),
   importSpaceWebLink: (spaceId: number, payload: { url: string; parentId?: number | null; name?: string }) =>
     request<SpaceFile>(`/api/space/${spaceId}/rag/links`, {
       method: "POST",

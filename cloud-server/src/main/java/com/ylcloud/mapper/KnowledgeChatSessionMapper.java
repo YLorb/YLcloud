@@ -32,6 +32,12 @@ public interface KnowledgeChatSessionMapper {
             "where id = #{sessionId} and user_id = #{userId} and status = 1")
     int updateTitle(@Param("sessionId") Long sessionId, @Param("userId") Long userId, @Param("title") String title, @Param("updateTime") LocalDateTime updateTime);
 
+    @Update("update knowledge_chat_session set scope_mode = #{scopeMode}, scope_space_ids = #{scopeSpaceIds}, updatetime = #{updateTime} " +
+            "where id = #{sessionId} and user_id = #{userId} and status = 1")
+    int updateScope(@Param("sessionId") Long sessionId, @Param("userId") Long userId,
+                    @Param("scopeMode") String scopeMode, @Param("scopeSpaceIds") String scopeSpaceIds,
+                    @Param("updateTime") LocalDateTime updateTime);
+
     @Update("update knowledge_chat_session set status = 0, updatetime = #{updateTime} where id = #{sessionId} and user_id = #{userId} and status = 1")
     int disable(@Param("sessionId") Long sessionId, @Param("userId") Long userId, @Param("updateTime") LocalDateTime updateTime);
 

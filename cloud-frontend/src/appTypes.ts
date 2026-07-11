@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export type AuthMode = "login" | "sign";
-export type MainView = "files" | "spaces" | "knowledge" | "settings" | "async";
+export type MainView = "files" | "spaces" | "knowledge" | "assistant" | "settings" | "async";
 export type Category = "all" | "images" | "videos" | "music" | "documents" | "recycle";
 export type Notice = { type: "success" | "error" | "info"; text: string } | null;
 export type Crumb = { id: number; name: string };

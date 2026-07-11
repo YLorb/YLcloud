@@ -3,6 +3,8 @@ package com.ylcloud.VO;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 @Data
 @Builder
 public class SiteSettingVO {
@@ -15,4 +17,6 @@ public class SiteSettingVO {
     private String description;
     private Boolean secret;
     private Boolean editable;
+    private LocalDateTime createTime;
+    private LocalDateTime updateTime;
 }

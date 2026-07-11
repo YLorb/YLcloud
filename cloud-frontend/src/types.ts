@@ -22,6 +22,8 @@ export type SiteSetting = {
   description?: string;
   secret: boolean;
   editable: boolean;
+  createTime?: string;
+  updateTime?: string;
 };
 
 export type PublicSiteSettings = {
@@ -392,6 +394,8 @@ export type AsyncTask = {
 
 export type RagCitation = {
   index?: number;
+  spaceId?: number;
+  spaceName?: string;
   chunkId?: number;
   documentId?: number;
   spaceFileId?: number;
@@ -409,9 +413,88 @@ export type RagChatMessage = {
 };
 
 export type RagQuery = {
+  spaceId?: number;
+  spaceName?: string;
   question: string;
   answer?: string;
   hitChunkIds?: number[];
   contexts?: string[];
   citations?: RagCitation[];
+};
+
+export type StorageQuota = {
+  usedBytes: number;
+  totalBytes: number;
+  availableBytes: number;
+  usagePercent: number;
+  fileCount: number;
+  policyName?: string;
+};
+
+export type KnowledgeRagQuery = {
+  question: string;
+  answer?: string;
+  spaceIds: number[];
+  results?: RagQuery[];
+  citations?: RagCitation[];
+};
+
+export type KnowledgeChatMessage = {
+  id: number;
+  sessionId: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  citationsJson?: string;
+  createtime?: string;
+};
+
+export type KnowledgeChatSession = {
+  id: number;
+  userId: number;
+  title: string;
+  scopeMode?: string;
+  spaceIds: number[];
+  messageCount?: number;
+  messages?: KnowledgeChatMessage[];
+  createtime?: string;
+  updatetime?: string;
+};
+
+export type RagAnalyticsSummary = {
+  spaceId: number;
+  queryCount: number;
+  successCount: number;
+  failedCount: number;
+  noAnswerCount: number;
+  citedQueryCount: number;
+  citationCoverage: number;
+};
+
+export type RagQueryLog = {
+  id: number;
+  spaceId: number;
+  userId?: number;
+  question: string;
+  answer?: string;
+  hitChunkIds?: string;
+  modelName?: string;
+  topK?: number;
+  temperature?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  success?: number;
+  errorMessage?: string;
+  citationCount?: number;
+  createtime?: string;
+};
+
+export type RagConfigLog = {
+  id: number;
+  spaceId: number;
+  operatorId?: number;
+  changedFields?: string;
+  beforeJson?: string;
+  afterJson?: string;
+  createtime?: string;
 };
