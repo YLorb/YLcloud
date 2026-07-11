@@ -55,6 +55,7 @@ public class SpaceFileService {
     private final SpacePermissionService spacePermissionService;
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
+    private final SiteSettingService siteSettingService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -77,13 +78,15 @@ public class SpaceFileService {
                             SpaceService spaceService,
                             SpacePermissionService spacePermissionService,
                             SpaceRagService spaceRagService,
-                            MinioclientUtil minioclientUtil) {
+                            MinioclientUtil minioclientUtil,
+                            SiteSettingService siteSettingService) {
         this.spaceFileMapper = spaceFileMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceService = spaceService;
         this.spacePermissionService = spacePermissionService;
         this.spaceRagService = spaceRagService;
         this.minioclientUtil = minioclientUtil;
+        this.siteSettingService = siteSettingService;
     }
 
     /**
@@ -712,7 +715,7 @@ public class SpaceFileService {
         if(content == null || content.length == 0) {
             throw new BaseException("文件内容不能为空");
         }
-        if(content.length > maxFileSize) {
+        if(content.length > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
 
@@ -785,7 +788,7 @@ public class SpaceFileService {
         if(uploadFile == null || uploadFile.isEmpty()) {
             throw new BaseException("上传文件不能为空");
         }
-        if(uploadFile.getSize() > maxFileSize) {
+        if(uploadFile.getSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         requireSafeFileName(uploadFile.getOriginalFilename());

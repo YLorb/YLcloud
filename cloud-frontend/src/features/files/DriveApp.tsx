@@ -27,6 +27,7 @@ import {
   Search,
   Settings,
   Share2,
+  Sparkles,
   Trash2,
   UploadCloud,
   UserRound,
@@ -35,10 +36,11 @@ import {
 } from "lucide-react";
 import { api, clearSession } from "../../api";
 import type { Category, Crumb, MainView, Notice } from "../../appTypes";
-import type { FileItem, FilePreview, PublicSiteSettings, Space, User } from "../../types";
+import type { FileItem, FilePreview, PublicSiteSettings, Space, StorageQuota, User } from "../../types";
 import { NoticeBar } from "../../components/NoticeBar";
 import { categoryMeta, extOf, fileIcon, fileTypeLabel, formatSize, formatTime, imageTypes, matchesCategory } from "../../fileUtils";
 import { AsyncTasksView } from "../async/AsyncTasksView";
+import { AssistantChatView } from "../assistant/AssistantChatView";
 import { KnowledgeBaseView } from "../knowledge-base/KnowledgeBaseView";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { SpacesView } from "../spaces/SpacesView";
@@ -46,10 +48,11 @@ import { SpacesView } from "../spaces/SpacesView";
 type ViewMode = "grid" | "list";
 
 function viewFromPath(path: string, isAdmin: boolean): MainView {
-  if (path === "/chat" || path.startsWith("/knowledge")) return "knowledge";
+  if (path === "/chat" || path.startsWith("/assistant") || path.startsWith("/knowledge/chat")) return "assistant";
+  if (path.startsWith("/knowledge")) return "knowledge";
   if (path.startsWith("/spaces")) return "spaces";
   if (path.startsWith("/async")) return "async";
-  if (path.startsWith("/settings") && isAdmin) return "settings";
+  if ((path.startsWith("/settings") || path.startsWith("/admin/setting")) && isAdmin) return "settings";
   return "files";
 }
 
@@ -494,7 +497,7 @@ function Sidebar({
   effectiveView,
   category,
   isAdmin,
-  usedSize,
+  quota,
   onCategory,
   onView,
   onNotice
@@ -503,14 +506,13 @@ function Sidebar({
   effectiveView: MainView;
   category: Category;
   isAdmin: boolean;
-  usedSize: number;
+  quota: StorageQuota | null;
   onCategory: (category: Category) => void;
   onView: (view: MainView, path: string) => void;
   onNotice: (notice: Notice) => void;
 }) {
   const [filesOpen, setFilesOpen] = useState(true);
-  const quota = 10 * 1024 * 1024 * 1024;
-  const percent = Math.min(100, Math.max(5, (usedSize / quota) * 100));
+  const percent = Math.min(100, Math.max(0, quota?.usagePercent || 0));
   const fileChildren = categoryMeta.filter((item) => item.key !== "all");
 
   function unavailable(label: string) {
@@ -579,6 +581,10 @@ function Sidebar({
         </div>
 
         <div className="nav-group">
+          <button className={effectiveView === "assistant" ? "active" : ""} type="button" onClick={() => onView("assistant", "/assistant/chat")}>
+            <Sparkles size={18} />
+            AI Assistant
+          </button>
           <button className={effectiveView === "knowledge" ? "active" : ""} type="button" onClick={() => onView("knowledge", "/knowledge/dashboard")}>
             <BookOpen size={18} />
             Knowledge Base
@@ -588,7 +594,7 @@ function Sidebar({
             团队空间
           </button>
           {isAdmin && (
-            <button className={effectiveView === "settings" ? "active" : ""} type="button" onClick={() => onView("settings", "/settings")}>
+            <button className={effectiveView === "settings" ? "active" : ""} type="button" onClick={() => onView("settings", "/admin/setting")}>
               <Settings size={18} />
               管理面板
             </button>
@@ -599,13 +605,13 @@ function Sidebar({
       <div className="storage-card">
         <div>
           <strong>存储空间</strong>
-          <span>{Math.round(percent)}%</span>
+          <span>{quota ? `${Math.round(percent)}%` : "加载中"}</span>
         </div>
-        <div className="storage-bar">
+        <div className="storage-bar" role="progressbar" aria-label="存储空间使用率" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}>
           <span style={{ width: `${percent}%` }} />
         </div>
         <p>
-          {formatSize(usedSize)} / {formatSize(quota)}
+          {quota ? `${formatSize(quota.usedBytes)} / ${formatSize(quota.totalBytes)}` : "正在读取账户配额"}
         </p>
       </div>
     </aside>
@@ -617,12 +623,16 @@ export function DriveApp({
   publicSettings,
   path,
   onNavigate,
+  onNavigationGuardChange,
+  onSettingsSaved,
   onLogout
 }: {
   user: User;
   publicSettings: PublicSiteSettings | null;
   path: string;
   onNavigate: (path: string) => void;
+  onNavigationGuardChange: (guard: (() => boolean) | null) => void;
+  onSettingsSaved: () => Promise<void>;
   onLogout: () => void;
 }) {
   const isAdmin = user.role?.toUpperCase() === "ADMIN";
@@ -641,6 +651,7 @@ export function DriveApp({
   const [knowledgeFiles, setKnowledgeFiles] = useState<FileItem[]>([]);
   const [contextMenu, setContextMenu] = useState<{ item: FileItem; x: number; y: number } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [storageQuota, setStorageQuota] = useState<StorageQuota | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
   const parentId = crumbs[crumbs.length - 1]?.id ?? 0;
   const siteName = publicSettings?.siteName || "YL Cloud";
@@ -648,7 +659,9 @@ export function DriveApp({
   useEffect(() => {
     const next = viewFromPath(path, isAdmin);
     setMainView(next);
-    if (path === "/chat") onNavigate("/knowledge/chat");
+    if (path === "/chat" || path.startsWith("/knowledge/chat")) onNavigate("/assistant/chat");
+    if (path === "/settings" && isAdmin) onNavigate("/admin/setting");
+    if (path.startsWith("/admin") && !isAdmin) onNavigate("/files");
   }, [path, isAdmin]);
 
   const effectiveView = mainView;
@@ -662,8 +675,15 @@ export function DriveApp({
     });
   }, [files, category, query]);
 
-  const totalSize = useMemo(() => files.reduce((sum, item) => sum + (item.size || 0), 0), [files]);
   const batchFiles = filteredFiles.filter((item) => selectedIds.has(item.fileId) && !item.isDir);
+
+  async function loadStorageQuota() {
+    try {
+      setStorageQuota(await api.storageQuota());
+    } catch {
+      setStorageQuota(null);
+    }
+  }
 
   async function loadFiles(nextParentId = parentId, nextCategory = category) {
     setLoading(true);
@@ -679,6 +699,7 @@ export function DriveApp({
       setFiles([]);
     } finally {
       setLoading(false);
+      void loadStorageQuota();
     }
   }
 
@@ -873,49 +894,58 @@ export function DriveApp({
       : effectiveView === "async"
         ? "查看后台任务进度、阶段和结果。"
         : effectiveView === "knowledge"
-          ? "管理文档、索引任务、智能问答和检索分析。"
+          ? "管理知识文档、索引任务和检索分析。"
           : effectiveView === "spaces"
             ? "成员协作、版本管理和空间文件。"
             : "浏览、上传和管理你的云端文件。";
 
   return (
-    <main className="drive-shell">
+    <main className={`drive-shell ${effectiveView === "assistant" ? "assistant-mode" : ""}`}>
       <Sidebar
         category={category}
         effectiveView={effectiveView}
         isAdmin={isAdmin}
         siteName={siteName}
-        usedSize={totalSize}
+        quota={storageQuota}
         onCategory={(next) => void switchCategory(next)}
         onNotice={showNotice}
         onView={switchView}
       />
 
-      <section className="content">
-        <header className="topbar">
-          <div>
-            <h1>{topbarTitle}</h1>
-            <p>{topbarDescription}</p>
-          </div>
-          <div className="topbar-right">
-            {effectiveView === "files" && (
-              <label className="search-box">
-                <Search size={18} />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件或文件夹" />
-              </label>
-            )}
-            <div className="user-chip">
-              <UserRound size={18} />
-              <span>{user.nickname || user.username}</span>
+      <section className={`content ${effectiveView === "assistant" ? "assistant-content" : ""}`}>
+        {effectiveView !== "assistant" && (
+          <header className="topbar">
+            <div>
+              <h1>{topbarTitle}</h1>
+              <p>{topbarDescription}</p>
             </div>
-            <button className="icon-button" type="button" onClick={logout} title="退出登录" aria-label="退出登录">
-              <LogOut size={18} />
-            </button>
-          </div>
-        </header>
+            <div className="topbar-right">
+              {effectiveView === "files" && (
+                <label className="search-box">
+                  <Search size={18} />
+                  <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件或文件夹" />
+                </label>
+              )}
+              <div className="user-chip">
+                <UserRound size={18} />
+                <span>{user.nickname || user.username}</span>
+              </div>
+              <button className="icon-button" type="button" onClick={logout} title="退出登录" aria-label="退出登录">
+                <LogOut size={18} />
+              </button>
+            </div>
+          </header>
+        )}
 
-        {effectiveView === "settings" ? (
-          <SettingsPanel onNotice={showNotice} />
+        {effectiveView === "assistant" ? (
+          <AssistantChatView
+            userName={user.nickname || user.username}
+            onLogout={logout}
+            onNavigate={onNavigate}
+            showNotice={showNotice}
+          />
+        ) : effectiveView === "settings" ? (
+          <SettingsPanel onNotice={showNotice} onNavigationGuardChange={onNavigationGuardChange} onSaved={onSettingsSaved} />
         ) : effectiveView === "knowledge" ? (
           <KnowledgeBaseView path={path} onNavigate={onNavigate} showNotice={showNotice} />
         ) : effectiveView === "async" ? (

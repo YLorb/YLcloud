@@ -103,6 +103,7 @@ public class SpaceRagService {
     private final RagTaskExecutorService ragTaskExecutorService;
     private final KnowledgePipelineService knowledgePipelineService;
     private final KnowledgePipelineExecutorService knowledgePipelineExecutorService;
+    private final SiteSettingService siteSettingService;
 
     /**
      * 初始化 SpaceRagService 对象。
@@ -145,7 +146,8 @@ public class SpaceRagService {
                            QueryRewriteService queryRewriteService,
                            RagTaskExecutorService ragTaskExecutorService,
                            KnowledgePipelineService knowledgePipelineService,
-                           KnowledgePipelineExecutorService knowledgePipelineExecutorService) {
+                           KnowledgePipelineExecutorService knowledgePipelineExecutorService,
+                           SiteSettingService siteSettingService) {
         this.spaceRagMapper = spaceRagMapper;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
         this.fileRagChunkMapper = fileRagChunkMapper;
@@ -167,6 +169,7 @@ public class SpaceRagService {
         this.ragTaskExecutorService = ragTaskExecutorService;
         this.knowledgePipelineService = knowledgePipelineService;
         this.knowledgePipelineExecutorService = knowledgePipelineExecutorService;
+        this.siteSettingService = siteSettingService;
     }
 
     /**
@@ -231,6 +234,9 @@ public class SpaceRagService {
     @Transactional
     public SpaceRagQueryVO query(Long spaceId, SpaceRagQueryDTO dto, Long userId) {
         spacePermissionService.requireMember(spaceId,userId);
+        if(!Boolean.TRUE.equals(siteSettingService.getBoolean(SiteSettingService.LLM_ENABLED,true))) {
+            throw new BaseException("管理员已停用 AI 问答");
+        }
         SpaceRagConfig config = requireConfig(spaceId);
         if(!StatusConstant.ENABLE.equals(config.getEnabled())) {
             throw new BaseException("当前空间未启用 RAG");
@@ -240,13 +246,16 @@ public class SpaceRagService {
         List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
         RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config);
         String answer = chatResult.getAnswer();
+        boolean noAnswer = answer == null || answer.isBlank() || answer.contains("无法从当前知识库回答");
         List<Long> hitChunkIds = new ArrayList<>();
         List<String> contexts = new ArrayList<>();
         StringJoiner idJoiner = new StringJoiner(",");
-        for(FileRagChunk chunk : chunks) {
-            hitChunkIds.add(chunk.getId());
-            contexts.add(chunk.getContent());
-            idJoiner.add(String.valueOf(chunk.getId()));
+        if(!noAnswer) {
+            for(FileRagChunk chunk : chunks) {
+                hitChunkIds.add(chunk.getId());
+                contexts.add(chunk.getContent());
+                idJoiner.add(String.valueOf(chunk.getId()));
+            }
         }
         saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),
                 blankToCurrent(chatResult.getModelName(),config.getChatModel()),limit,safeTemperature(config.getTemperature()),
@@ -258,7 +267,7 @@ public class SpaceRagService {
         vo.setAnswer(answer);
         vo.setHitChunkIds(hitChunkIds);
         vo.setContexts(contexts);
-        vo.setCitations(buildCitations(spaceId,chunks));
+        vo.setCitations(noAnswer ? new ArrayList<>() : buildCitations(spaceId,chunks));
         return vo;
     }
 

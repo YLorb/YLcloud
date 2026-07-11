@@ -2,6 +2,7 @@ package com.ylcloud.controller;
 
 import com.ylcloud.DTO.KnowledgeChatMessageCreateDTO;
 import com.ylcloud.DTO.KnowledgeChatSessionCreateDTO;
+import com.ylcloud.DTO.KnowledgeChatSessionScopeUpdateDTO;
 import com.ylcloud.DTO.KnowledgeChatSessionUpdateDTO;
 import com.ylcloud.Result;
 import com.ylcloud.VO.KnowledgeChatMessageVO;
@@ -50,6 +51,12 @@ public class KnowledgeChatSessionController {
     public Result<KnowledgeChatSessionVO> updateTitle(@PathVariable Long sessionId,
                                                       @RequestBody @Valid KnowledgeChatSessionUpdateDTO dto) {
         return Result.success(sessionService.updateTitle(BaseContext.getCurrentId(),sessionId,dto));
+    }
+
+    @PutMapping("/{sessionId}/scope")
+    public Result<KnowledgeChatSessionVO> updateScope(@PathVariable Long sessionId,
+                                                      @RequestBody @Valid KnowledgeChatSessionScopeUpdateDTO dto) {
+        return Result.success(sessionService.updateScope(BaseContext.getCurrentId(),sessionId,dto));
     }
 
     @DeleteMapping("/{sessionId}")

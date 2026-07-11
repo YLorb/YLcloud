@@ -60,6 +60,9 @@ public class MultifileService {
     @Autowired
     private FileService fileService;
 
+    @Autowired
+    private SiteSettingService siteSettingService;
+
     /**
      * 初始化 initfile 相关逻辑。
      *
@@ -237,7 +240,7 @@ public class MultifileService {
         if(multifileDTO.getFileSize() == null || multifileDTO.getFileSize() <= 0) {
             throw new BaseException("文件大小不合法");
         }
-        if(multifileDTO.getFileSize() > maxFileSize) {
+        if(multifileDTO.getFileSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         if(multifileDTO.getFileMd5() == null || multifileDTO.getFileMd5().isBlank()) {

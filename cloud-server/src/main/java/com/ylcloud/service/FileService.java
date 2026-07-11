@@ -52,6 +52,8 @@ public class FileService {
     private LoginMapper loginMapper;
     @Autowired
     private MinioclientUtil minioclientUtil;
+    @Autowired
+    private SiteSettingService siteSettingService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -414,7 +416,7 @@ public class FileService {
         if(uploadFile == null || uploadFile.isEmpty()) {
             throw new BaseException("上传文件不能为空");
         }
-        if(uploadFile.getSize() > maxFileSize) {
+        if(uploadFile.getSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         requireSafeFileName(uploadFile.getOriginalFilename());

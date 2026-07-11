@@ -1,21 +1,18 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertCircle,
   BarChart3,
   BookOpen,
-  Bot,
   CheckCircle2,
   Database,
   FileSearch,
   FileText,
   FolderTree,
   Loader2,
-  MessageSquare,
   RefreshCw,
   RotateCcw,
   Search,
-  Send,
   Tags,
   X
 } from "lucide-react";
@@ -28,44 +25,26 @@ import type {
   KnowledgePipelineEvent,
   KnowledgePipelineTask,
   KnowledgeProfile,
-  RagCitation,
+  RagAnalyticsSummary,
+  RagConfigLog,
+  RagQueryLog,
   Space
 } from "../../types";
 import { formatTime } from "../../fileUtils";
 
-type KnowledgeSection = "dashboard" | "documents" | "pipeline" | "chat" | "analytics";
+type KnowledgeSection = "dashboard" | "documents" | "pipeline" | "analytics";
 type FilterMode = "all" | "review" | "failed" | "category" | "tag";
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  citations?: RagCitation[];
-};
-
-type ChatConversation = {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  spaceId?: number;
-  updatedAt: number;
-};
-
-const CHAT_STORAGE_KEY = "ylcloud_knowledge_chats";
 
 const sections: Array<{ key: KnowledgeSection; label: string; icon: React.ReactNode }> = [
   { key: "dashboard", label: "知识库概览", icon: <BarChart3 size={17} /> },
   { key: "documents", label: "文档管理", icon: <FileText size={17} /> },
   { key: "pipeline", label: "索引任务", icon: <Activity size={17} /> },
-  { key: "chat", label: "智能问答", icon: <Bot size={17} /> },
   { key: "analytics", label: "检索分析", icon: <FileSearch size={17} /> }
 ];
 
 function sectionFromPath(path: string): KnowledgeSection {
-  if (path === "/chat") return "chat";
   if (path.includes("/knowledge/documents")) return "documents";
   if (path.includes("/knowledge/pipeline")) return "pipeline";
-  if (path.includes("/knowledge/chat")) return "chat";
   if (path.includes("/knowledge/analytics")) return "analytics";
   return "dashboard";
 }
@@ -94,21 +73,6 @@ function taskStatusText(status?: string) {
   if (status === "FAILED") return "失败";
   if (status === "RUNNING") return "执行中";
   return "等待中";
-}
-
-function loadConversations(): ChatConversation[] {
-  const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as ChatConversation[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveConversations(items: ChatConversation[]) {
-  localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(items.slice(0, 30)));
 }
 
 function StatTile({ label, value, icon }: { label: string; value: string | number; icon: React.ReactNode }) {
@@ -485,190 +449,86 @@ function PipelineView({
   );
 }
 
-function ChatView({
-  spaces,
-  activeSpace,
-  conversations,
-  activeConversation,
-  input,
-  loading,
-  onNewChat,
-  onPickConversation,
-  onInput,
-  onSubmit,
-  onPickSpace
-}: {
-  spaces: Space[];
-  activeSpace: Space | null;
-  conversations: ChatConversation[];
-  activeConversation: ChatConversation;
-  input: string;
-  loading: boolean;
-  onNewChat: () => void;
-  onPickConversation: (id: string) => void;
-  onInput: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onPickSpace: (spaceId: number | null) => void;
-}) {
-  const hasMessages = activeConversation.messages.length > 0;
-
-  return (
-    <section className="kb-chat-page">
-      <aside className="kb-chat-sidebar">
-        <button className="primary-button full" type="button" onClick={onNewChat}>
-          <MessageSquare size={17} />
-          新对话
-        </button>
-        <label>
-          知识库范围
-          <select value={activeSpace?.id || ""} onChange={(event) => onPickSpace(event.target.value ? Number(event.target.value) : null)}>
-            <option value="">不选择</option>
-            {spaces.map((space) => (
-              <option key={space.id} value={space.id}>
-                {space.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="kb-chat-history">
-          <strong>最近</strong>
-          {conversations.map((conversation) => (
-            <button
-              className={conversation.id === activeConversation.id ? "active" : ""}
-              key={conversation.id}
-              type="button"
-              onClick={() => onPickConversation(conversation.id)}
-            >
-              {conversation.title}
-            </button>
-          ))}
-        </div>
-      </aside>
-
-      <div className={`kb-chat-canvas ${hasMessages ? "with-thread" : ""}`}>
-        {!hasMessages ? (
-          <div className="kb-chat-empty">
-            <h2>今天想查什么资料？</h2>
-            <p>{activeSpace ? `当前范围：${activeSpace.name}` : "选择一个知识库后，可以基于文档内容提问。"}</p>
-            <form className="kb-center-composer" onSubmit={onSubmit}>
-              <BookOpen size={20} />
-              <input value={input} onChange={(event) => onInput(event.target.value)} placeholder="向知识库提问" />
-              <span>{activeSpace?.name || "未选择"}</span>
-              <button type="submit" disabled={loading || !input.trim()} aria-label="发送">
-                {loading ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
-              </button>
-            </form>
-            <div className="kb-quick-actions">
-              <button type="button" onClick={() => onInput("总结当前知识库的核心内容")}>总结文档</button>
-              <button type="button" onClick={() => onInput("查找和这个问题相关的资料：")}>查找资料</button>
-              <button type="button" onClick={() => onInput("提取最近导入文档的要点")}>提取要点</button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="kb-message-thread">
-              {activeConversation.messages.map((message) => (
-                <article className={`kb-message ${message.role}`} key={message.id}>
-                  <div className="kb-message-avatar">{message.role === "user" ? "我" : "AI"}</div>
-                  <div>
-                    <p>{message.content}</p>
-                    {!!message.citations?.length && (
-                      <div className="citation-list">
-                        {message.citations.map((citation, index) => (
-                          <span key={`${citation.chunkId}-${index}`}>{citation.fileName || `引用 ${index + 1}`}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </article>
-              ))}
-              {loading && (
-                <article className="kb-message assistant">
-                  <div className="kb-message-avatar">AI</div>
-                  <div>
-                    <p>
-                      <Loader2 className="spin inline-spinner" size={16} />
-                      正在检索知识库
-                    </p>
-                  </div>
-                </article>
-              )}
-            </div>
-            <form className="kb-dock-composer" onSubmit={onSubmit}>
-              <BookOpen size={18} />
-              <input value={input} onChange={(event) => onInput(event.target.value)} placeholder="继续提问" />
-              <span>{activeSpace?.name || "未选择"}</span>
-              <button type="submit" disabled={loading || !input.trim()} aria-label="发送">
-                {loading ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
-              </button>
-            </form>
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
 function AnalyticsView({
-  dashboard,
-  documents,
-  tasks
+  summary,
+  queries,
+  noAnswers,
+  configLogs,
+  loading,
+  error
 }: {
-  dashboard: KnowledgeDashboard | null;
-  documents: KnowledgeDocument[];
-  tasks: KnowledgePipelineTask[];
+  summary: RagAnalyticsSummary | null;
+  queries: RagQueryLog[];
+  noAnswers: RagQueryLog[];
+  configLogs: RagConfigLog[];
+  loading: boolean;
+  error: string;
 }) {
-  const failedDocs = documents.filter((doc) => doc.profileStatus === "FAILED" || doc.profileStatus === "INVALID");
-  const lowQualityDocs = documents.filter((doc) => Number(doc.qualityScore || 0) > 0 && Number(doc.qualityScore || 0) < 60);
-
   return (
     <div className="kb-page">
       <div className="kb-stat-grid">
-        <StatTile label="分类覆盖" value={dashboard?.categoryCount ?? 0} icon={<FolderTree size={18} />} />
-        <StatTile label="标签覆盖" value={dashboard?.tagCount ?? 0} icon={<Tags size={18} />} />
-        <StatTile label="低质量文档" value={lowQualityDocs.length} icon={<AlertCircle size={18} />} />
-        <StatTile label="失败文档" value={failedDocs.length} icon={<RotateCcw size={18} />} />
+        <StatTile label="累计查询" value={summary?.queryCount ?? 0} icon={<FileSearch size={18} />} />
+        <StatTile label="成功回答" value={summary?.successCount ?? 0} icon={<CheckCircle2 size={18} />} />
+        <StatTile label="无答案" value={summary?.noAnswerCount ?? 0} icon={<AlertCircle size={18} />} />
+        <StatTile label="引用覆盖率" value={`${Math.round((summary?.citationCoverage || 0) * 100)}%`} icon={<BookOpen size={18} />} />
       </div>
-      <section className="kb-panel">
-        <div className="kb-panel-head">
-          <h3>
-            <FileSearch size={18} />
-            检索分析
-          </h3>
-          <span>基于现有 dashboard 和文档状态聚合</span>
-        </div>
-        <div className="kb-analysis-grid">
-          <div>
-            <strong>待补充能力</strong>
-            <p>当前后端尚未提供查询日志、低分查询、无答案问题、引用覆盖率等专用分析接口。</p>
-          </div>
-          <div>
-            <strong>可用信号</strong>
-            <p>可以先通过文档质量、失败任务、分类和标签覆盖度判断知识库健康度。</p>
-          </div>
-          <div>
-            <strong>建议动作</strong>
-            <p>优先处理失败画像、低质量文档和待审核内容，再观察问答命中质量。</p>
-          </div>
-        </div>
-      </section>
-      <section className="kb-panel">
-        <div className="kb-panel-head">
-          <h3>异常项</h3>
-          <span>{failedDocs.length + tasks.filter((task) => task.taskStatus === "FAILED").length} 条</span>
-        </div>
-        <div className="kb-task-list">
-          {failedDocs.slice(0, 8).map((doc) => (
-            <div className="kb-task-row" key={doc.documentId}>
-              <span className="knowledge-status-dot failed" />
-              <strong>{doc.fileName}</strong>
-              <small>{doc.errorMessage || doc.reviewReason || "画像异常"}</small>
-              <b>{statusText(doc.profileStatus)}</b>
+      {loading && <div className="kb-panel muted-line">正在读取检索日志...</div>}
+      {error && <div className="form-error">{error}</div>}
+      {!loading && !error && (
+        <div className="kb-analytics-layout">
+          <section className="kb-panel">
+            <div className="kb-panel-head">
+              <h3><FileSearch size={18} />最近查询</h3>
+              <span>{queries.length} 条</span>
             </div>
-          ))}
-          {!failedDocs.length && <p className="muted-line">暂无异常文档</p>}
+            <div className="kb-query-log-list">
+              {queries.slice(0, 20).map((query) => (
+                <article key={query.id}>
+                  <div>
+                    <strong>{query.question}</strong>
+                    <span>{formatTime(query.createtime)} · {query.modelName || "默认模型"}</span>
+                  </div>
+                  <p>{query.answer || query.errorMessage || "未生成回答"}</p>
+                  <small>{query.citationCount || 0} 条引用 · Top K {query.topK ?? "-"}</small>
+                </article>
+              ))}
+              {!queries.length && <p className="muted-line">还没有查询记录</p>}
+            </div>
+          </section>
+          <div className="kb-analytics-side">
+            <section className="kb-panel">
+              <div className="kb-panel-head">
+                <h3><AlertCircle size={18} />无答案问题</h3>
+                <span>{noAnswers.length} 条</span>
+              </div>
+              <div className="kb-compact-log-list">
+                {noAnswers.slice(0, 10).map((query) => (
+                  <div key={query.id}>
+                    <strong>{query.question}</strong>
+                    <span>{formatTime(query.createtime)}</span>
+                  </div>
+                ))}
+                {!noAnswers.length && <p className="muted-line">当前没有无答案记录</p>}
+              </div>
+            </section>
+            <section className="kb-panel">
+              <div className="kb-panel-head">
+                <h3><Activity size={18} />配置变更</h3>
+                <span>{configLogs.length} 条</span>
+              </div>
+              <div className="kb-compact-log-list">
+                {configLogs.slice(0, 10).map((log) => (
+                  <div key={log.id}>
+                    <strong>{log.changedFields || "RAG 配置"}</strong>
+                    <span>{formatTime(log.createtime)} · 操作人 {log.operatorId || "-"}</span>
+                  </div>
+                ))}
+                {!configLogs.length && <p className="muted-line">还没有配置变更</p>}
+              </div>
+            </section>
+          </div>
         </div>
-      </section>
+      )}
     </div>
   );
 }
@@ -694,29 +554,31 @@ export function KnowledgeBaseView({
   const [facetValue, setFacetValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [detailProfile, setDetailProfile] = useState<KnowledgeProfile | null>(null);
-  const [conversations, setConversations] = useState<ChatConversation[]>(() => loadConversations());
-  const [activeConversationId, setActiveConversationId] = useState("");
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
+  const [analyticsSummary, setAnalyticsSummary] = useState<RagAnalyticsSummary | null>(null);
+  const [analyticsQueries, setAnalyticsQueries] = useState<RagQueryLog[]>([]);
+  const [analyticsNoAnswers, setAnalyticsNoAnswers] = useState<RagQueryLog[]>([]);
+  const [analyticsConfigLogs, setAnalyticsConfigLogs] = useState<RagConfigLog[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState("");
 
   const activeSpace = useMemo(() => spaces.find((space) => space.id === spaceId) || null, [spaces, spaceId]);
-
-  const activeConversation = useMemo(() => {
-    const existing = conversations.find((item) => item.id === activeConversationId);
-    if (existing) return existing;
-    return {
-      id: "draft",
-      title: "新对话",
-      messages: [],
-      spaceId: spaceId || undefined,
-      updatedAt: Date.now()
-    };
-  }, [activeConversationId, conversations, spaceId]);
+  const canViewAnalytics = activeSpace?.role === "OWNER" || activeSpace?.role === "ADMIN";
+  const visibleSections = useMemo(
+    () => sections.filter((item) => item.key !== "analytics" || canViewAnalytics),
+    [canViewAnalytics]
+  );
 
   useEffect(() => {
     const next = sectionFromPath(path);
     setSection(next);
   }, [path]);
+
+  useEffect(() => {
+    if (section !== "analytics" || !activeSpace || canViewAnalytics) return;
+    setSection("dashboard");
+    onNavigate("/knowledge/dashboard");
+    showNotice({ type: "info", text: "只有知识库所有者或管理员可以查看检索分析" });
+  }, [section, activeSpace?.id, activeSpace?.role, canViewAnalytics]);
 
   useEffect(() => {
     api.listSpaces()
@@ -766,9 +628,38 @@ export function KnowledgeBaseView({
     void loadKnowledge(spaceId);
   }, [spaceId]);
 
+  async function loadAnalytics(targetSpaceId = spaceId) {
+    if (!targetSpaceId) {
+      setAnalyticsSummary(null);
+      setAnalyticsQueries([]);
+      setAnalyticsNoAnswers([]);
+      setAnalyticsConfigLogs([]);
+      setAnalyticsError("请选择一个知识库查看检索分析");
+      return;
+    }
+    setAnalyticsLoading(true);
+    setAnalyticsError("");
+    try {
+      const [summary, queries, noAnswers, configLogs] = await Promise.all([
+        api.ragAnalyticsSummary(targetSpaceId),
+        api.ragAnalyticsQueries(targetSpaceId, 50),
+        api.ragAnalyticsNoAnswer(targetSpaceId, 50),
+        api.ragAnalyticsConfigLogs(targetSpaceId, 50)
+      ]);
+      setAnalyticsSummary(summary);
+      setAnalyticsQueries(queries || []);
+      setAnalyticsNoAnswers(noAnswers || []);
+      setAnalyticsConfigLogs(configLogs || []);
+    } catch (err) {
+      setAnalyticsError(err instanceof Error ? err.message : "检索分析加载失败");
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
   useEffect(() => {
-    saveConversations(conversations);
-  }, [conversations]);
+    if (section === "analytics" && canViewAnalytics) void loadAnalytics(spaceId);
+  }, [section, spaceId, canViewAnalytics]);
 
   function navigateSection(next: KnowledgeSection) {
     setSection(next);
@@ -808,105 +699,12 @@ export function KnowledgeBaseView({
     }
   }
 
-  function newChat() {
-    const conversation: ChatConversation = {
-      id: `chat-${Date.now()}`,
-      title: "新对话",
-      messages: [],
-      spaceId: spaceId || undefined,
-      updatedAt: Date.now()
-    };
-    setConversations((current) => [conversation, ...current]);
-    setActiveConversationId(conversation.id);
-    setChatInput("");
-  }
-
-  function updateConversation(next: ChatConversation) {
-    setConversations((current) => {
-      const rest = current.filter((item) => item.id !== next.id);
-      return [next, ...rest];
-    });
-    setActiveConversationId(next.id);
-  }
-
-  async function submitChat(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const question = chatInput.trim();
-    if (!question) return;
-
-    const base =
-      activeConversation.id === "draft"
-        ? {
-            ...activeConversation,
-            id: `chat-${Date.now()}`,
-            title: question.slice(0, 24),
-            spaceId: spaceId || undefined
-          }
-        : activeConversation;
-    const userMessage: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: question };
-    const pending = {
-      ...base,
-      title: base.title === "新对话" ? question.slice(0, 24) : base.title,
-      messages: [...base.messages, userMessage],
-      updatedAt: Date.now()
-    };
-    updateConversation(pending);
-    setChatInput("");
-
-    if (!spaceId) {
-      updateConversation({
-        ...pending,
-        messages: [
-          ...pending.messages,
-          {
-            id: `a-${Date.now()}`,
-            role: "assistant",
-            content: "当前未选择知识库。请选择一个 Knowledge Base 范围后再提问。"
-          }
-        ],
-        updatedAt: Date.now()
-      });
-      return;
-    }
-
-    setChatLoading(true);
-    try {
-      const history = pending.messages
-        .slice(-8)
-        .filter((message) => message.content.trim())
-        .map((message) => ({ role: message.role, content: message.content.trim() }));
-      const answer = await api.queryRag(spaceId, question, undefined, history);
-      updateConversation({
-        ...pending,
-        messages: [
-          ...pending.messages,
-          {
-            id: `a-${Date.now()}`,
-            role: "assistant",
-            content: answer.answer || "暂无回答",
-            citations: answer.citations || []
-          }
-        ],
-        updatedAt: Date.now()
-      });
-    } catch (err) {
-      showNotice({ type: "error", text: err instanceof Error ? err.message : "知识库问答失败" });
-      updateConversation({
-        ...pending,
-        messages: [...pending.messages, { id: `a-${Date.now()}`, role: "assistant", content: "这次查询失败了，请稍后重试。" }],
-        updatedAt: Date.now()
-      });
-    } finally {
-      setChatLoading(false);
-    }
-  }
-
   return (
     <section className="kb-shell">
       <header className="kb-header">
         <div>
           <p>Knowledge Base</p>
-          <h2>{sections.find((item) => item.key === section)?.label || "知识库"}</h2>
+          <h2>{visibleSections.find((item) => item.key === section)?.label || "知识库"}</h2>
         </div>
         <div className="kb-header-actions">
           <select value={spaceId || ""} onChange={(event) => setSpaceId(event.target.value ? Number(event.target.value) : null)}>
@@ -917,7 +715,12 @@ export function KnowledgeBaseView({
               </option>
             ))}
           </select>
-          <button className="icon-button" type="button" onClick={() => void loadKnowledge()} title="刷新知识库">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => section === "analytics" ? void loadAnalytics() : void loadKnowledge()}
+            title="刷新知识库"
+          >
             <RefreshCw size={18} />
           </button>
         </div>
@@ -925,7 +728,7 @@ export function KnowledgeBaseView({
 
       <div className="kb-workspace">
         <nav className="kb-subnav" aria-label="Knowledge Base navigation">
-          {sections.map((item) => (
+          {visibleSections.map((item) => (
             <button className={section === item.key ? "active" : ""} key={item.key} type="button" onClick={() => navigateSection(item.key)}>
               {item.icon}
               {item.label}
@@ -958,22 +761,16 @@ export function KnowledgeBaseView({
               onSelectTask={(task) => void pickTask(task)}
             />
           )}
-          {section === "chat" && (
-            <ChatView
-              activeConversation={activeConversation}
-              activeSpace={activeSpace}
-              conversations={conversations}
-              input={chatInput}
-              loading={chatLoading}
-              spaces={spaces}
-              onInput={setChatInput}
-              onNewChat={newChat}
-              onPickConversation={setActiveConversationId}
-              onPickSpace={setSpaceId}
-              onSubmit={(event) => void submitChat(event)}
+          {section === "analytics" && canViewAnalytics && (
+            <AnalyticsView
+              summary={analyticsSummary}
+              queries={analyticsQueries}
+              noAnswers={analyticsNoAnswers}
+              configLogs={analyticsConfigLogs}
+              loading={analyticsLoading}
+              error={analyticsError}
             />
           )}
-          {section === "analytics" && <AnalyticsView dashboard={dashboard} documents={documents} tasks={tasks} />}
         </div>
       </div>
 

@@ -48,6 +48,7 @@ public class FileVersionService {
     private final SpaceFileService spaceFileService;
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
+    private final SiteSettingService siteSettingService;
 
     /**
      * 初始化 FileVersionService 对象。
@@ -66,7 +67,8 @@ public class FileVersionService {
                               SpacePermissionService spacePermissionService,
                               SpaceFileService spaceFileService,
                               SpaceRagService spaceRagService,
-                              MinioclientUtil minioclientUtil) {
+                              MinioclientUtil minioclientUtil,
+                              SiteSettingService siteSettingService) {
         this.fileVersionMapper = fileVersionMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceFileMapper = spaceFileMapper;
@@ -74,6 +76,7 @@ public class FileVersionService {
         this.spaceFileService = spaceFileService;
         this.spaceRagService = spaceRagService;
         this.minioclientUtil = minioclientUtil;
+        this.siteSettingService = siteSettingService;
     }
 
     /**
@@ -453,7 +456,7 @@ public class FileVersionService {
     }
 
     private void validateVersionUploadFile(MultipartFile uploadFile, String fileName) {
-        if(uploadFile.getSize() > maxFileSize) {
+        if(uploadFile.getSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         if(fileName.isEmpty() || fileName.length() > 255) {

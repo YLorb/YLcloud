@@ -49,4 +49,5 @@ cloud-frontend/*.err.log
 cloud-frontend/*.tsbuildinfo
 cloud-frontend/qa-*.png
 cloud-frontend/edge-profile*/
+cloud-frontend/.playwright-cli/
 .tmp_frontend_reference/

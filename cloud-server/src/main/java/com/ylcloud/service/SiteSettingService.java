@@ -10,17 +10,30 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.net.URI;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class SiteSettingService {
+    private static final Set<String> REQUIRED_KEYS = Set.of(
+            "site.name","site.publicUrl","llm.provider","llm.model"
+    );
+    private static final Set<String> HTTP_URL_KEYS = Set.of(
+            "site.logoUrl","site.publicUrl","share.publicBaseUrl","llm.baseUrl",
+            "rag.modelServiceBaseUrl","rag.parserServiceBaseUrl"
+    );
+
     public static final String SITE_NAME = "site.name";
     public static final String SITE_DESCRIPTION = "site.description";
     public static final String SITE_LOGO_URL = "site.logoUrl";
     public static final String SITE_PUBLIC_URL = "site.publicUrl";
     public static final String SITE_ALLOW_REGISTER = "site.allowRegister";
+    public static final String UPLOAD_MAX_FILE_SIZE = "upload.maxFileSize";
+    public static final String LLM_ENABLED = "llm.enabled";
     public static final String RAG_MODEL_SERVICE_BASE_URL = "rag.modelServiceBaseUrl";
 
     private final SiteSettingMapper siteSettingMapper;
@@ -53,7 +66,10 @@ public class SiteSettingService {
             if(isSecret(setting) && (nextValue == null || nextValue.isBlank())) {
                 continue;
             }
-            siteSettingMapper.updateValue(item.getKey(),nextValue == null ? "" : nextValue);
+            String normalizedValue = normalizeAndValidate(setting,nextValue);
+            if(siteSettingMapper.updateValue(item.getKey(),normalizedValue) == 0) {
+                throw new BaseException("配置项保存失败：" + item.getKey());
+            }
         }
     }
 
@@ -73,6 +89,69 @@ public class SiteSettingService {
         return "true".equalsIgnoreCase(value) || "1".equals(value) || "yes".equalsIgnoreCase(value);
     }
 
+    public Long getLong(String key,Long fallback) {
+        String value = getString(key,null);
+        if(value == null) {
+            return fallback;
+        }
+        try {
+            long parsed = Long.parseLong(value.trim());
+            return parsed >= 0 ? parsed : fallback;
+        } catch(NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private String normalizeAndValidate(SiteSetting setting, String value) {
+        String raw = value == null ? "" : value;
+        String normalized = raw.trim();
+        String key = setting.getSettingKey();
+        if(REQUIRED_KEYS.contains(key) && normalized.isEmpty()) {
+            throw new BaseException("配置项不能为空：" + key);
+        }
+        if(HTTP_URL_KEYS.contains(key) && !normalized.isEmpty()) {
+            validateHttpUrl(key,normalized);
+        }
+
+        String valueType = setting.getValueType() == null ? "string" : setting.getValueType().toLowerCase(Locale.ROOT);
+        if("boolean".equals(valueType)) {
+            if(Set.of("true","1","yes").contains(normalized.toLowerCase(Locale.ROOT))) {
+                return "true";
+            }
+            if(Set.of("false","0","no").contains(normalized.toLowerCase(Locale.ROOT))) {
+                return "false";
+            }
+            throw new BaseException("布尔配置值不合法：" + key);
+        }
+        if("number".equals(valueType)) {
+            try {
+                BigDecimal number = new BigDecimal(normalized);
+                if(number.signum() < 0) {
+                    throw new BaseException("数字配置不能小于 0：" + key);
+                }
+                if(UPLOAD_MAX_FILE_SIZE.equals(key) && (number.scale() > 0 || number.longValueExact() <= 0)) {
+                    throw new BaseException("单文件大小上限必须是正整数");
+                }
+            } catch(ArithmeticException | NumberFormatException exception) {
+                throw new BaseException("数字配置值不合法：" + key);
+            }
+            return normalized;
+        }
+        return isSecret(setting) ? raw : normalized;
+    }
+
+    private void validateHttpUrl(String key, String value) {
+        try {
+            URI uri = URI.create(value);
+            String scheme = uri.getScheme();
+            if(uri.getHost() == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+                throw new IllegalArgumentException("unsupported url");
+            }
+        } catch(IllegalArgumentException exception) {
+            throw new BaseException("URL 配置值不合法：" + key);
+        }
+    }
+
     private SiteSettingVO toVO(SiteSetting setting) {
         boolean secret = isSecret(setting);
         return SiteSettingVO.builder()
@@ -85,6 +164,8 @@ public class SiteSettingService {
                 .description(setting.getDescription())
                 .secret(secret)
                 .editable(setting.getEditable() != null && setting.getEditable() == 1)
+                .createTime(setting.getCreateTime())
+                .updateTime(setting.getUpdateTime())
                 .build();
     }
 
