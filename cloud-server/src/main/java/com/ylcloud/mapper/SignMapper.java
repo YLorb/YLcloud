@@ -28,6 +28,13 @@ public interface SignMapper {
     int countAll();
 
     /**
+     * Serialize all user-creation paths before deciding who is the first user.
+     * The lock is held by the surrounding database transaction.
+     */
+    @Select("select guard_id from user_registration_guard where guard_id = 1 for update")
+    int lockRegistrationGuard();
+
+    /**
      * 更新 updateAll 相关逻辑。
      * @return 影响行数
      */
