@@ -55,6 +55,26 @@ cloud-frontend/edge-profile*/
 cloud-frontend/.playwright-cli/
 .tmp_frontend_reference/
 
+### Local test artifacts ###
+**/test-results/
+**/test-output/
+**/test-reports/
+**/coverage/
+**/htmlcov/
+**/.pytest_cache/
+*.coverage
+*.test.tmp
+*.test-output
+*.test-results
+
+### Local logs ###
+*.log
+*.err.log
+*.out.log
+
+### Local PowerShell helpers ###
+*.ps1
+
 ### Local shortcuts ###
 /Obsidian.lnk
 
