@@ -20,7 +20,7 @@ public class OcrStructuredParser {
 
     public ParsedDocument parse(SpaceFile spaceFile, File file) {
         RagProperties.Extraction extraction = ragProperties.getExtraction();
-        String parserVersion = extraction == null || extraction.getParserVersion() == null ? "structured-v1" : extraction.getParserVersion();
+        String parserVersion = extraction == null || extraction.getParserVersion() == null ? "structured-v2" : extraction.getParserVersion();
         if(extraction == null || !Boolean.TRUE.equals(extraction.getOcrEnabled())) {
             return ParsedDocument.failed(fileUuid(spaceFile,file),fileHash(file),"ocr-layout",parserVersion,"OCR parser is disabled");
         }

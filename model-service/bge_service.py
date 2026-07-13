@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from FlagEmbedding import BGEM3FlagModel, FlagReranker
+from secret_utils import read_secret
 
 
 app = FastAPI(title="ylcloud BGE model service")
@@ -21,13 +22,13 @@ GENERATE_MODEL_NAME = os.getenv("GENERATE_MODEL_NAME", "doubao-seed-2-0-pro-2602
 MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR")
 USE_FP16 = os.getenv("USE_FP16", "true").lower() == "true"
 OPENAI_COMPATIBLE_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
-OPENAI_COMPATIBLE_API_KEY = os.getenv("OPENAI_COMPATIBLE_API_KEY")
+OPENAI_COMPATIBLE_API_KEY = read_secret("OPENAI_COMPATIBLE_API_KEY")
 LLM_API_STYLE = os.getenv("LLM_API_STYLE", "responses").lower()
 CHAT_BASE_URL = os.getenv("CHAT_BASE_URL") or os.getenv("LLM_BASE_URL") or OPENAI_COMPATIBLE_BASE_URL
-CHAT_API_KEY = os.getenv("CHAT_API_KEY") or os.getenv("LLM_API_KEY") or OPENAI_COMPATIBLE_API_KEY
+CHAT_API_KEY = read_secret("CHAT_API_KEY", "LLM_API_KEY") or OPENAI_COMPATIBLE_API_KEY
 CHAT_API_STYLE = os.getenv("CHAT_API_STYLE") or os.getenv("LLM_CHAT_API_STYLE") or os.getenv("LLM_API_STYLE", "chat_completions")
 GENERATE_BASE_URL = os.getenv("GENERATE_BASE_URL") or os.getenv("QUERY_REWRITE_BASE_URL") or OPENAI_COMPATIBLE_BASE_URL
-GENERATE_API_KEY = os.getenv("GENERATE_API_KEY") or os.getenv("QUERY_REWRITE_API_KEY") or OPENAI_COMPATIBLE_API_KEY
+GENERATE_API_KEY = read_secret("GENERATE_API_KEY", "QUERY_REWRITE_API_KEY") or OPENAI_COMPATIBLE_API_KEY
 GENERATE_API_STYLE = os.getenv("GENERATE_API_STYLE") or os.getenv("QUERY_REWRITE_API_STYLE") or os.getenv("LLM_API_STYLE", "responses")
 OFFLINE_FALLBACK = os.getenv("OFFLINE_FALLBACK", "false").lower() == "true"
 FALLBACK_DIMENSION = int(os.getenv("FALLBACK_DIMENSION", "512"))

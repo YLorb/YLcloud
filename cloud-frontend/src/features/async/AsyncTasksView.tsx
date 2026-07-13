@@ -81,7 +81,10 @@ function normalizeTask(task: AsyncTask, index: number): NormalizedAsyncTask {
     createTime: task.createTime || task.createdAt,
     updateTime: task.updateTime || task.updatedAt,
     raw: task,
-    source: "async"
+    source: task.source === "knowledge" ? "knowledge" : "async",
+    spaceId: task.spaceId,
+    taskId: typeof task.taskId === "number" ? task.taskId : undefined,
+    retryable: task.retryable
   };
 }
 
@@ -232,14 +235,8 @@ export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) =>
     if (!silent) setLoading(true);
     setError("");
     try {
-      const [payload, knowledgeTasks] = await Promise.all([
-        api.listAsyncTasks(),
-        spaceId ? api.listKnowledgeTasks(Number(spaceId)) : Promise.resolve([] as KnowledgePipelineTask[])
-      ]);
-      setTasks([
-        ...pickTasks(payload).map(normalizeTask),
-        ...(knowledgeTasks || []).map(normalizeKnowledgeTask)
-      ]);
+      const payload = await api.listAsyncTasks(spaceId ? Number(spaceId) : undefined);
+      setTasks(pickTasks(payload).map(normalizeTask));
     } catch (err) {
       const message = err instanceof Error ? err.message : "异步任务加载失败";
       if (!silent) {
@@ -380,7 +377,7 @@ export function AsyncTasksView({ showNotice }: { showNotice: (notice: Notice) =>
                   <Clock3 size={32} />
                 </div>
                 <h3>暂无异步任务</h3>
-                <p>提交解压、索引或其他后台任务后，会在这里展示执行进度。</p>
+                <p>提交 RAG 索引、重建或知识流水线任务后，会在这里展示执行进度。</p>
               </div>
             )}
           </div>

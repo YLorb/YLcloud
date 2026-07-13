@@ -137,7 +137,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ settings })
     }),
-  listAsyncTasks: () => request<AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }>("/api/async"),
+  listAsyncTasks: (spaceId?: number) => request<AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }>(
+    `/api/async${spaceId ? `?spaceId=${spaceId}` : ""}`
+  ),
   currentUser: () => request<number>("/api/user/current"),
   storageQuota: () => request<StorageQuota>("/api/storage/quota"),
   listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`),

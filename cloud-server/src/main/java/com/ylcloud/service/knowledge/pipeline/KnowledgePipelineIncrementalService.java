@@ -18,7 +18,7 @@ public class KnowledgePipelineIncrementalService {
 
     public String parserVersion() {
         return ragProperties == null || ragProperties.getExtraction() == null
-                ? "structured-v1"
+                ? "structured-v2"
                 : ragProperties.getExtraction().getParserVersion();
     }
 
@@ -26,6 +26,8 @@ public class KnowledgePipelineIncrementalService {
                                                        SpaceKnowledgeDocumentProfile profile,
                                                        int sourceChunkCount,
                                                        int sourceCharacterCount,
+                                                       String sourceChunkIds,
+                                                       String sourceSnapshotSignature,
                                                        boolean forceRebuild) {
         if(forceRebuild) {
             return decision(SpaceConstant.KNOWLEDGE_INCREMENTAL_FORCE_REBUILD,null,null,"manual force rebuild");
@@ -47,16 +49,18 @@ public class KnowledgePipelineIncrementalService {
             return decision(SpaceConstant.KNOWLEDGE_INCREMENTAL_REBUILD_PROFILE,null,null,"profile schema changed");
         }
         if(!equalsInt(sourceChunkCount,profile.getSourceChunkCount())
-                || !equalsInt(sourceCharacterCount,profile.getSourceCharacterCount())) {
-            return decision(SpaceConstant.KNOWLEDGE_INCREMENTAL_REBUILD_RETRIEVAL_ONLY,
-                    SpaceConstant.KNOWLEDGE_PIPELINE_BUILD_RETRIEVAL_ENHANCEMENT,
-                    SpaceConstant.KNOWLEDGE_TERMINAL_RETRIEVAL_ONLY,
-                    "document hash unchanged but chunk metrics changed");
+                || !equalsInt(sourceCharacterCount,profile.getSourceCharacterCount())
+                || !equalsValue(sourceChunkIds,profile.getSourceChunkIds())
+                || !equalsValue(sourceSnapshotSignature,profile.getSourceSnapshotSignature())) {
+            return decision(SpaceConstant.KNOWLEDGE_INCREMENTAL_SYNC_RETRIEVAL_SOURCE,
+                    SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,
+                    SpaceConstant.KNOWLEDGE_TERMINAL_SOURCE_SNAPSHOT_SYNCED,
+                    "document hash unchanged but retrieval source snapshot changed");
         }
         return decision(SpaceConstant.KNOWLEDGE_INCREMENTAL_SKIP_PROFILE,
                 SpaceConstant.KNOWLEDGE_PIPELINE_CHECK_INCREMENTAL,
                 SpaceConstant.KNOWLEDGE_TERMINAL_UNCHANGED_DOCUMENT,
-                "file hash, parser version, schema version, and source metrics unchanged");
+                "file hash, parser version, schema version, and retrieval source snapshot unchanged");
     }
 
     private KnowledgePipelineIncrementalDecision decision(String action, String terminalStage, String terminalReason, String detail) {

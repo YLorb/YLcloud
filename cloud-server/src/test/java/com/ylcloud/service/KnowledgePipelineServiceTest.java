@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class KnowledgePipelineServiceTest {
     private final KnowledgePipelineService service = new KnowledgePipelineService(
-            null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,new ObjectMapper()
+            null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,new ObjectMapper()
     );
 
     @Test

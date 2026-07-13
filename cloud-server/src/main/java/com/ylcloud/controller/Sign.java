@@ -34,7 +34,7 @@ public class Sign {
      */
     @PostMapping("/sign")
     public Result sign(@RequestBody @Valid UserRegisterDTO userRegisterDTO) {
-        log.info("用户尝试注册：{}", userRegisterDTO);
+        log.info("用户尝试注册：username={}", userRegisterDTO.getUsername());
         signService.signup(userRegisterDTO);
         return Result.success();
     }

@@ -31,6 +31,8 @@ public class SpaceKnowledgeDocumentProfile {
     private String sourceChunkIds;
     private Integer sourceChunkCount;
     private Integer sourceCharacterCount;
+    private String sourceSnapshotSignature;
+    private Long sourceSnapshotRevision;
     private Boolean schemaValid;
     private Integer repairAttempt;
     private String repairReason;

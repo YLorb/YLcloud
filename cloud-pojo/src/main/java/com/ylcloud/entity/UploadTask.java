@@ -19,6 +19,9 @@ public class UploadTask {
      */
     private String uploadId;
 
+    /** 用户、父目录和规范化完整文件名组成的占用键哈希。 */
+    private String fileKey;
+
     /**
      * 发起上传的用户 ID。
      */
@@ -75,6 +78,10 @@ public class UploadTask {
      * 合并成功后的文件 UUID。
      */
     private String fileUuid;
+
+    private LocalDateTime lastActivityTime;
+
+    private LocalDateTime mergeStartedTime;
 
     /**
      * 创建时间。

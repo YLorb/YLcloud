@@ -16,6 +16,9 @@ import java.util.List;
 @Mapper
 public interface FileVersionMapper {
 
+    @Update("update file_version set status = 0, is_current = 0 where file_uuid = #{fileUuid} and status = 1")
+    int disableByFileUuid(@Param("fileUuid") String fileUuid);
+
     /**
      * 新增 insert 相关逻辑。
      * @return 影响行数
@@ -24,6 +27,13 @@ public interface FileVersionMapper {
     @Insert("insert into file_version(file_uuid, version_no, minio_version_id, file_name, file_hash, file_md5, file_type, file_size, change_note, created_by, is_current, status, createtime) " +
             "values(#{fileUuid}, #{versionNo}, #{minioVersionId}, #{fileName}, #{fileHash}, #{fileMd5}, #{fileType}, #{fileSize}, #{changeNote}, #{createdBy}, #{current}, #{status}, #{createtime})")
     int insert(FileVersion version);
+
+    /**
+     * 幂等写入物理文件的初始版本。并发导入同一物理文件时只保留一条 v1。
+     */
+    @Insert("insert ignore into file_version(file_uuid, version_no, minio_version_id, file_name, file_hash, file_md5, file_type, file_size, change_note, created_by, is_current, status, createtime) " +
+            "values(#{fileUuid}, 1, #{minioVersionId}, #{fileName}, #{fileHash}, #{fileMd5}, #{fileType}, #{fileSize}, #{changeNote}, #{createdBy}, 1, 1, #{createtime})")
+    int insertInitial(FileVersion version);
 
     /**
      * 查询 listByFileUuid 相关逻辑。

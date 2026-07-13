@@ -1,6 +1,7 @@
 package com.ylcloud.service;
 
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.VO.FilePreviewVO;
 import com.ylcloud.VO.FileVersionVO;
 import com.ylcloud.constant.StatusConstant;
@@ -304,7 +305,7 @@ public class FileVersionService {
     private SpaceFile requireVersionableSpaceFile(Long spaceId, Long spaceFileId) {
         SpaceFile spaceFile = spaceFileMapper.getById(spaceId,spaceFileId);
         if(spaceFile == null || spaceFile.getDir() == 1 || spaceFile.getFileUuid() == null) {
-            throw new BaseException("空间文件不存在或不是普通文件");
+            throw new NotFoundException("空间文件不存在或不是普通文件");
         }
         return spaceFile;
     }
@@ -319,7 +320,7 @@ public class FileVersionService {
     private FileVersion requireVersion(SpaceFile spaceFile, Long versionRecordId) {
         FileVersion version = fileVersionMapper.getByIdAndFileUuid(versionRecordId,spaceFile.getFileUuid());
         if(version == null) {
-            throw new BaseException("历史版本不存在");
+            throw new NotFoundException("历史版本不存在");
         }
         return version;
     }

@@ -50,15 +50,16 @@ public class HybridDocumentParser implements DocumentParser {
     public ParsedDocument parse(SpaceFile spaceFile, File file) {
         String parserVersion = parserVersion();
         FileRagParseResult cached = parseResultMapper.getByFileAndVersion(fileUuid(spaceFile,file),fileHash(file),parserVersion);
-        ParsedDocument cachedDocument = fromCache(cached);
+        ParsedDocument cachedDocument = fromCache(cached,isDocx(spaceFile,file));
         if(cachedDocument != null) {
             return cachedDocument;
         }
 
-        ParsedDocument parsed = shouldUseLayout(spaceFile,file)
+        boolean layoutDocument = shouldUseLayout(spaceFile,file);
+        ParsedDocument parsed = layoutDocument
                 ? layoutStructuredParser.parse(spaceFile,file)
                 : isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
-        if((!parsed.isSuccess() || qualityAssessor.isLowQuality(parsed)) && shouldUseLayout(spaceFile,file)) {
+        if((!parsed.isSuccess() || qualityAssessor.isLowQuality(parsed)) && layoutDocument) {
             ParsedDocument tikaParsed = isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
             if(tikaParsed.isSuccess() && !qualityAssessor.isLowQuality(tikaParsed)) {
                 parsed = tikaParsed;
@@ -67,13 +68,13 @@ public class HybridDocumentParser implements DocumentParser {
         if(!parsed.isSuccess() && isDocx(spaceFile,file)) {
             parsed = tikaStructuredParser.parse(spaceFile,file);
         }
-        if(qualityAssessor.shouldEnhanceWithOcr(parsed)) {
+        if(layoutDocument && qualityAssessor.shouldEnhanceWithOcr(parsed)) {
             ParsedDocument ocrParsed = ocrStructuredParser.parse(spaceFile,file);
             if(ocrParsed.isSuccess() && !qualityAssessor.isLowQuality(ocrParsed)) {
                 parsed = ocrParsed;
             }
         }
-        if(qualityAssessor.shouldEnhanceWithVlm(parsed)) {
+        if(layoutDocument && qualityAssessor.shouldEnhanceWithVlm(parsed)) {
             ParsedDocument vlmParsed = vlmPageParser.parseFirstPage(spaceFile,file);
             if(vlmParsed.isSuccess()) {
                 parsed = vlmParsed;
@@ -91,12 +92,12 @@ public class HybridDocumentParser implements DocumentParser {
         return parsed;
     }
 
-    private ParsedDocument fromCache(FileRagParseResult cached) {
+    private ParsedDocument fromCache(FileRagParseResult cached, boolean docx) {
         if(cached == null || !SpaceConstant.RAG_TASK_SUCCESS.equals(cached.getParseStatus())) {
             return null;
         }
-        if("metadata".equals(cached.getParser())) {
-            parseResultMapper.disableMetadataCache(cached.getFileUuid(),cached.getFileHash(),cached.getParserVersion());
+        if(!cacheCompatible(cached,docx)) {
+            parseResultMapper.disableById(cached.getId());
             return null;
         }
         try {
@@ -108,6 +109,16 @@ public class HybridDocumentParser implements DocumentParser {
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    private boolean cacheCompatible(FileRagParseResult cached, boolean docx) {
+        if("metadata".equals(cached.getParser())) {
+            return false;
+        }
+        if(!docx) {
+            return true;
+        }
+        return "docx-structured".equals(cached.getParser()) || "tika-structured".equals(cached.getParser());
     }
 
     private void saveResult(ParsedDocument document) {
@@ -149,7 +160,7 @@ public class HybridDocumentParser implements DocumentParser {
 
     private String parserVersion() {
         RagProperties.Extraction extraction = ragProperties.getExtraction();
-        return extraction == null || extraction.getParserVersion() == null ? "structured-v1" : extraction.getParserVersion();
+        return extraction == null || extraction.getParserVersion() == null ? "structured-v2" : extraction.getParserVersion();
     }
 
     private String fileUuid(SpaceFile spaceFile, File file) {

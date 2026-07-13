@@ -45,6 +45,16 @@ public interface SpaceRagTaskMapper {
     List<SpaceRagTask> listBySpaceId(@Param("spaceId") Long spaceId);
 
     /**
+     * 查询当前用户提交的真实后台 RAG 任务，可按 Space 过滤。
+     */
+    @Select("select " + TASK_COLUMNS + " from space_rag_task " +
+            "where created_by = #{userId} and (#{spaceId} is null or space_id = #{spaceId}) " +
+            "order by createtime desc limit #{limit}")
+    List<SpaceRagTask> listByCreatedBy(@Param("userId") Long userId,
+                                       @Param("spaceId") Long spaceId,
+                                       @Param("limit") Integer limit);
+
+    /**
      * 查找 findRunningIndexTaskBySpace 相关逻辑。
      * @return 处理结果
      */

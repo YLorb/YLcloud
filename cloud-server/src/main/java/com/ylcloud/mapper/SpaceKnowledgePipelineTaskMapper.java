@@ -58,6 +58,19 @@ public interface SpaceKnowledgePipelineTaskMapper {
             "from space_knowledge_pipeline_task where space_id = #{spaceId} order by createtime desc limit #{limit}")
     List<SpaceKnowledgePipelineTask> listBySpaceId(@Param("spaceId") Long spaceId, @Param("limit") Integer limit);
 
+    /**
+     * 查询当前用户提交的知识流水线后台任务，可按 Space 过滤。
+     */
+    @Select("select id, space_id as spaceId, document_id as documentId, task_type as taskType, task_status as taskStatus, " +
+            "stage, progress, total_count as totalCount, success_count as successCount, failed_count as failedCount, " +
+            "error_message as errorMessage, force_rebuild as forceRebuild, terminal_stage as terminalStage, terminal_reason as terminalReason, " +
+            "incremental_action as incrementalAction, incremental_detail as incrementalDetail, created_by as createdBy, started_time as startedTime, finished_time as finishedTime, createtime, updatetime " +
+            "from space_knowledge_pipeline_task where created_by = #{userId} and (#{spaceId} is null or space_id = #{spaceId}) " +
+            "order by createtime desc limit #{limit}")
+    List<SpaceKnowledgePipelineTask> listByCreatedBy(@Param("userId") Long userId,
+                                                      @Param("spaceId") Long spaceId,
+                                                      @Param("limit") Integer limit);
+
     @Select("select id, space_id as spaceId, document_id as documentId, task_type as taskType, task_status as taskStatus, " +
             "stage, progress, total_count as totalCount, success_count as successCount, failed_count as failedCount, " +
             "error_message as errorMessage, force_rebuild as forceRebuild, terminal_stage as terminalStage, terminal_reason as terminalReason, " +

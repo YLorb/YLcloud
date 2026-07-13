@@ -22,6 +22,12 @@ public interface SignMapper {
     int countByUsername(String username);
 
     /**
+     * Count all users for first-run bootstrap checks.
+     */
+    @Select("select count(*) from users")
+    int countAll();
+
+    /**
      * 更新 updateAll 相关逻辑。
      * @return 影响行数
      */

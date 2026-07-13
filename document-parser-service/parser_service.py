@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+from secret_utils import read_secret
 
 app = FastAPI(title="YlCloud Document Parser Service")
 
@@ -242,7 +243,7 @@ def _vlm_base_url() -> str | None:
 
 
 def _vlm_api_key() -> str | None:
-    return os.getenv("VLM_API_KEY") or os.getenv("OPENAI_COMPATIBLE_API_KEY")
+    return read_secret("VLM_API_KEY", "OPENAI_COMPATIBLE_API_KEY")
 
 
 def _vlm_model() -> str:

@@ -62,6 +62,7 @@ const urlKeys = new Set([
   "rag.modelServiceBaseUrl",
   "rag.parserServiceBaseUrl"
 ]);
+const secretReferencePrefixes = ["env:", "docker-secret:", "vault:", "azure-key-vault:", "aws-secrets-manager:"];
 
 function isEnabled(value?: string) {
   return ["true", "1", "yes"].includes((value || "").toLowerCase());
@@ -90,6 +91,9 @@ function validateSetting(item: SiteSetting, value: string) {
     } catch {
       return "请输入完整的 URL 地址";
     }
+  }
+  if (item.key === "llm.apiKeyRef" && normalized && !secretReferencePrefixes.some((prefix) => normalized.startsWith(prefix))) {
+    return "请输入 env:、docker-secret:、vault:、azure-key-vault: 或 aws-secrets-manager: 引用";
   }
   return "";
 }

@@ -26,6 +26,9 @@ public class SiteSettingService {
             "site.logoUrl","site.publicUrl","share.publicBaseUrl","llm.baseUrl",
             "rag.modelServiceBaseUrl","rag.parserServiceBaseUrl"
     );
+    private static final Set<String> SECRET_REFERENCE_PREFIXES = Set.of(
+            "env:","docker-secret:","vault:","azure-key-vault:","aws-secrets-manager:"
+    );
 
     public static final String SITE_NAME = "site.name";
     public static final String SITE_DESCRIPTION = "site.description";
@@ -34,12 +37,17 @@ public class SiteSettingService {
     public static final String SITE_ALLOW_REGISTER = "site.allowRegister";
     public static final String UPLOAD_MAX_FILE_SIZE = "upload.maxFileSize";
     public static final String LLM_ENABLED = "llm.enabled";
+    public static final String LEGACY_LLM_API_KEY = "llm.apiKey";
+    public static final String LLM_API_KEY_REF = "llm.apiKeyRef";
     public static final String RAG_MODEL_SERVICE_BASE_URL = "rag.modelServiceBaseUrl";
 
     private final SiteSettingMapper siteSettingMapper;
 
     public List<SiteSettingVO> listForAdmin() {
-        return siteSettingMapper.listAll().stream().map(this::toVO).toList();
+        return siteSettingMapper.listAll().stream()
+                .filter(setting -> !LEGACY_LLM_API_KEY.equals(setting.getSettingKey()))
+                .map(this::toVO)
+                .toList();
     }
 
     public PublicSiteSettingVO publicSettings() {
@@ -62,10 +70,10 @@ public class SiteSettingService {
             if(setting.getEditable() == null || setting.getEditable() != 1) {
                 throw new BaseException("配置项不可编辑：" + item.getKey());
             }
-            String nextValue = item.getValue();
-            if(isSecret(setting) && (nextValue == null || nextValue.isBlank())) {
-                continue;
+            if(isSecret(setting)) {
+                throw new BaseException("密钥不能通过管理页面保存，请配置密钥引用：" + item.getKey());
             }
+            String nextValue = item.getValue();
             String normalizedValue = normalizeAndValidate(setting,nextValue);
             if(siteSettingMapper.updateValue(item.getKey(),normalizedValue) == 0) {
                 throw new BaseException("配置项保存失败：" + item.getKey());
@@ -111,6 +119,9 @@ public class SiteSettingService {
         }
         if(HTTP_URL_KEYS.contains(key) && !normalized.isEmpty()) {
             validateHttpUrl(key,normalized);
+        }
+        if(LLM_API_KEY_REF.equals(key) && !normalized.isEmpty() && SECRET_REFERENCE_PREFIXES.stream().noneMatch(normalized::startsWith)) {
+            throw new BaseException("密钥引用格式不合法：" + key);
         }
 
         String valueType = setting.getValueType() == null ? "string" : setting.getValueType().toLowerCase(Locale.ROOT);

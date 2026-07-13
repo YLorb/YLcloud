@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+!.env.example
+**/target
+**/node_modules
+**/dist
+outputs
+rag-testset
+*.log

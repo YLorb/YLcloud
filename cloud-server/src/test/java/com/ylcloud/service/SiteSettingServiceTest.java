@@ -69,6 +69,38 @@ class SiteSettingServiceTest {
         verify(mapper).updateValue(SiteSettingService.LLM_ENABLED,"false");
     }
 
+    @Test
+    void rejectsPlaintextSecretFromAdminSettings() {
+        SiteSetting setting = editableSetting(SiteSettingService.LEGACY_LLM_API_KEY,"secret");
+        setting.setSecret(1);
+        when(mapper.getByKey(SiteSettingService.LEGACY_LLM_API_KEY)).thenReturn(setting);
+
+        assertThrows(BaseException.class,() -> service.updateBatch(update(SiteSettingService.LEGACY_LLM_API_KEY,"sk-plaintext-secret")));
+
+        verify(mapper,never()).updateValue(SiteSettingService.LEGACY_LLM_API_KEY,"sk-plaintext-secret");
+    }
+
+    @Test
+    void storesSupportedSecretReference() {
+        SiteSetting setting = editableSetting(SiteSettingService.LLM_API_KEY_REF,"string");
+        when(mapper.getByKey(SiteSettingService.LLM_API_KEY_REF)).thenReturn(setting);
+        when(mapper.updateValue(SiteSettingService.LLM_API_KEY_REF,"env:YLCLOUD_LLM_API_KEY")).thenReturn(1);
+
+        service.updateBatch(update(SiteSettingService.LLM_API_KEY_REF,"env:YLCLOUD_LLM_API_KEY"));
+
+        verify(mapper).updateValue(SiteSettingService.LLM_API_KEY_REF,"env:YLCLOUD_LLM_API_KEY");
+    }
+
+    @Test
+    void rejectsRawValueAsSecretReference() {
+        SiteSetting setting = editableSetting(SiteSettingService.LLM_API_KEY_REF,"string");
+        when(mapper.getByKey(SiteSettingService.LLM_API_KEY_REF)).thenReturn(setting);
+
+        assertThrows(BaseException.class,() -> service.updateBatch(update(SiteSettingService.LLM_API_KEY_REF,"sk-not-a-reference")));
+
+        verify(mapper,never()).updateValue(SiteSettingService.LLM_API_KEY_REF,"sk-not-a-reference");
+    }
+
     private SiteSetting setting(String value) {
         SiteSetting setting = new SiteSetting();
         setting.setSettingValue(value);

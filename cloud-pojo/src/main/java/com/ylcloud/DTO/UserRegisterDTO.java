@@ -2,6 +2,7 @@ package com.ylcloud.DTO;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
+import lombok.ToString;
 
 @Data
 public class UserRegisterDTO {
@@ -10,6 +11,7 @@ public class UserRegisterDTO {
     private String username;
 
     @NotBlank(message = "密码不能为空")
+    @ToString.Exclude
     private String password;
 
     @NotBlank(message = "昵称不能为空")

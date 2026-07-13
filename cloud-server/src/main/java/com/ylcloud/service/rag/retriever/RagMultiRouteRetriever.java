@@ -55,9 +55,6 @@ public class RagMultiRouteRetriever {
         int stepBackLimit = safeLimit(retrieval.getStepBackTopK(),20);
         int keywordLimit = safeLimit(retrieval.getKeywordFallbackTopK(),20);
         int metadataLimit = keywordLimit;
-        int knowledgeMinChunkChars = safeThreshold(retrieval.getKnowledgeMinChunkChars(),80);
-        int knowledgeMinChunkTokens = safeThreshold(retrieval.getKnowledgeMinChunkTokens(),20);
-        boolean knowledgeSkipMetadataOnly = !Boolean.FALSE.equals(retrieval.getKnowledgeSkipMetadataOnly());
         double expansionWeight = retrieval.getQueryExpansionWeight() == null ? 0.70 : retrieval.getQueryExpansionWeight();
         List<RagCandidate> candidates = new ArrayList<>();
         List<String> retrievalQueries = plan.retrievalQueries();
@@ -86,18 +83,6 @@ public class RagMultiRouteRetriever {
                         fileRagChunkMapper.searchBySpaceAndMetadata(spaceId,keyword,metadataLimit),
                         "metadata",
                         0.7 * weight
-                ));
-                candidates.addAll(candidateMerger.fromChunks(
-                        fileRagChunkMapper.searchBySpaceAndKnowledgeProfile(
-                                spaceId,keyword,metadataLimit,knowledgeMinChunkChars,knowledgeMinChunkTokens,knowledgeSkipMetadataOnly),
-                        "profile_summary",
-                        0.75 * weight
-                ));
-                candidates.addAll(candidateMerger.fromChunks(
-                        fileRagChunkMapper.searchBySpaceAndKnowledgeQuestion(
-                                spaceId,keyword,metadataLimit,knowledgeMinChunkChars,knowledgeMinChunkTokens,knowledgeSkipMetadataOnly),
-                        "generated_question",
-                        0.8 * weight
                 ));
             }
             log.info("RAG retrieval route finished: source={}, bm25Source={}, topK={}, queryChars={}",
@@ -134,10 +119,6 @@ public class RagMultiRouteRetriever {
 
     private int safeLimit(Integer value, int fallback) {
         return value == null || value <= 0 ? fallback : value;
-    }
-
-    private int safeThreshold(Integer value, int fallback) {
-        return value == null || value < 0 ? fallback : value;
     }
 
     private RagProperties.Retrieval retrievalProperties() {

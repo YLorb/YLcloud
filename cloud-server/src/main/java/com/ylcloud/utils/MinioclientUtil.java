@@ -16,6 +16,9 @@ import io.minio.PutObjectArgs;
 import io.minio.RemoveBucketArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.SetBucketVersioningArgs;
+import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
 import io.minio.Result;
 import io.minio.http.Method;
 import io.minio.messages.Bucket;
@@ -34,6 +37,7 @@ import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * MinIO 瀵硅薄瀛樺偍宸ュ叿绫汇€? */
@@ -90,6 +94,34 @@ public class MinioclientUtil {
      * @param bucketName 瀛樺偍妗跺悕绉?     * @return 瀛樺偍妗舵槸鍚﹀瓨鍦?     * @throws Exception 鏌ヨ澶辫触鏃舵姏鍑?     */
     public boolean bucketExists(String bucketName) throws Exception {
         return minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+    }
+
+    /**
+     * Check whether the configured default bucket exists.
+     */
+    public boolean defaultBucketExists() throws Exception {
+        return bucketExists(defaultBucket);
+    }
+
+    /**
+     * Create the configured bucket when needed and enforce object versioning.
+     */
+    public void ensureDefaultBucketReady(boolean versioningEnabled) throws Exception {
+        if(!defaultBucketExists()) {
+            makeBucket(defaultBucket);
+            log.info("Created MinIO bucket: {}",defaultBucket);
+        }
+        if(versioningEnabled && !isDefaultBucketVersioningEnabled()) {
+            VersioningConfiguration configuration = new VersioningConfiguration(
+                    VersioningConfiguration.Status.ENABLED,
+                    null
+            );
+            minioClient.setBucketVersioning(SetBucketVersioningArgs.builder()
+                    .bucket(defaultBucket)
+                    .config(configuration)
+                    .build());
+            log.info("Enabled MinIO bucket versioning: {}",defaultBucket);
+        }
     }
 
     /**
@@ -168,11 +200,75 @@ public class MinioclientUtil {
         return response.versionId();
     }
 
+    /**
+     * Return the version id of the currently visible object version.
+     */
+    public String getCurrentObjectVersionId(String objectName) throws Exception {
+        StatObjectResponse response = minioClient.statObject(StatObjectArgs.builder()
+                .bucket(defaultBucket)
+                .object(objectName)
+                .build());
+        return response.versionId();
+    }
+
+    /**
+     * A composed object becomes visible atomically in MinIO.  A reserved object name plus
+     * the expected size is therefore sufficient to recognize a completed retry.
+     */
+    public boolean objectMatchesSize(String objectName, long expectedSize) throws Exception {
+        try {
+            StatObjectResponse response = minioClient.statObject(StatObjectArgs.builder()
+                    .bucket(defaultBucket)
+                    .object(objectName)
+                    .build());
+            return response.size() == expectedSize;
+        } catch (io.minio.errors.ErrorResponseException ex) {
+            if(ex.errorResponse() != null && "NoSuchKey".equals(ex.errorResponse().code())) {
+                return false;
+            }
+            throw ex;
+        }
+    }
+
     public void removeObject(File file) throws Exception {
         minioClient.removeObject(RemoveObjectArgs.builder()
                 .bucket(defaultBucket)
                 .object(String.valueOf(file.getFileUuid()))
                 .build());
+    }
+
+    /**
+     * 彻底删除对象的全部历史版本和删除标记。
+     *
+     * <p>只能用于业务层已经确认不存在任何文件引用的永久删除流程，不能用于回收站逻辑。</p>
+     */
+    public int removeObjectAllVersions(String objectName) throws Exception {
+        if(objectName == null || objectName.isBlank()) {
+            throw new IllegalArgumentException("Object name must not be blank");
+        }
+        List<Item> versions = new ArrayList<>();
+        Iterable<Result<Item>> iterable = minioClient.listObjects(ListObjectsArgs.builder()
+                .bucket(defaultBucket)
+                .prefix(objectName)
+                .recursive(true)
+                .includeVersions(true)
+                .build());
+        for(Result<Item> result : iterable) {
+            Item item = result.get();
+            if(objectName.equals(item.objectName())) {
+                versions.add(item);
+            }
+        }
+        for(Item item : versions) {
+            RemoveObjectArgs.Builder builder = RemoveObjectArgs.builder()
+                    .bucket(defaultBucket)
+                    .object(objectName);
+            if(item.versionId() != null && !item.versionId().isBlank()) {
+                builder.versionId(item.versionId());
+            }
+            minioClient.removeObject(builder.build());
+        }
+        return versions.size();
     }
 
     /**
@@ -328,7 +424,8 @@ public class MinioclientUtil {
                     .sources(sources)
                     .build());
 
-            removeFileParts(reqVO.getPartNames());
+            // Temporary parts are deliberately retained until the database transaction
+            // commits.  This makes a compose-success/database-failure retry possible.
         } catch (Exception e) {
             throw new IOException("鍚堝苟鍒嗙墖澶辫触:" + e.getMessage(), e);
         }
@@ -348,5 +445,26 @@ public class MinioclientUtil {
                 log.error("鍒犻櫎鍒嗙墖澶辫触锛歿}",partName,e);
             }
         });
+    }
+
+    /**
+     * 删除临时分片；任一删除失败时向上抛出，使清理任务能够保留并重试。
+     */
+    public void removeFilePartsStrict(List<String> partNames) throws Exception {
+        for(String partName : partNames) {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(defaultBucket)
+                    .object(partName)
+                    .build());
+        }
+    }
+
+    /** 删除指定对象版本，用于数据库事务回滚后的精确补偿。 */
+    public void removeObjectVersion(String objectName, String versionId) throws Exception {
+        minioClient.removeObject(RemoveObjectArgs.builder()
+                .bucket(defaultBucket)
+                .object(objectName)
+                .versionId(versionId)
+                .build());
     }
 }

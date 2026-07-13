@@ -3,6 +3,7 @@ package com.ylcloud.service;
 import com.ylcloud.DTO.MultifileDTO;
 import com.ylcloud.DTO.UserFileDTO;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ConflictException;
 import com.ylcloud.VO.ChunkStatusVO;
 import com.ylcloud.VO.FileMergeReqVO;
 import com.ylcloud.VO.FileVO;
@@ -23,6 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
@@ -74,6 +77,17 @@ public class MultifileService {
     public InitifileVO initfile(MultifileDTO multifileDTO, Long userId) {
         validateInitParam(multifileDTO);
         Long parentId = normalizeParentId(multifileDTO.getParentId(), userId);
+        String uploadId = normalizeUploadId(multifileDTO.getUploadId());
+        String fileKey = uploadFileKey(userId,parentId,multifileDTO.getFileName());
+
+        UploadTask existingTask = multifileMapper.getByUploadId(uploadId,userId);
+        if(existingTask != null) {
+            return resumeExistingTask(existingTask,multifileDTO,parentId);
+        }
+        UploadTask occupyingTask = multifileMapper.getActiveByFileKey(fileKey);
+        if(occupyingTask != null) {
+            throw new ConflictException("同名文件正在上传，请使用原 uploadId 继续断点续传");
+        }
         requireNoSameName(multifileDTO.getFileName(), parentId, userId);
 
         File existingFile = fileInfoMapper.getFileByMd5Sha1Size(
@@ -95,16 +109,10 @@ public class MultifileService {
                 Math.toIntExact((multifileDTO.getFileSize() + chunkSize - 1) / chunkSize) :
                 multifileDTO.getTotalChunks();
 
-        String uploadId = normalizeUploadId(multifileDTO.getUploadId());
-        UploadTask existingTask = multifileMapper.getByUploadId(uploadId,userId);
-        if(existingTask != null) {
-            validateResumeTask(existingTask,multifileDTO,parentId,chunkSize,totalChunks);
-            return buildInitVO(existingTask,false);
-        }
-
         LocalDateTime now = LocalDateTime.now();
         UploadTask uploadTask = new UploadTask();
         uploadTask.setUploadId(uploadId);
+        uploadTask.setFileKey(fileKey);
         uploadTask.setUserId(userId);
         uploadTask.setParentId(parentId);
         uploadTask.setFileName(multifileDTO.getFileName());
@@ -116,9 +124,20 @@ public class MultifileService {
         uploadTask.setTotalChunks(totalChunks);
         uploadTask.setUploadedChunks(0);
         uploadTask.setStatus(UploadTaskConstant.UPLOADING);
+        uploadTask.setFileUuid(UuidUtil.randomUuid());
+        uploadTask.setLastActivityTime(now);
+        uploadTask.setMergeStartedTime(null);
         uploadTask.setCreatetime(now);
         uploadTask.setUpdatetime(now);
-        multifileMapper.insert(uploadTask);
+        try {
+            multifileMapper.insert(uploadTask);
+        } catch (org.springframework.dao.DuplicateKeyException ex) {
+            UploadTask winner = multifileMapper.getActiveByFileKey(fileKey);
+            if(winner != null && winner.getUploadId().equals(uploadId)) {
+                return resumeExistingTask(winner,multifileDTO,parentId);
+            }
+            throw new ConflictException("同名文件正在上传，请使用原 uploadId 继续断点续传");
+        }
         return buildInitVO(uploadTask,false);
     }
 
@@ -143,6 +162,7 @@ public class MultifileService {
 
         UploadChunk exists = chunkUploadMapper.getByUploadIdAndIndex(uploadId,chunkIndex);
         if(exists != null) {
+            multifileMapper.touch(uploadId);
             return true;
         }
 
@@ -197,7 +217,19 @@ public class MultifileService {
      */
     @Transactional
     public FileVO merge(String uploadId, Long userId) {
-        UploadTask task = requireUploadingTask(uploadId,userId);
+        UploadTask task = multifileMapper.getByUploadId(uploadId,userId);
+        if(task == null) {
+            throw new BaseException("上传任务不存在");
+        }
+        if(UploadTaskConstant.MERGED.equals(task.getStatus())) {
+            return mergedResult(task,userId);
+        }
+        if(UploadTaskConstant.MERGING.equals(task.getStatus())) {
+            throw new ConflictException("文件正在合并，请稍后查询结果");
+        }
+        if(!UploadTaskConstant.UPLOADING.equals(task.getStatus()) && !UploadTaskConstant.FAIL.equals(task.getStatus())) {
+            throw new BaseException("上传任务状态异常");
+        }
         List<Integer> uploadedIndexes = chunkUploadMapper.listUploadedIndexes(uploadId);
         if(uploadedIndexes.size() != task.getTotalChunks()) {
             throw new BaseException("分片未上传完整");
@@ -205,7 +237,14 @@ public class MultifileService {
         Long parentId = normalizeParentId(task.getParentId(),userId);
         requireNoSameName(task.getFileName(),parentId,userId);
 
-        String fileUuid = UuidUtil.randomUuid();
+        if(multifileMapper.claimMerge(uploadId,userId) == 0) {
+            UploadTask latest = multifileMapper.getByUploadId(uploadId,userId);
+            if(latest != null && UploadTaskConstant.MERGED.equals(latest.getStatus())) {
+                return mergedResult(latest,userId);
+            }
+            throw new ConflictException("文件正在合并，请稍后查询结果");
+        }
+        String fileUuid = task.getFileUuid();
         List<String> objectNames = chunkUploadMapper.listObjectNames(uploadId);
         FileMergeReqVO mergeReqVO = new FileMergeReqVO();
         mergeReqVO.setUploadId(uploadId);
@@ -214,12 +253,16 @@ public class MultifileService {
         mergeReqVO.setPartNames(objectNames);
 
         try {
-            minioclientUtil.mergeFileParts(mergeReqVO);
+            if(!minioclientUtil.objectMatchesSize(fileUuid,task.getFileSize())) {
+                minioclientUtil.mergeFileParts(mergeReqVO);
+            }
             FileVO fileVO = saveMergedFile(task,fileUuid,parentId,userId);
-            multifileMapper.markMerged(uploadId,fileUuid);
+            if(multifileMapper.markMerged(uploadId,fileUuid) == 0) {
+                throw new IllegalStateException("上传任务合并状态提交失败");
+            }
+            removePartsAfterCommit(objectNames);
             return fileVO;
         } catch (Exception e) {
-            multifileMapper.markFail(uploadId);
             log.error("分片合并失败: {}", uploadId, e);
             throw new BaseException("分片合并失败");
         }
@@ -292,7 +335,7 @@ public class MultifileService {
                                     Long parentId,
                                     Long chunkSize,
                                     Integer totalChunks) {
-        if(!UploadTaskConstant.UPLOADING.equals(task.getStatus())) {
+        if(!UploadTaskConstant.UPLOADING.equals(task.getStatus()) && !UploadTaskConstant.FAIL.equals(task.getStatus())) {
             throw new BaseException("上传任务状态异常");
         }
         if(!Objects.equals(task.getParentId(),parentId)
@@ -304,6 +347,51 @@ public class MultifileService {
                 || !Objects.equals(task.getChunkSize(),chunkSize)
                 || !Objects.equals(task.getTotalChunks(),totalChunks)) {
             throw new BaseException("上传任务信息不匹配");
+        }
+    }
+
+    private InitifileVO resumeExistingTask(UploadTask task, MultifileDTO dto, Long parentId) {
+        if(UploadTaskConstant.MERGED.equals(task.getStatus())) {
+            InitifileVO result = buildInitVO(task,true);
+            result.setFile(mergedResult(task,task.getUserId()));
+            return result;
+        }
+        if(UploadTaskConstant.MERGING.equals(task.getStatus())) {
+            throw new ConflictException("文件正在合并，请稍后查询结果");
+        }
+        Long chunkSize = dto.getChunkSize() == null ? DEFAULT_CHUNK_SIZE : dto.getChunkSize();
+        Integer totalChunks = dto.getTotalChunks() == null
+                ? Math.toIntExact((dto.getFileSize() + chunkSize - 1) / chunkSize)
+                : dto.getTotalChunks();
+        validateResumeTask(task,dto,parentId,chunkSize,totalChunks);
+        multifileMapper.touch(task.getUploadId());
+        return buildInitVO(task,false);
+    }
+
+    private String uploadFileKey(Long userId, Long parentId, String fileName) {
+        return CrossStoreOperationService.payloadHash(userId,parentId,fileName.trim().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private FileVO mergedResult(UploadTask task, Long userId) {
+        UserFileDTO node = fileInfoMapper.getByFileUuidAndParent(task.getFileUuid(),task.getParentId(),userId);
+        File file = fileInfoMapper.getFileInfo(task.getFileUuid(),userId);
+        if(node == null || file == null) {
+            throw new ConflictException("合并结果尚未完成落库，请稍后重试");
+        }
+        return toFileVO(file,node);
+    }
+
+    private void removePartsAfterCommit(List<String> objectNames) {
+        Runnable cleanup = () -> minioclientUtil.removeFileParts(objectNames);
+        if(TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cleanup.run();
+                }
+            });
+        } else {
+            cleanup.run();
         }
     }
 

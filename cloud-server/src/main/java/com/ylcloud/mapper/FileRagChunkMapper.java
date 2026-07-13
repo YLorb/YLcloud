@@ -58,6 +58,9 @@ public interface FileRagChunkMapper {
             "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and status = 1")
     int disableByFileUuidAndHash(@Param("fileUuid") String fileUuid, @Param("fileHash") String fileHash);
 
+    @Update("update file_rag_chunk set status = 0, updatetime = now() where file_uuid = #{fileUuid} and status = 1")
+    int disableByFileUuid(@Param("fileUuid") String fileUuid);
+
     /**
      * 搜索 searchBySpaceAndKeyword 相关逻辑。
      * @return 列表结果
@@ -130,49 +133,4 @@ public interface FileRagChunkMapper {
                                                           @Param("keyword") String keyword,
                                                           @Param("limit") Integer limit);
 
-    @Select("select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
-            "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.vector_id as vectorId, " +
-            "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
-            "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
-            "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
-            "join space_knowledge_document_profile p on p.document_id = r.document_id and p.space_id = r.space_id " +
-            "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 and p.status = 1 " +
-            "and c.content is not null and length(trim(c.content)) >= #{minChunkChars} " +
-            "and (#{minChunkTokens} <= 0 or c.token_count is null or c.token_count >= #{minChunkTokens}) " +
-            "and (#{skipMetadataOnly} = false or c.metadata is null or (lower(c.metadata) not like '%metadata_only%' " +
-            "and lower(c.metadata) not like '%metadata-only%' and lower(c.metadata) not like '%\"parser\":\"metadata\"%' " +
-            "and lower(c.metadata) not like '%\"parser\": \"metadata\"%' and lower(c.metadata) not like '%\"fallback\":true%' " +
-            "and lower(c.metadata) not like '%\"fallback\": true%')) " +
-            "and (p.title like concat('%', #{keyword}, '%') or p.summary like concat('%', #{keyword}, '%') " +
-            "or p.keywords_json like concat('%', #{keyword}, '%') or p.tags_json like concat('%', #{keyword}, '%') " +
-            "or p.category like concat('%', #{keyword}, '%')) " +
-            "order by p.quality_score desc, c.chunk_index asc limit #{limit}")
-    List<FileRagChunk> searchBySpaceAndKnowledgeProfile(@Param("spaceId") Long spaceId,
-                                                        @Param("keyword") String keyword,
-                                                        @Param("limit") Integer limit,
-                                                        @Param("minChunkChars") Integer minChunkChars,
-                                                        @Param("minChunkTokens") Integer minChunkTokens,
-                                                        @Param("skipMetadataOnly") Boolean skipMetadataOnly);
-
-    @Select("select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
-            "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.vector_id as vectorId, " +
-            "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
-            "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
-            "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
-            "join space_knowledge_question q on q.document_id = r.document_id and q.space_id = r.space_id " +
-            "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 and q.status = 1 " +
-            "and c.content is not null and length(trim(c.content)) >= #{minChunkChars} " +
-            "and (#{minChunkTokens} <= 0 or c.token_count is null or c.token_count >= #{minChunkTokens}) " +
-            "and (#{skipMetadataOnly} = false or c.metadata is null or (lower(c.metadata) not like '%metadata_only%' " +
-            "and lower(c.metadata) not like '%metadata-only%' and lower(c.metadata) not like '%\"parser\":\"metadata\"%' " +
-            "and lower(c.metadata) not like '%\"parser\": \"metadata\"%' and lower(c.metadata) not like '%\"fallback\":true%' " +
-            "and lower(c.metadata) not like '%\"fallback\": true%')) " +
-            "and q.question like concat('%', #{keyword}, '%') " +
-            "order by q.confidence desc, c.chunk_index asc limit #{limit}")
-    List<FileRagChunk> searchBySpaceAndKnowledgeQuestion(@Param("spaceId") Long spaceId,
-                                                         @Param("keyword") String keyword,
-                                                         @Param("limit") Integer limit,
-                                                         @Param("minChunkChars") Integer minChunkChars,
-                                                         @Param("minChunkTokens") Integer minChunkTokens,
-                                                         @Param("skipMetadataOnly") Boolean skipMetadataOnly);
 }

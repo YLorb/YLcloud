@@ -5,9 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${YLCLOUD_DEV_RUN_DIR:-/tmp/ylcloud-dev}"
 BACKEND_PORT="${SERVER_PORT:-8080}"
 FRONTEND_PORT="${YLCLOUD_FRONTEND_PORT:-5173}"
-JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
-JAVA_BIN="${JAVA_HOME}/bin/java"
-MAVEN_BIN="${MAVEN_BIN:-/home/yl-orb/software/idea/idea-2026.1.3/idea-IU-261.25134.95/plugins/maven/lib/maven3/bin/mvn}"
+JAVA_BIN="${JAVA_BIN:-$(command -v java || true)}"
+MAVEN_BIN="${MAVEN_BIN:-$(command -v mvn || true)}"
 BACKEND_JAR="${ROOT_DIR}/cloud-server/target/cloud-server-1.0-SNAPSHOT.jar"
 
 mkdir -p "${RUN_DIR}"
@@ -73,7 +72,7 @@ start_backend() {
   fi
 
   log "building backend jar"
-  (cd "${ROOT_DIR}" && JAVA_HOME="${JAVA_HOME}" "${MAVEN_BIN}" -pl cloud-server -am package -DskipTests)
+  (cd "${ROOT_DIR}" && "${MAVEN_BIN}" -pl cloud-server -am package -DskipTests)
 
   [[ -f "${BACKEND_JAR}" ]] || fail "backend jar not found: ${BACKEND_JAR}"
   [[ -x "${JAVA_BIN}" ]] || fail "java not executable: ${JAVA_BIN}"
@@ -82,8 +81,10 @@ start_backend() {
   (
     cd "${ROOT_DIR}"
     setsid env \
-      JAVA_HOME="${JAVA_HOME}" \
       SERVER_PORT="${BACKEND_PORT}" \
+      YLCLOUD_DATASOURCE_URL="${YLCLOUD_DATASOURCE_URL:-jdbc:mysql://127.0.0.1:3306/${YLCLOUD_MYSQL_DATABASE:-ylcloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}" \
+      YLCLOUD_DATASOURCE_USERNAME="${YLCLOUD_DATASOURCE_USERNAME:-${YLCLOUD_MYSQL_USER:-ylcloud}}" \
+      YLCLOUD_DATASOURCE_PASSWORD="${YLCLOUD_DATASOURCE_PASSWORD:-${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}}" \
       YLCLOUD_MINIO_ACCESS_KEY="${YLCLOUD_MINIO_ACCESS_KEY:-ylcloud_minio}" \
       YLCLOUD_MINIO_SECRET_KEY="${YLCLOUD_MINIO_SECRET_KEY:-ylcloud_minio_pwd}" \
       YLCLOUD_MINIO_ENDPOINT="${YLCLOUD_MINIO_ENDPOINT:-http://172.18.0.1:9000}" \
@@ -139,7 +140,8 @@ main() {
   require_cmd curl
   require_cmd ss
   require_cmd npm
-  [[ -x "${MAVEN_BIN}" ]] || fail "maven not executable: ${MAVEN_BIN}"
+  [[ -n "${JAVA_BIN}" && -x "${JAVA_BIN}" ]] || fail "java is not installed or JAVA_BIN is invalid"
+  [[ -n "${MAVEN_BIN}" && -x "${MAVEN_BIN}" ]] || fail "maven is not installed or MAVEN_BIN is invalid"
 
   log "project: ${ROOT_DIR}"
   log "logs: ${RUN_DIR}"
@@ -154,7 +156,17 @@ main() {
   fi
 
   log "starting docker dependencies"
-  (cd "${ROOT_DIR}" && docker compose up -d minio qdrant model-service document-parser-service)
+  (cd "${ROOT_DIR}" && docker compose up -d mysql minio qdrant model-service document-parser-service)
+
+  for _ in $(seq 1 60); do
+    if [[ "$(docker inspect --format '{{.State.Health.Status}}' ylcloud-mysql 2>/dev/null || true)" == "healthy" ]]; then
+      log "MySQL is ready"
+      break
+    fi
+    sleep 2
+  done
+  [[ "$(docker inspect --format '{{.State.Health.Status}}' ylcloud-mysql 2>/dev/null || true)" == "healthy" ]] \
+    || fail "MySQL did not become healthy"
 
   wait_http "MinIO" "http://127.0.0.1:9000/minio/health/live" 60 2
   wait_http "Qdrant" "http://127.0.0.1:6333/collections" 60 2

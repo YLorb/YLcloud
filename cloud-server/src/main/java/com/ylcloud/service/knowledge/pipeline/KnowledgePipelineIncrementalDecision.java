@@ -8,7 +8,7 @@ public record KnowledgePipelineIncrementalDecision(String action,
         return "SKIP_PROFILE".equals(action);
     }
 
-    public boolean rebuildsRetrievalOnly() {
-        return "REBUILD_RETRIEVAL_ONLY".equals(action);
+    public boolean syncsRetrievalSource() {
+        return "SYNC_RETRIEVAL_SOURCE".equals(action) || "REBUILD_RETRIEVAL_ONLY".equals(action);
     }
 }

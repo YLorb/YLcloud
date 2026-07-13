@@ -682,7 +682,7 @@ public class SpaceRagService {
             throw new BaseException("文件哈希不存在，无法建立 RAG 切片");
         }
         List<FileRagChunk> exists = fileRagChunkMapper.listByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
-        if(!exists.isEmpty() && !isMetadataFallbackChunks(exists)) {
+        if(!exists.isEmpty() && areReusableChunks(exists,spaceFile)) {
             return exists;
         }
         if(!exists.isEmpty()) {
@@ -836,6 +836,29 @@ public class SpaceRagService {
         for(FileRagChunk chunk : chunks) {
             String metadata = chunk.getMetadata();
             if(metadata == null || !metadata.contains("\"parser\":\"metadata\"") || !metadata.contains("\"fallback\":true")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean areReusableChunks(List<FileRagChunk> chunks, SpaceFile spaceFile) {
+        if(isMetadataFallbackChunks(chunks)) {
+            return false;
+        }
+        String currentVersion = ragProperties.getExtraction() == null ||
+                ragProperties.getExtraction().getParserVersion() == null
+                ? "structured-v2"
+                : ragProperties.getExtraction().getParserVersion();
+        boolean docx = spaceFile != null && spaceFile.getFileName() != null &&
+                spaceFile.getFileName().toLowerCase().endsWith(".docx");
+        for(FileRagChunk chunk : chunks) {
+            String parserVersion = metadataString(chunk.getMetadata(),"parserVersion");
+            String parser = metadataString(chunk.getMetadata(),"parser");
+            if(!currentVersion.equals(parserVersion)) {
+                return false;
+            }
+            if(docx && !"docx-structured".equals(parser) && !"tika-structured".equals(parser)) {
                 return false;
             }
         }

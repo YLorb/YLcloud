@@ -1,4 +1,9 @@
 
+# P1：版本兼容（待完成）
+
+- [ ] **P1 / 待完成**：统一 Qdrant Java client `1.17.0` 与 server `1.15.4` 的版本并回归。当前继续使用 server `1.15.4`；升级到 `1.17.x` 时必须先备份数据，并按照 Qdrant 官方要求经过 `1.16.x` 中间版本迁移，禁止直接跨版本打开原数据卷。
+- [ ] **P1 / 待完成**：升级 Flyway 或将 MySQL 固定到已验证版本，消除 Flyway `10.10.0` 对 MySQL `8.3` 的支持警告，并完成空库迁移、存量库迁移、重启幂等和回滚验证。
+
 # RAG
   - embed/rerank 当前返回 offline-fallback:*，所以连通性通过，但按文档定义不算真实 embedding/rerank 质量验证。
   - 无关问题返回了正确 no-answer：无法从当前知识库回答。，但响应里仍带了 5 个 citations。

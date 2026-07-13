@@ -26,7 +26,7 @@ public class VlmPageParser {
 
     public ParsedDocument parseFirstPage(SpaceFile spaceFile, File file) {
         RagProperties.Extraction extraction = ragProperties.getExtraction();
-        String parserVersion = extraction == null || extraction.getParserVersion() == null ? "structured-v1" : extraction.getParserVersion();
+        String parserVersion = extraction == null || extraction.getParserVersion() == null ? "structured-v2" : extraction.getParserVersion();
         if(extraction == null || !Boolean.TRUE.equals(extraction.getVlmEnabled())) {
             return ParsedDocument.failed(fileUuid(spaceFile,file),fileHash(file),"vlm-page",parserVersion,"VLM parser is disabled");
         }

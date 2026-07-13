@@ -1,6 +1,7 @@
 package com.ylcloud.service;
 
-import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ForbiddenException;
+import com.ylcloud.Exception.UnauthorizedException;
 import com.ylcloud.context.BaseContext;
 import com.ylcloud.entity.User;
 import com.ylcloud.mapper.LoginMapper;
@@ -17,11 +18,11 @@ public class AdminPermissionService {
     public void requireAdmin() {
         Long userId = BaseContext.getCurrentId();
         if(userId == null) {
-            throw new BaseException("请先登录");
+            throw new UnauthorizedException("请先登录");
         }
         User user = loginMapper.getById(userId);
         if(user == null || user.getRole() == null || !ROLE_ADMIN.equalsIgnoreCase(user.getRole())) {
-            throw new BaseException("无管理员权限");
+            throw new ForbiddenException("无管理员权限");
         }
     }
 }

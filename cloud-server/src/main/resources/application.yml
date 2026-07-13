@@ -22,16 +22,23 @@ mybatis:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  bootstrap-admin:
+    enabled: ${YLCLOUD_BOOTSTRAP_ADMIN_ENABLED:false}
+    username: ${YLCLOUD_BOOTSTRAP_ADMIN_USERNAME:}
+    password: ${YLCLOUD_BOOTSTRAP_ADMIN_PASSWORD:}
+    nickname: ${YLCLOUD_BOOTSTRAP_ADMIN_NICKNAME:YLcloud Administrator}
   jwt:
     secret: ${YLCLOUD_JWT_SECRET}
     expiration-ms: ${YLCLOUD_JWT_EXPIRATION_MS:3600000}
   upload:
     max-file-size: 2147483648
   minio:
-    endpoint: ${ylcloud.minio.endpoint}
-    accessKey: ${ylcloud.minio.accessKey}
-    secretKey: ${ylcloud.minio.secretKey}
+    endpoint: ${YLCLOUD_MINIO_ENDPOINT:http://127.0.0.1:9000}
+    accessKey: ${YLCLOUD_MINIO_ACCESS_KEY:ylcloud_minio}
+    secretKey: ${YLCLOUD_MINIO_SECRET_KEY:ylcloud_minio_pwd}
     bucket-name: ${YLCLOUD_MINIO_BUCKET:localbucket1}
+    init-enabled: ${YLCLOUD_MINIO_INIT_ENABLED:true}
+    versioning-enabled: ${YLCLOUD_MINIO_VERSIONING_ENABLED:true}
   rag:
     vector-enabled: true
     embedding-dimension: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:512}
@@ -111,7 +118,7 @@ ylcloud:
       layout-enabled: true
       ocr-enabled: true
       vlm-enabled: true
-      parser-version: structured-v1
+      parser-version: structured-v2
       parser-service-base-url: ${YLCLOUD_RAG_PARSER_SERVICE_BASE_URL:http://127.0.0.1:8002}
       min-text-chars-before-ocr: 300
       min-ocr-confidence-before-vlm: 0.75

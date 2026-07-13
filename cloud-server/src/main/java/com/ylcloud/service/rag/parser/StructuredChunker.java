@@ -460,7 +460,7 @@ public class StructuredChunker {
         try {
             return objectMapper.writeValueAsString(new Metadata(
                     document == null ? "unknown" : document.getParser(),
-                    document == null ? "structured-v1" : document.getParserVersion(),
+                    document == null ? "structured-v2" : document.getParserVersion(),
                     document != null && document.isFallback(),
                     vlmEnabled(),
                     containsSource(children,"vlm") || containsSource(children,"vlm-page"),
@@ -489,7 +489,7 @@ public class StructuredChunker {
         try {
             return objectMapper.writeValueAsString(new Metadata(
                     document == null ? "unknown" : document.getParser(),
-                    document == null ? "structured-v1" : document.getParserVersion(),
+                    document == null ? "structured-v2" : document.getParserVersion(),
                     document != null && document.isFallback(),
                     vlmEnabled(),
                     false,

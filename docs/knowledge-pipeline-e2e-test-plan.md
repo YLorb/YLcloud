@@ -2,6 +2,8 @@
 
 This document is intended for another Agent or LLM to run in a real YLCloud environment.
 
+Current status: **PENDING VALIDATION**. For the automated release gate, environment variables, concurrency/rollback suite, and report format, follow `docs/pipeline-release-validation.md`.
+
 ## Test Documents
 
 Prepare these files:
@@ -60,7 +62,7 @@ Steps:
 
 Expected:
 
-- The short chunk should not be selected through `profile_summary` or `generated_question`.
+- Confirm that profile and generated-question text do not create retrieval candidates in V1; only source-chunk routes may return the document.
 - Existing base retrieval may still find it if the original retrieval routes match.
 
 ### 3. Manual Classification
@@ -120,4 +122,3 @@ Expected:
 - `documentCount`, `indexedCount`, `profiledCount`, `failedProfileCount`, and `needsReviewCount` match the space data.
 - Average quality score is visible.
 - Recent failed tasks are listed.
-

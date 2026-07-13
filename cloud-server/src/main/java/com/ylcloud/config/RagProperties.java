@@ -113,8 +113,12 @@ public class RagProperties {
         private Integer hydeTopK = 20;
         private Integer stepBackTopK = 20;
         private Integer keywordFallbackTopK = 20;
+        // Reserved for the V2 enhanced index. V1 retrieval does not read profile/question metadata.
+        @Deprecated
         private Integer knowledgeMinChunkChars = 80;
+        @Deprecated
         private Integer knowledgeMinChunkTokens = 20;
+        @Deprecated
         private Boolean knowledgeSkipMetadataOnly = true;
         private String tokenizerProvider = "ik";
         private Double exactMatchBoost = 1.5;
@@ -129,7 +133,7 @@ public class RagProperties {
         private Boolean layoutEnabled = true;
         private Boolean ocrEnabled = true;
         private Boolean vlmEnabled = false;
-        private String parserVersion = "structured-v1";
+        private String parserVersion = "structured-v2";
         private String parserServiceBaseUrl = "http://127.0.0.1:8002";
         private Integer minTextCharsBeforeOcr = 300;
         private Double minOcrConfidenceBeforeVlm = 0.75;

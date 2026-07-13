@@ -163,6 +163,12 @@ public class SpaceConstant {
 
     public static final String KNOWLEDGE_PIPELINE_SAVE_PROFILE = "SAVE_PROFILE";
 
+    public static final String KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE = "SYNC_RETRIEVAL_SOURCE";
+
+    /**
+     * Legacy persisted stage value. New tasks use {@link #KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE}.
+     */
+    @Deprecated
     public static final String KNOWLEDGE_PIPELINE_BUILD_RETRIEVAL_ENHANCEMENT = "BUILD_RETRIEVAL_ENHANCEMENT";
 
     public static final String KNOWLEDGE_PIPELINE_COMPLETE = "COMPLETE";
@@ -189,11 +195,20 @@ public class SpaceConstant {
 
     public static final String KNOWLEDGE_INCREMENTAL_REBUILD_PROFILE = "REBUILD_PROFILE";
 
+    public static final String KNOWLEDGE_INCREMENTAL_SYNC_RETRIEVAL_SOURCE = "SYNC_RETRIEVAL_SOURCE";
+
+    /**
+     * Legacy persisted action value. It never represented a separate enhancement index.
+     */
+    @Deprecated
     public static final String KNOWLEDGE_INCREMENTAL_REBUILD_RETRIEVAL_ONLY = "REBUILD_RETRIEVAL_ONLY";
 
     public static final String KNOWLEDGE_INCREMENTAL_SKIP_PROFILE = "SKIP_PROFILE";
 
     public static final String KNOWLEDGE_TERMINAL_UNCHANGED_DOCUMENT = "UNCHANGED_DOCUMENT";
 
+    public static final String KNOWLEDGE_TERMINAL_SOURCE_SNAPSHOT_SYNCED = "SOURCE_SNAPSHOT_SYNCED";
+
+    @Deprecated
     public static final String KNOWLEDGE_TERMINAL_RETRIEVAL_ONLY = "RETRIEVAL_ONLY";
 }

@@ -1,7 +1,7 @@
 package com.ylcloud.service;
 
 import com.ylcloud.DTO.UserLoginDTO;
-import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.UnauthorizedException;
 import com.ylcloud.VO.UserLoginVO;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.context.BaseContext;
@@ -29,10 +29,10 @@ public class LoginService {
     public UserLoginVO login(UserLoginDTO userLoginDTO) {
         User user = loginMapper.getByUsername(userLoginDTO.getUsername());
         if(user == null || !StatusConstant.ENABLE.equals(user.getStatus())) {
-            throw new BaseException("用户不存在或已被禁用");
+            throw new UnauthorizedException("用户名或密码错误");
         }
         if(!passwordMatches(userLoginDTO.getPassword(),user)) {
-            throw new BaseException("密码错误");
+            throw new UnauthorizedException("用户名或密码错误");
         }
 
         UserLoginVO userLoginVO = new UserLoginVO();

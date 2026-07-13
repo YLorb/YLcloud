@@ -38,4 +38,13 @@ public interface FileRagParseResultMapper {
     int disableMetadataCache(@Param("fileUuid") String fileUuid,
                              @Param("fileHash") String fileHash,
                              @Param("parserVersion") String parserVersion);
+
+    /**
+     * 禁用与当前文件类型不兼容的历史解析缓存。
+     */
+    @Update("update file_rag_parse_result set status = 0, updatetime = now() where id = #{id} and status = 1")
+    int disableById(@Param("id") Long id);
+
+    @Update("update file_rag_parse_result set status = 0, updatetime = now() where file_uuid = #{fileUuid} and status = 1")
+    int disableByFileUuid(@Param("fileUuid") String fileUuid);
 }

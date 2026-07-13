@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 @Service
 public class SignService {
     private static final String ROLE_USER = "USER";
+    private static final String ROLE_ADMIN = "ADMIN";
 
     private final SignMapper signMapper;
     private final FileService fileService;
@@ -39,11 +40,34 @@ public class SignService {
             throw new BaseException("用户名已存在");
         }
 
+        createUser(userRegisterDTO,ROLE_USER);
+    }
+
+    /**
+     * Create the first administrator from an explicit deployment secret.
+     * Existing installations are never modified.
+     *
+     * @return true when the administrator was created
+     */
+    @Transactional
+    public boolean bootstrapAdmin(String username, String password, String nickname) {
+        if(signMapper.countAll() > 0) {
+            return false;
+        }
+        UserRegisterDTO dto = new UserRegisterDTO();
+        dto.setUsername(username);
+        dto.setPassword(password);
+        dto.setNickname(nickname);
+        createUser(dto,ROLE_ADMIN);
+        return true;
+    }
+
+    private void createUser(UserRegisterDTO userRegisterDTO, String role) {
         User user = new User();
         BeanUtils.copyProperties(userRegisterDTO,user);
         user.setPassword(passwordEncoder.encode(userRegisterDTO.getPassword()));
         user.setStatus(StatusConstant.ENABLE);
-        user.setRole(ROLE_USER);
+        user.setRole(role);
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         int rows = signMapper.insert(user);

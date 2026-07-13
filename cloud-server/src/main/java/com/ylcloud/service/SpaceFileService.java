@@ -6,6 +6,8 @@ import com.ylcloud.DTO.SpaceFolderCreateDTO;
 import com.ylcloud.DTO.SpaceWebLinkImportDTO;
 import com.ylcloud.DTO.UserFileDTO;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ConflictException;
+import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.VO.FilePreviewVO;
 import com.ylcloud.VO.SpaceFileVO;
 import com.ylcloud.constant.StatusConstant;
@@ -56,6 +58,8 @@ public class SpaceFileService {
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
     private final SiteSettingService siteSettingService;
+    private final PhysicalFileCleanupService physicalFileCleanupService;
+    private final InitialFileVersionService initialFileVersionService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -79,7 +83,9 @@ public class SpaceFileService {
                             SpacePermissionService spacePermissionService,
                             SpaceRagService spaceRagService,
                             MinioclientUtil minioclientUtil,
-                            SiteSettingService siteSettingService) {
+                            SiteSettingService siteSettingService,
+                            PhysicalFileCleanupService physicalFileCleanupService,
+                            InitialFileVersionService initialFileVersionService) {
         this.spaceFileMapper = spaceFileMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceService = spaceService;
@@ -87,6 +93,8 @@ public class SpaceFileService {
         this.spaceRagService = spaceRagService;
         this.minioclientUtil = minioclientUtil;
         this.siteSettingService = siteSettingService;
+        this.physicalFileCleanupService = physicalFileCleanupService;
+        this.initialFileVersionService = initialFileVersionService;
     }
 
     /**
@@ -190,6 +198,7 @@ public class SpaceFileService {
         if(fileInfoMapper.updateFileCount(userFile.getFileUuid(),1) == 0) {
             throw new BaseException("文件引用计数更新失败");
         }
+        ensureInitialVersionIfEnabled(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         return toVO(spaceFile);
     }
@@ -216,6 +225,7 @@ public class SpaceFileService {
 
         StoredPhysicalFile stored = storeMultipartFile(uploadFile,fileName);
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
+        ensureInitialVersionIfEnabled(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         return toVO(spaceFile);
     }
@@ -242,6 +252,7 @@ public class SpaceFileService {
         String markdown = buildWebLinkMarkdown(uri,snapshot);
         StoredPhysicalFile stored = storeGeneratedFile(fileName,markdown.getBytes(StandardCharsets.UTF_8),"text/markdown;charset=UTF-8");
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
+        ensureInitialVersionIfEnabled(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         return toVO(spaceFile);
     }
@@ -259,7 +270,7 @@ public class SpaceFileService {
         spacePermissionService.requireAdmin(spaceId,userId);
         SpaceFile file = spaceFileMapper.getById(spaceId,fileId);
         if(file == null) {
-            throw new BaseException("空间文件不存在");
+            throw new NotFoundException("空间文件不存在");
         }
         if(file.getParentId() == 0L) {
             throw new BaseException("不能删除空间根目录");
@@ -283,6 +294,9 @@ public class SpaceFileService {
                 throw new BaseException("文件引用计数更新失败");
             }
             spaceRagService.handleFileRemoved(spaceId,file.getId(),userId);
+            if(fileInfoMapper.getFileCount(file.getFileUuid()) == 0) {
+                physicalFileCleanupService.enqueue(file.getFileUuid());
+            }
         }
     }
 
@@ -395,7 +409,7 @@ public class SpaceFileService {
     private SpaceFile requireDirectory(Long spaceId, Long fileId) {
         SpaceFile file = spaceFileMapper.getById(spaceId,fileId);
         if(file == null || file.getDir() != 1) {
-            throw new BaseException("目标目录不存在");
+            throw new NotFoundException("目标目录不存在");
         }
         return file;
     }
@@ -412,7 +426,7 @@ public class SpaceFileService {
         spacePermissionService.requireMember(spaceId,userId);
         SpaceFile spaceFile = spaceFileMapper.getById(spaceId,fileId);
         if(spaceFile == null || spaceFile.getDir() == 1) {
-            throw new BaseException("空间文件不存在或不是普通文件");
+            throw new NotFoundException("空间文件不存在或不是普通文件");
         }
         if(spaceFile.getFileUuid() == null || spaceFile.getFileUuid().isBlank()) {
             throw new BaseException("空间文件缺少物理文件标识");
@@ -429,7 +443,7 @@ public class SpaceFileService {
     private File requireFileInfo(SpaceFile spaceFile) {
         File file = fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
         if(file == null) {
-            throw new BaseException("文件元数据不存在");
+            throw new NotFoundException("文件元数据不存在");
         }
         return file;
     }
@@ -540,7 +554,7 @@ public class SpaceFileService {
      */
     private void requireNoSameName(Long spaceId, Long parentId, String fileName, Integer dir) {
         if(spaceFileMapper.countSameName(spaceId,parentId,fileName,dir) > 0) {
-            throw new BaseException("目标目录已存在同名节点");
+            throw new ConflictException("目标目录已存在同名节点");
         }
     }
 
@@ -623,13 +637,15 @@ public class SpaceFileService {
         }
         SpaceFile file = spaceFileMapper.getById(spaceId,fileId);
         if(file == null || file.getDir() == 1) {
-            throw new BaseException("空间文件不存在或不是普通文件");
+            throw new NotFoundException("空间文件不存在或不是普通文件");
         }
         int rows = spaceFileMapper.updateVersionEnabled(spaceId,fileId,versionEnabled,LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("文件历史版本设置更新失败");
         }
-        return toVO(spaceFileMapper.getById(spaceId,fileId));
+        SpaceFile updated = spaceFileMapper.getById(spaceId,fileId);
+        ensureInitialVersionIfEnabled(updated,userId);
+        return toVO(updated);
     }
 
     /**
@@ -662,6 +678,12 @@ public class SpaceFileService {
         }
         Space space = spaceService.requireSpace(spaceFile.getSpaceId());
         return StatusConstant.ENABLE.equals(space.getVersionEnabled());
+    }
+
+    private void ensureInitialVersionIfEnabled(SpaceFile spaceFile, Long userId) {
+        if(spaceFile != null && spaceFile.getDir() == 0 && resolveEffectiveVersionEnabled(spaceFile)) {
+            initialFileVersionService.ensureInitialVersion(spaceFile.getFileUuid(),spaceFile.getFileName(),userId);
+        }
     }
 
     private StoredPhysicalFile storeMultipartFile(MultipartFile uploadFile, String fileName) {

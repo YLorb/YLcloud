@@ -1,10 +1,12 @@
 package com.ylcloud.service;
 
+import com.ylcloud.Exception.ConflictException;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.SpaceKnowledgeDocumentProfile;
 import com.ylcloud.entity.SpaceKnowledgeQuestion;
 import com.ylcloud.mapper.SpaceKnowledgeDocumentProfileMapper;
 import com.ylcloud.mapper.SpaceKnowledgeQuestionMapper;
+import com.ylcloud.service.knowledge.pipeline.KnowledgeSourceSnapshot;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,6 +79,33 @@ public class KnowledgeProfileWriteService {
         List<String> versionQuestions = questions == null ? questionsFor(spaceId,documentId) : questions;
         assetService.createVersion(updated,versionQuestions,"HUMAN_EDITED",operatorId,"Manual profile update");
         assetService.audit(spaceId,operatorId,"PROFILE_EDIT","KNOWLEDGE_PROFILE",updated.getId(),beforeSnapshot,assetService.snapshot(updated,versionQuestions));
+        return profileMapper.getByDocumentId(spaceId,documentId);
+    }
+
+    /**
+     * 切片集合变化但物理文件和知识画像未变化时，同步检索源快照。
+     */
+    @Transactional
+    public SpaceKnowledgeDocumentProfile syncRetrievalSource(Long spaceId,
+                                                              Long documentId,
+                                                              KnowledgeSourceSnapshot snapshot,
+                                                              Long expectedRevision) {
+        SpaceKnowledgeDocumentProfile current = profileMapper.getSourceSnapshotForUpdate(spaceId,documentId);
+        if(current == null) {
+            throw new IllegalStateException("Knowledge profile is missing while syncing retrieval source");
+        }
+        if(snapshot.matches(current)) {
+            return profileMapper.getByDocumentId(spaceId,documentId);
+        }
+        long revision = expectedRevision == null ? 0L : expectedRevision;
+        if(current.getSourceSnapshotRevision() == null || current.getSourceSnapshotRevision() != revision) {
+            throw new ConflictException("Knowledge source snapshot changed concurrently; retry the pipeline task");
+        }
+        int rows = profileMapper.syncRetrievalSource(spaceId,documentId,snapshot.sourceChunkIds(),snapshot.sourceChunkCount(),
+                snapshot.sourceCharacterCount(),snapshot.parserVersion(),snapshot.signature(),revision,LocalDateTime.now());
+        if(rows == 0) {
+            throw new ConflictException("Knowledge source snapshot changed concurrently; retry the pipeline task");
+        }
         return profileMapper.getByDocumentId(spaceId,documentId);
     }
 

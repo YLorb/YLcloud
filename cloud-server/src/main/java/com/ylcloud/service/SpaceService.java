@@ -3,6 +3,7 @@ package com.ylcloud.service;
 import com.ylcloud.DTO.SpaceCreateDTO;
 import com.ylcloud.DTO.SpaceUpdateDTO;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.VO.SpaceVO;
 import com.ylcloud.constant.SpaceConstant;
 import com.ylcloud.config.RagProperties;
@@ -33,6 +34,7 @@ public class SpaceService {
     private final SpaceRagMapper spaceRagMapper;
     private final SpacePermissionService spacePermissionService;
     private final RagProperties ragProperties;
+    private final InitialFileVersionService initialFileVersionService;
 
     /**
      * 初始化 SpaceService 对象。
@@ -48,13 +50,15 @@ public class SpaceService {
                         SpaceFileMapper spaceFileMapper,
                         SpaceRagMapper spaceRagMapper,
                         SpacePermissionService spacePermissionService,
-                        RagProperties ragProperties) {
+                        RagProperties ragProperties,
+                        InitialFileVersionService initialFileVersionService) {
         this.spaceMapper = spaceMapper;
         this.spaceMemberMapper = spaceMemberMapper;
         this.spaceFileMapper = spaceFileMapper;
         this.spaceRagMapper = spaceRagMapper;
         this.spacePermissionService = spacePermissionService;
         this.ragProperties = ragProperties;
+        this.initialFileVersionService = initialFileVersionService;
     }
 
     /**
@@ -154,7 +158,7 @@ public class SpaceService {
     public Space requireSpace(Long spaceId) {
         Space space = spaceMapper.getById(spaceId);
         if(space == null) {
-            throw new BaseException("空间不存在");
+            throw new NotFoundException("空间不存在");
         }
         return space;
     }
@@ -176,6 +180,13 @@ public class SpaceService {
         int rows = spaceMapper.updateVersionEnabled(spaceId,versionEnabled,LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("空间历史版本设置更新失败");
+        }
+        if(StatusConstant.ENABLE.equals(versionEnabled)) {
+            for(SpaceFile file : spaceFileMapper.listAll(spaceId)) {
+                if(file.getDir() == 0 && !StatusConstant.DISABLE.equals(file.getVersionEnabled())) {
+                    initialFileVersionService.ensureInitialVersion(file.getFileUuid(),file.getFileName(),userId);
+                }
+            }
         }
         return getSpace(spaceId,userId);
     }

@@ -323,6 +323,8 @@ export type KnowledgeProfile = {
   reviewReason?: string;
   sourceChunkCount?: number;
   sourceCharacterCount?: number;
+  sourceSnapshotSignature?: string;
+  sourceSnapshotRevision?: number;
   schemaValid?: boolean;
   repairAttempt?: number;
   repairReason?: string;
@@ -390,6 +392,10 @@ export type AsyncTask = {
   updateTime?: string;
   createdAt?: string;
   updatedAt?: string;
+  source?: "rag" | "knowledge";
+  spaceId?: number;
+  documentId?: number;
+  retryable?: boolean;
 };
 
 export type RagCitation = {

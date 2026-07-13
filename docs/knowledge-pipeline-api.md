@@ -42,17 +42,17 @@ Returns recent Knowledge Pipeline tasks.
 Task fields:
 
 - `taskStatus`: `PENDING`, `RUNNING`, `SUCCESS`, `PARTIAL_SUCCESS`, `FAILED`
-- `stage`: legacy stages plus pipeline stages such as `LOAD_CHUNKS`, `GENERATE_PROFILE`, `PARSE_PROFILE`, `NORMALIZE_PROFILE`, `VALIDATE_PROFILE`, `SCORE_PROFILE`, `REPAIR_PROFILE`, `SAVE_PROFILE`
+- `stage`: legacy stages plus pipeline stages such as `LOAD_CHUNKS`, `CHECK_INCREMENTAL`, `SYNC_RETRIEVAL_SOURCE`, `GENERATE_PROFILE`, `PARSE_PROFILE`, `NORMALIZE_PROFILE`, `VALIDATE_PROFILE`, `SCORE_PROFILE`, `REPAIR_PROFILE`, `SAVE_PROFILE`
 - `progress`: UI progress percentage
 - `totalCount`, `successCount`, `failedCount`
 - `errorMessage`: terminal reason when task failed or partially succeeded
 - `forceRebuild`: whether the task bypassed incremental skip checks.
 - `terminalStage`: the stage where the task stopped, such as `CHECK_INCREMENTAL`.
 - `terminalReason`: why the task stopped, such as `UNCHANGED_DOCUMENT`.
-- `incrementalAction`: one of `FORCE_REBUILD`, `REBUILD_PROFILE`, `REBUILD_RETRIEVAL_ONLY`, or `SKIP_PROFILE`.
+- `incrementalAction`: one of `FORCE_REBUILD`, `REBUILD_PROFILE`, `SYNC_RETRIEVAL_SOURCE`, or `SKIP_PROFILE`.
 - `incrementalDetail`: human-readable explanation for the incremental decision.
 
-`SKIP_PROFILE` and `REBUILD_RETRIEVAL_ONLY` are successful task outcomes, not failures.
+`SKIP_PROFILE` and `SYNC_RETRIEVAL_SOURCE` are successful task outcomes, not failures. Historical rows may still expose the legacy `REBUILD_RETRIEVAL_ONLY` value.
 
 ### List Task Events
 
@@ -142,7 +142,7 @@ Additional quality fields:
 GET /api/space/{spaceId}/knowledge/documents/{documentId}/profile
 ```
 
-Returns one document profile with summary, category, tags, keywords, questions, status, quality score, schema validation result, quality issues, repair metadata, and source chunk statistics.
+Returns one document profile with summary, category, tags, keywords, questions, status, quality score, schema validation result, quality issues, repair metadata, source chunk statistics, `sourceSnapshotSignature`, and `sourceSnapshotRevision`.
 
 ### Update Profile
 

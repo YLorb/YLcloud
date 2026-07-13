@@ -54,6 +54,8 @@ public class FileService {
     private MinioclientUtil minioclientUtil;
     @Autowired
     private SiteSettingService siteSettingService;
+    @Autowired
+    private PhysicalFileCleanupService physicalFileCleanupService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -1154,12 +1156,11 @@ public class FileService {
      */
     public boolean bucketExists() {
         try {
-            minioclientUtil.bucketExists(NameConstant.DEFAULT_BUCKETNAME);
+            return minioclientUtil.defaultBucketExists();
         } catch (Exception e) {
             log.error("娌℃湁杩欎釜妗讹細{}",NameConstant.DEFAULT_BUCKETNAME);
-            throw new RuntimeException(e.getMessage());
+            throw new RuntimeException("Failed to check the configured MinIO bucket",e);
         }
-        return true;
     }
 
     /**
@@ -1389,7 +1390,7 @@ public class FileService {
             throw new BaseException("文件引用计数更新失败");
         }
         if(fileInfoMapper.getFileCount(userFileDTO.getFileUuid()) == 0) {
-            deleteOSS(userFileDTO);
+            physicalFileCleanupService.enqueue(userFileDTO.getFileUuid());
         }
     }
 

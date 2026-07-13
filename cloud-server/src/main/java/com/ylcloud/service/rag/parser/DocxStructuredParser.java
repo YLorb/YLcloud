@@ -205,7 +205,7 @@ public class DocxStructuredParser {
 
     private String parserVersion() {
         RagProperties.Extraction extraction = ragProperties.getExtraction();
-        return extraction == null || extraction.getParserVersion() == null ? "structured-v1" : extraction.getParserVersion();
+        return extraction == null || extraction.getParserVersion() == null ? "structured-v2" : extraction.getParserVersion();
     }
 
     private String fileUuid(SpaceFile spaceFile, File file) {

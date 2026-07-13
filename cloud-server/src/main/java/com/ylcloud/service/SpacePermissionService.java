@@ -1,6 +1,6 @@
 package com.ylcloud.service;
 
-import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ForbiddenException;
 import com.ylcloud.constant.SpaceConstant;
 import com.ylcloud.entity.SpaceMember;
 import com.ylcloud.mapper.SpaceMemberMapper;
@@ -32,7 +32,7 @@ public class SpacePermissionService {
     public SpaceMember requireMember(Long spaceId, Long userId) {
         SpaceMember member = spaceMemberMapper.getActive(spaceId,userId);
         if(member == null) {
-            throw new BaseException("没有空间访问权限");
+            throw new ForbiddenException("没有空间访问权限");
         }
         return member;
     }
@@ -47,7 +47,7 @@ public class SpacePermissionService {
     public SpaceMember requireAdmin(Long spaceId, Long userId) {
         SpaceMember member = requireMember(spaceId,userId);
         if(!SpaceConstant.ROLE_OWNER.equals(member.getRole()) && !SpaceConstant.ROLE_ADMIN.equals(member.getRole())) {
-            throw new BaseException("没有空间管理权限");
+            throw new ForbiddenException("没有空间管理权限");
         }
         return member;
     }
@@ -62,7 +62,7 @@ public class SpacePermissionService {
     public SpaceMember requireOwner(Long spaceId, Long userId) {
         SpaceMember member = requireMember(spaceId,userId);
         if(!SpaceConstant.ROLE_OWNER.equals(member.getRole())) {
-            throw new BaseException("只有空间所有者可以执行该操作");
+            throw new ForbiddenException("只有空间所有者可以执行该操作");
         }
         return member;
     }

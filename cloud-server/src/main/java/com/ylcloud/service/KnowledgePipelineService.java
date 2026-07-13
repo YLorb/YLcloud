@@ -28,6 +28,8 @@ import com.ylcloud.service.knowledge.event.PipelineEventService;
 import com.ylcloud.service.knowledge.pipeline.KnowledgePipelineIncrementalDecision;
 import com.ylcloud.service.knowledge.pipeline.KnowledgePipelineIncrementalService;
 import com.ylcloud.service.knowledge.pipeline.KnowledgePipelineContext;
+import com.ylcloud.service.knowledge.pipeline.KnowledgeSourceSnapshot;
+import com.ylcloud.service.knowledge.pipeline.KnowledgeSourceSnapshotService;
 import com.ylcloud.service.knowledge.profile.KnowledgeProfileDraft;
 import com.ylcloud.service.knowledge.profile.KnowledgeProfileNormalizer;
 import com.ylcloud.service.knowledge.profile.KnowledgeProfileParseResult;
@@ -69,6 +71,7 @@ public class KnowledgePipelineService {
     private final KnowledgeProfileAssetService knowledgeProfileAssetService;
     private final PipelineEventService pipelineEventService;
     private final KnowledgePipelineIncrementalService knowledgePipelineIncrementalService;
+    private final KnowledgeSourceSnapshotService knowledgeSourceSnapshotService;
     private final KnowledgeProfileParser knowledgeProfileParser;
     private final KnowledgeProfileNormalizer knowledgeProfileNormalizer;
     private final KnowledgeProfileValidator knowledgeProfileValidator;
@@ -88,6 +91,7 @@ public class KnowledgePipelineService {
                                     KnowledgeProfileAssetService knowledgeProfileAssetService,
                                     PipelineEventService pipelineEventService,
                                     KnowledgePipelineIncrementalService knowledgePipelineIncrementalService,
+                                    KnowledgeSourceSnapshotService knowledgeSourceSnapshotService,
                                     KnowledgeProfileParser knowledgeProfileParser,
                                     KnowledgeProfileNormalizer knowledgeProfileNormalizer,
                                     KnowledgeProfileValidator knowledgeProfileValidator,
@@ -106,6 +110,7 @@ public class KnowledgePipelineService {
         this.knowledgeProfileAssetService = knowledgeProfileAssetService;
         this.pipelineEventService = pipelineEventService;
         this.knowledgePipelineIncrementalService = knowledgePipelineIncrementalService;
+        this.knowledgeSourceSnapshotService = knowledgeSourceSnapshotService;
         this.knowledgeProfileParser = knowledgeProfileParser;
         this.knowledgeProfileNormalizer = knowledgeProfileNormalizer;
         this.knowledgeProfileValidator = knowledgeProfileValidator;
@@ -369,14 +374,19 @@ public class KnowledgePipelineService {
                 context.getDocument().getFileName(),() -> buildProfileContext(context.getDocument()));
         context.setChunks(profileContext.usedChunks());
         context.setContentContext(profileContext.context());
+        SpaceKnowledgeDocumentProfile currentProfile = profileMapper.getByDocumentId(context.getSpaceId(),context.getDocumentId());
+        KnowledgeSourceSnapshot sourceSnapshot = knowledgeSourceSnapshotService.create(
+                profileContext.usedChunks(),profileContext.context().length(),knowledgePipelineIncrementalService.parserVersion());
         KnowledgePipelineIncrementalDecision incrementalDecision = pipelineEventService.executeStage(context,
                 SpaceConstant.KNOWLEDGE_PIPELINE_CHECK_INCREMENTAL,
                 "fileHash=" + blankToDefault(context.getDocument().getFileHash(),""),
                 () -> knowledgePipelineIncrementalService.decide(
                         context.getDocument(),
-                        profileMapper.getByDocumentId(context.getSpaceId(),context.getDocumentId()),
-                        profileContext.usedChunks().size(),
-                        profileContext.context().length(),
+                        currentProfile,
+                        sourceSnapshot.sourceChunkCount(),
+                        sourceSnapshot.sourceCharacterCount(),
+                        sourceSnapshot.sourceChunkIds(),
+                        sourceSnapshot.signature(),
                         context.isForceRebuild()));
         taskMapper.updateIncremental(context.getTaskId(),incrementalDecision.terminalStage(),incrementalDecision.terminalReason(),
                 incrementalDecision.action(),incrementalDecision.detail(),LocalDateTime.now());
@@ -384,12 +394,17 @@ public class KnowledgePipelineService {
             SpaceKnowledgeDocumentProfile existing = profileMapper.getByDocumentId(context.getSpaceId(),context.getDocumentId());
             return toProfileVO(existing);
         }
-        if(incrementalDecision.rebuildsRetrievalOnly()) {
-            updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_BUILD_RETRIEVAL_ENHANCEMENT,95,1,1,0,null,null,null);
-            pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_BUILD_RETRIEVAL_ENHANCEMENT,
-                    incrementalDecision.detail(),() -> "retrieval enhancement refreshed without profile rebuild");
-            SpaceKnowledgeDocumentProfile existing = profileMapper.getByDocumentId(context.getSpaceId(),context.getDocumentId());
-            return toProfileVO(existing);
+        if(incrementalDecision.syncsRetrievalSource()) {
+            updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,95,1,1,0,null,null,null);
+            SpaceKnowledgeDocumentProfile refreshed = pipelineEventService.executeStage(context,
+                    SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,
+                    incrementalDecision.detail(),
+                    () -> knowledgeProfileWriteService.syncRetrievalSource(
+                            context.getSpaceId(),
+                            context.getDocumentId(),
+                            sourceSnapshot,
+                            currentProfile == null ? 0L : currentProfile.getSourceSnapshotRevision()));
+            return toProfileVO(refreshed);
         }
         updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_GENERATE_PROFILE,25,1,0,0,null,null,null);
 
@@ -436,10 +451,7 @@ public class KnowledgePipelineService {
 
         updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SAVE_PROFILE,80,1,0,0,null,null,null);
         SpaceKnowledgeDocumentProfileVO profile = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_SAVE_PROFILE,
-                "score=" + context.getScoreAfterRepair().getTotalScore(),() -> saveProfile(context,profileContext));
-        updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_BUILD_RETRIEVAL_ENHANCEMENT,95,1,1,0,null,null,null);
-        pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_BUILD_RETRIEVAL_ENHANCEMENT,
-                profile.getProfileStatus(),() -> "retrieval routes use saved profile and generated questions");
+                "score=" + context.getScoreAfterRepair().getTotalScore(),() -> saveProfile(context,profileContext,sourceSnapshot));
         if(SpaceConstant.KNOWLEDGE_PROFILE_NEEDS_REVIEW.equals(profile.getProfileStatus())) {
             pipelineEventService.reviewRequired(context,profile.getReviewReason());
         }
@@ -456,7 +468,9 @@ public class KnowledgePipelineService {
         return new GeneratedProfileContext(chunks,usedChunks,context,totalContentChunkCount(chunks));
     }
 
-    private SpaceKnowledgeDocumentProfileVO saveProfile(KnowledgePipelineContext context, GeneratedProfileContext profileContext) {
+    private SpaceKnowledgeDocumentProfileVO saveProfile(KnowledgePipelineContext context,
+                                                         GeneratedProfileContext profileContext,
+                                                         KnowledgeSourceSnapshot sourceSnapshot) {
         SpaceRagDocument document = context.getDocument();
         KnowledgeProfileDraft generated = context.getProfile();
         KnowledgeProfileQualityResult quality = context.getScoreAfterRepair();
@@ -482,9 +496,11 @@ public class KnowledgePipelineService {
         profile.setScoreAfterRepair(BigDecimal.valueOf(quality.getTotalScore()).setScale(2,RoundingMode.HALF_UP));
         profile.setReviewStatus(needsReview ? SpaceConstant.KNOWLEDGE_REVIEW_PENDING : SpaceConstant.KNOWLEDGE_REVIEW_NOT_REQUIRED);
         profile.setReviewReason(needsReview ? issueCodes(quality.getIssues()) : null);
-        profile.setSourceChunkIds(toJson(profileContext.usedChunks().stream().map(chunk -> String.valueOf(chunk.getId())).toList()));
-        profile.setSourceChunkCount(profileContext.usedChunks().size());
-        profile.setSourceCharacterCount(profileContext.context().length());
+        profile.setSourceChunkIds(sourceSnapshot.sourceChunkIds());
+        profile.setSourceChunkCount(sourceSnapshot.sourceChunkCount());
+        profile.setSourceCharacterCount(sourceSnapshot.sourceCharacterCount());
+        profile.setSourceSnapshotSignature(sourceSnapshot.signature());
+        profile.setSourceSnapshotRevision(1L);
         profile.setSchemaValid(generated.isSchemaValid());
         profile.setRepairAttempt(context.getRepairAttempt());
         profile.setRepairReason(context.getRepairReason());
@@ -767,6 +783,8 @@ public class KnowledgePipelineService {
         vo.setReviewReason(profile.getReviewReason());
         vo.setSourceChunkCount(profile.getSourceChunkCount());
         vo.setSourceCharacterCount(profile.getSourceCharacterCount());
+        vo.setSourceSnapshotSignature(profile.getSourceSnapshotSignature());
+        vo.setSourceSnapshotRevision(profile.getSourceSnapshotRevision());
         vo.setSchemaValid(profile.getSchemaValid());
         vo.setRepairAttempt(profile.getRepairAttempt());
         vo.setRepairReason(profile.getRepairReason());
