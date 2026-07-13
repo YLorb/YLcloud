@@ -66,6 +66,12 @@ public class MultifileService {
     @Autowired
     private SiteSettingService siteSettingService;
 
+    @Autowired
+    private ChunkUploadLeaseService chunkUploadLeaseService;
+
+    @Autowired
+    private MultipartUploadCleanupService multipartUploadCleanupService;
+
     /**
      * 初始化 initfile 相关逻辑。
      *
@@ -160,33 +166,26 @@ public class MultifileService {
             throw new BaseException("分片序号不合法");
         }
 
-        UploadChunk exists = chunkUploadMapper.getByUploadIdAndIndex(uploadId,chunkIndex);
-        if(exists != null) {
+        validateChunkSize(file,task,chunkIndex);
+        String realChunkMd5 = calculateChunkMd5(file,chunkMd5);
+        String objectName = "chunks/" + task.getFileUuid() + "/" + chunkIndex;
+        ChunkUploadLeaseService.Lease lease = chunkUploadLeaseService.reserve(
+                uploadId,chunkIndex,realChunkMd5,file.getSize(),objectName);
+        if(lease.completed()) {
             multifileMapper.touch(uploadId);
             return true;
         }
 
-        validateChunkSize(file,task,chunkIndex);
-        validateChunkMd5(file,chunkMd5);
-
         try {
-            String objectName = minioclientUtil.uploadFilePart(task.getFileUuid() == null ? task.getUploadId() : task.getFileUuid(),
+            String uploadedObjectName = minioclientUtil.uploadFilePart(task.getFileUuid(),
                     task.getFileName(),file,chunkIndex,task.getTotalChunks());
-            UploadChunk uploadChunk = new UploadChunk();
-            uploadChunk.setUploadId(uploadId);
-            uploadChunk.setChunkIndex(chunkIndex);
-            uploadChunk.setChunkMd5(chunkMd5);
-            uploadChunk.setSize(file.getSize());
-            uploadChunk.setObjectName(objectName);
-            uploadChunk.setStatus(StatusConstant.ENABLE);
-            uploadChunk.setCreatetime(LocalDateTime.now());
-            uploadChunk.setUpdatetime(LocalDateTime.now());
-            int rows = chunkUploadMapper.insertIgnore(uploadChunk);
-            if(rows > 0) {
-                multifileMapper.increaseUploadedChunks(uploadId);
+            if(!objectName.equals(uploadedObjectName)) {
+                throw new IllegalStateException("分片对象名与租约不一致");
             }
+            chunkUploadLeaseService.complete(uploadId,chunkIndex,lease.token());
             return true;
         } catch (Exception e) {
+            chunkUploadLeaseService.release(uploadId,chunkIndex,lease.token());
             log.error("分片上传失败: uploadId={}, chunkIndex={}", uploadId, chunkIndex, e);
             throw new BaseException("分片上传失败");
         }
@@ -260,7 +259,7 @@ public class MultifileService {
             if(multifileMapper.markMerged(uploadId,fileUuid) == 0) {
                 throw new IllegalStateException("上传任务合并状态提交失败");
             }
-            removePartsAfterCommit(objectNames);
+            cleanupPartsAfterCommit(task.getId(),fileUuid);
             return fileVO;
         } catch (Exception e) {
             log.error("分片合并失败: {}", uploadId, e);
@@ -381,8 +380,8 @@ public class MultifileService {
         return toFileVO(file,node);
     }
 
-    private void removePartsAfterCommit(List<String> objectNames) {
-        Runnable cleanup = () -> minioclientUtil.removeFileParts(objectNames);
+    private void cleanupPartsAfterCommit(Long taskId, String fileUuid) {
+        Runnable cleanup = () -> multipartUploadCleanupService.cleanupMergedTask(taskId,fileUuid);
         if(TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -454,15 +453,13 @@ public class MultifileService {
      * @param file 文件对象
      * @param chunkMd5 方法入参
      */
-    private void validateChunkMd5(MultipartFile file, String chunkMd5) {
-        if(chunkMd5 == null || chunkMd5.isBlank()) {
-            return;
-        }
+    private String calculateChunkMd5(MultipartFile file, String chunkMd5) {
         try {
             String realMd5 = Md5Util.md5(file.getInputStream());
-            if(!chunkMd5.equalsIgnoreCase(realMd5)) {
+            if(chunkMd5 != null && !chunkMd5.isBlank() && !chunkMd5.equalsIgnoreCase(realMd5)) {
                 throw new BaseException("分片校验失败");
             }
+            return realMd5;
         } catch (Exception e) {
             if(e instanceof BaseException) {
                 throw (BaseException) e;

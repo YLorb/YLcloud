@@ -56,4 +56,9 @@ public class RagTaskExecutorService {
     public void runSpaceRepairTask(Long taskId, Long spaceId, Long userId) {
         spaceRagService.executeSpaceRagTask(taskId,spaceId,userId,true);
     }
+
+    @Async("ragTaskExecutor")
+    public void runDeleteFileTask(Long taskId, Long spaceId, Long spaceFileId) {
+        spaceRagService.executeDeleteFileRagTask(taskId,spaceId,spaceFileId);
+    }
 }

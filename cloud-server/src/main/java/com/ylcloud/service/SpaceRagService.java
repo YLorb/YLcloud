@@ -4,6 +4,7 @@ import com.ylcloud.DTO.SpaceDocumentSearchDTO;
 import com.ylcloud.DTO.SpaceRagConfigUpdateDTO;
 import com.ylcloud.DTO.SpaceRagQueryDTO;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ConflictException;
 import com.ylcloud.VO.SpaceDocumentChunkHitVO;
 import com.ylcloud.VO.SpaceDocumentSearchVO;
 import com.ylcloud.VO.SpaceKnowledgePipelineTaskVO;
@@ -326,6 +327,13 @@ public class SpaceRagService {
         if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(failedTask.getTaskType())) {
             return rebuildSpace(spaceId,userId);
         }
+        if(SpaceConstant.RAG_TASK_DELETE_FILE.equals(failedTask.getTaskType()) && failedTask.getSpaceFileId() != null) {
+            SpaceRagTask retry = createTask(spaceId,failedTask.getSpaceFileId(),failedTask.getDocumentId(),
+                    SpaceConstant.RAG_TASK_DELETE_FILE,userId);
+            dispatchAfterCommit(() -> ragTaskExecutorService.runDeleteFileTask(
+                    retry.getId(),spaceId,failedTask.getSpaceFileId()));
+            return true;
+        }
         if(failedTask.getSpaceFileId() != null) {
             return rebuildFile(spaceId,failedTask.getSpaceFileId(),userId);
         }
@@ -512,8 +520,10 @@ public class SpaceRagService {
      */
     public void executeFileRagTask(Long taskId, Long documentId, Long userId) {
         LocalDateTime started = LocalDateTime.now();
+        if(!markTaskRunning(taskId,started)) {
+            return;
+        }
         try {
-            markTaskRunning(taskId,started);
             updateTaskProgress(taskId,1,0,0);
             SpaceRagDocument document = spaceRagDocumentMapper.getById(documentId);
             if(document == null) {
@@ -553,8 +563,10 @@ public class SpaceRagService {
      */
     public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId, boolean clearSpaceVectors) {
         LocalDateTime started = LocalDateTime.now();
+        if(!markTaskRunning(taskId,started)) {
+            return;
+        }
         try {
-            markTaskRunning(taskId,started);
             if(clearSpaceVectors) {
                 qdrantVectorStoreService.deleteBySpaceStrict(spaceId);
             }
@@ -609,11 +621,25 @@ public class SpaceRagService {
     public void handleFileRemoved(Long spaceId, Long spaceFileId, Long userId) {
         SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceFileId(spaceId,spaceFileId);
         SpaceRagTask task = createTask(spaceId,spaceFileId,document == null ? null : document.getId(),SpaceConstant.RAG_TASK_DELETE_FILE,userId);
-        LocalDateTime started = LocalDateTime.now();
         spaceRagChunkRefMapper.disableBySpaceFileId(spaceId,spaceFileId,LocalDateTime.now());
-        qdrantVectorStoreService.deleteBySpaceFile(spaceId,spaceFileId);
         spaceRagDocumentMapper.disableBySpaceFileId(spaceId,spaceFileId,SpaceConstant.RAG_INDEX_FAILED,"空间文件已删除",LocalDateTime.now());
-        finishTask(task,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+        dispatchAfterCommit(() -> ragTaskExecutorService.runDeleteFileTask(task.getId(),spaceId,spaceFileId));
+    }
+
+    public void executeDeleteFileRagTask(Long taskId, Long spaceId, Long spaceFileId) {
+        LocalDateTime started = LocalDateTime.now();
+        if(!markTaskRunning(taskId,started)) {
+            return;
+        }
+        try {
+            updateTaskProgress(taskId,1,0,0);
+            qdrantVectorStoreService.deleteBySpaceFileStrict(spaceId,spaceFileId);
+            updateTaskProgress(taskId,1,1,0);
+            finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+        } catch (Throwable ex) {
+            updateTaskProgress(taskId,1,0,1);
+            finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
+        }
     }
 
     /**
@@ -1172,8 +1198,14 @@ public class SpaceRagService {
         task.setCreatedBy(userId);
         task.setCreatetime(now);
         task.setUpdatetime(now);
-        spaceRagTaskMapper.insert(task);
-        return task;
+        if(spaceRagTaskMapper.insert(task) > 0) {
+            return task;
+        }
+        SpaceRagTask existing = spaceRagTaskMapper.findActiveTask(spaceId,spaceFileId,taskType);
+        if(existing != null) {
+            return existing;
+        }
+        throw new ConflictException("相同范围的 RAG 任务正在执行");
     }
 
     /**
@@ -1197,7 +1229,7 @@ public class SpaceRagService {
      * @param startedTime 开始时间
      */
     private void finishTask(Long taskId, String status, String errorMessage, LocalDateTime startedTime) {
-        spaceRagTaskMapper.updateResult(taskId,status,errorMessage,startedTime,LocalDateTime.now(),LocalDateTime.now());
+        spaceRagTaskMapper.finishIfRunning(taskId,status,errorMessage,LocalDateTime.now());
     }
 
     /**
@@ -1206,8 +1238,8 @@ public class SpaceRagService {
      * @param taskId 任务 ID
      * @param startedTime 开始时间
      */
-    private void markTaskRunning(Long taskId, LocalDateTime startedTime) {
-        spaceRagTaskMapper.updateResult(taskId,SpaceConstant.RAG_TASK_RUNNING,null,startedTime,null,LocalDateTime.now());
+    private boolean markTaskRunning(Long taskId, LocalDateTime startedTime) {
+        return spaceRagTaskMapper.markRunningIfPending(taskId,startedTime) > 0;
     }
 
     /**

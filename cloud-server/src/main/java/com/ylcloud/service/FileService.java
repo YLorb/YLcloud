@@ -11,6 +11,7 @@ import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.context.BaseContext;
 import com.ylcloud.entity.File;
 import com.ylcloud.entity.FileShare;
+import com.ylcloud.entity.CrossStoreOperation;
 import com.ylcloud.entity.User;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.FileShareMapper;
@@ -38,6 +39,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 @Slf4j
@@ -56,6 +58,8 @@ public class FileService {
     private SiteSettingService siteSettingService;
     @Autowired
     private PhysicalFileCleanupService physicalFileCleanupService;
+    @Autowired
+    private CrossStoreFileWriteService crossStoreFileWriteService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -293,17 +297,31 @@ public class FileService {
      *
      * @param userFileDTO 方法入参
      */
-    private void requireNoRestoreNameConflict(UserFileDTO userFileDTO) {
-        List<UserFileDTO> siblings = listChildren(userFileDTO.getParentId(),userFileDTO.getUserId());
-        for(UserFileDTO sibling : siblings) {
-            boolean sameNode = sibling.getId().equals(userFileDTO.getId());
-            boolean sameName = sibling.getFileName().equals(userFileDTO.getFileName());
-            boolean sameType = sibling.getDir() == userFileDTO.getDir();
-            if(!sameNode && sameName && sameType) {
-                throw new BaseException("恢复失败，目标目录存在同名文件或目录");
+    private String resolveRestoreName(UserFileDTO userFileDTO) {
+        if(fileInfoMapper.countActiveNameExcluding(userFileDTO.getUserId(),userFileDTO.getParentId(),
+                userFileDTO.getFileName(),userFileDTO.getDir(),userFileDTO.getId()) == 0) {
+            return userFileDTO.getFileName();
+        }
+        NameParts parts = splitName(userFileDTO.getFileName(),userFileDTO.getDir() == 1);
+        for(int index = 1; index < 10000; index++) {
+            String candidate = parts.base() + "-副本(" + index + ")" + parts.extension();
+            if(fileInfoMapper.countActiveNameExcluding(userFileDTO.getUserId(),userFileDTO.getParentId(),
+                    candidate,userFileDTO.getDir(),userFileDTO.getId()) == 0) {
+                return candidate;
             }
         }
+        throw new BaseException("无法生成可用的恢复副本名称");
     }
+
+    private NameParts splitName(String fileName, boolean directory) {
+        int dot = directory || fileName == null ? -1 : fileName.lastIndexOf('.');
+        if(dot <= 0) {
+            return new NameParts(fileName == null ? "文件" : fileName,"");
+        }
+        return new NameParts(fileName.substring(0,dot),fileName.substring(dot));
+    }
+
+    private record NameParts(String base, String extension) {}
 
     /**
      * 文件获取与创建
@@ -525,7 +543,13 @@ public class FileService {
      * @param parentId 父级 ID
      * @return 处理结果
      */
+    @Transactional
     public FileVO upload(MultipartFile uploadFile,Long parentId) {
+        return upload(uploadFile,parentId,null);
+    }
+
+    @Transactional
+    public FileVO upload(MultipartFile uploadFile, Long parentId, String idempotencyKey) {
         Long userId = BaseContext.getCurrentId();
         validateUploadFile(uploadFile);
         String originalFilename = requireSafeFileName(uploadFile.getOriginalFilename());
@@ -536,9 +560,8 @@ public class FileService {
         parentId = normalizeParentId(parentId, userId);
         UserFileDTO parent = requireFileById(parentId,FilePermission.WRITE);
         requireWritableDirectory(parent);
+        fileInfoMapper.lockUserFileById(parent.getId());
         Long ownerId = parent.getUserId();
-        requireNoNameConflict(originalFilename,0,parentId,ownerId,null);
-
 
         String md5;
         String sha1;
@@ -551,14 +574,29 @@ public class FileService {
             throw new RuntimeException("文件解析失败", e);
         }
 
+        CrossStoreOperation operation;
+        AtomicReference<String> resultRef = new AtomicReference<>();
+        String effectiveKey = idempotencyKey == null || idempotencyKey.isBlank() ? UuidUtil.randomUuid() : idempotencyKey;
+        requireValidIdempotencyKey(effectiveKey);
+        String operationKey = CrossStoreOperationService.key("PERSONAL_UPLOAD",userId,effectiveKey);
+        operation = crossStoreOperationService.claim(
+                operationKey,
+                "PERSONAL_UPLOAD",
+                CrossStoreOperationService.payloadHash(ownerId,parentId,originalFilename,uploadFile.getSize(),hash),
+                UuidUtil.randomUuid());
+        if(CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
+            return replayPersonalUpload(operation,ownerId,parentId);
+        }
+        crossStoreOperationService.completeAfterCommit(operationKey,resultRef::get);
+
+        requireNoNameConflict(originalFilename,0,parentId,ownerId,null);
         log.info("文件名: {}, MD5: {}, hash: {}", uploadFile.getOriginalFilename(), md5, hash);
 
         // 查询是否已有相同 hash 的真实文件。
         File existingFile = fileInfoMapper.getFileByHash(hash);
         // 不存在同 hash 文件，需要上传 MinIO 并写入 file_info。
         if(existingFile == null) {
-            String fileUuid = UuidUtil.randomUuid();
-            File exist = fileInfoMapper.getFileByHash(hash);
+            String fileUuid = operation.getResourceId();
             File file = File.builder()
                     .name(originalFilename)
                     .fileUuid(fileUuid)
@@ -586,7 +624,7 @@ public class FileService {
             log.info("文件{}的哈希值校验未通过，重新上传",uploadFile.getName());
 
             try {
-                minioclientUtil.putObject(uploadFile,file.getFileUuid());
+                crossStoreFileWriteService.putNewObject(uploadFile,file.getFileUuid());
             } catch (Exception e) {
                 log.error("uuid对应文件{}上传失败，原因：{}",file.getFileUuid(),e.getMessage());
                 throw new RuntimeException(e);
@@ -598,8 +636,9 @@ public class FileService {
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
-
-            return toFileVO(file);
+            resultRef.set(String.valueOf(file_user.getId()));
+            crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            return toFileVO(file_user);
         }
         else {
             UserFileDTO same = fileInfoMapper.getByFileUuidAndParent(existingFile.getFileUuid(),parentId, ownerId);
@@ -630,7 +669,33 @@ public class FileService {
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
-            return toFileVO(file);
+            resultRef.set(String.valueOf(file_user.getId()));
+            crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            return toFileVO(file_user);
+        }
+    }
+
+    private CrossStoreOperationService crossStoreOperationService;
+
+    @Autowired
+    public void setCrossStoreOperationService(CrossStoreOperationService crossStoreOperationService) {
+        this.crossStoreOperationService = crossStoreOperationService;
+    }
+
+    private FileVO replayPersonalUpload(CrossStoreOperation operation, Long ownerId, Long parentId) {
+        if(operation.getResultRef() == null || !operation.getResultRef().matches("\\d+")) {
+            throw new BaseException("上传已完成，但结果引用不可用");
+        }
+        UserFileDTO node = fileInfoMapper.getByFileIdAny(Long.valueOf(operation.getResultRef()));
+        if(node == null || !ownerId.equals(node.getUserId()) || !parentId.equals(node.getParentId())) {
+            throw new BaseException("幂等上传结果已不在原目录，请使用新的 Idempotency-Key");
+        }
+        return toFileVO(node);
+    }
+
+    private void requireValidIdempotencyKey(String value) {
+        if(value.length() > 128 || !value.matches("^[A-Za-z0-9._:-]{8,128}$")) {
+            throw new BaseException("Idempotency-Key 格式不正确");
         }
     }
 
@@ -1202,19 +1267,17 @@ public class FileService {
      *
      * @param userFileDTO 方法入参
      */
+    @Transactional
     public void deleteOSS(UserFileDTO userFileDTO) {
         File file = fileInfoMapper.getFileByFileUuid(userFileDTO.getFileUuid(),userFileDTO.getUserId());
         if(file == null) {
             throw new BaseException("文件元数据不存在");
         }
-        try {
-            minioclientUtil.removeObject(file);
-        } catch (Exception e) {
-            log.warn("删除文件{}失败",file.getFileUuid());
-            throw new RuntimeException("删除失败，原因: " + e.getMessage());
+        Integer referenceCount = fileInfoMapper.getFileCount(userFileDTO.getFileUuid());
+        if(referenceCount == null || referenceCount != 0) {
+            throw new BaseException("物理文件仍有业务引用，不能直接清理");
         }
-        fileInfoMapper.delete_fileinfo_ByfileUuid(userFileDTO.getFileUuid());
-        return ;
+        physicalFileCleanupService.enqueue(userFileDTO.getFileUuid());
     }
 
     /**
@@ -1301,8 +1364,18 @@ public class FileService {
         if(userFileDTO.getParentId() != null && userFileDTO.getParentId() != 0L && parent == null) {
             throw new BaseException("父目录不存在，无法恢复文件");
         }
-        requireNoRestoreNameConflict(userFileDTO);
+        if(parent != null) {
+            fileInfoMapper.lockUserFileById(parent.getId());
+        }
+        String restoredName = resolveRestoreName(userFileDTO);
+        if(!restoredName.equals(userFileDTO.getFileName())) {
+            if(fileInfoMapper.updateRecycledNameById(userFileDTO.getId(),restoredName,LocalDateTime.now()) == 0) {
+                throw new BaseException("恢复副本重命名失败");
+            }
+            userFileDTO.setFileName(restoredName);
+        }
         restoreTree(userFileDTO);
+        refreshRestoredPaths(userFileDTO);
         return StatusConstant.SUCCESS;
     }
 
@@ -1329,6 +1402,14 @@ public class FileService {
                 restoreTree(child);
             }
         });
+    }
+
+    private void refreshRestoredPaths(UserFileDTO root) {
+        String path = getPath(root.getId(),root.getUserId());
+        fileInfoMapper.updatePath(root.getId(),root.getFileUuid(),path,root.getUserId());
+        for(UserFileDTO child : listChildren(root.getId(),root.getUserId())) {
+            refreshRestoredPaths(child);
+        }
     }
 
     /**
@@ -1403,6 +1484,7 @@ public class FileService {
      * @param type 类型
      * @return 处理结果
      */
+    @Transactional
     public FileVO makefile(int isDir,Long parentId,String name,String type) {
         Long userId = BaseContext.getCurrentId();
         String safeName = requireSafeFileName(name);
@@ -1414,6 +1496,7 @@ public class FileService {
         parentId = normalizeParentId(parentId, userId);
         UserFileDTO parent = requireFileById(parentId,FilePermission.WRITE);
         requireWritableDirectory(parent);
+        fileInfoMapper.lockUserFileById(parent.getId());
         Long ownerId = parent.getUserId();
 
         List<UserFileDTO> files = listChildren(parentId,ownerId);
@@ -1431,8 +1514,14 @@ public class FileService {
         }
 
         if(isDir == 0) {
+            String operationKey = CrossStoreOperationService.key("EMPTY_FILE",userId,UuidUtil.randomUuid());
+            AtomicReference<String> resultRef = new AtomicReference<>();
+            CrossStoreOperation operation = crossStoreOperationService.claim(
+                    operationKey,"EMPTY_FILE",
+                    CrossStoreOperationService.payloadHash(ownerId,parentId,name,type),UuidUtil.randomUuid());
+            crossStoreOperationService.completeAfterCommit(operationKey,resultRef::get);
             File file = File.builder()
-                    .fileUuid(UuidUtil.randomUuid())
+                    .fileUuid(operation.getResourceId())
                     .parentId(parentId)
                     .userId(ownerId)
                     .size(0L)
@@ -1458,7 +1547,7 @@ public class FileService {
             file.setDir(false);
             userFileDTO.setDir(0);
             try {
-                minioclientUtil.putEmptyObject(file.getFileUuid());
+                crossStoreFileWriteService.putNewEmptyObject(file.getFileUuid());
             } catch (Exception e) {
                 log.warn("创建空文件对象失败：{}",file.getFileUuid(),e);
                 throw new RuntimeException("新建文件失败");
@@ -1473,7 +1562,9 @@ public class FileService {
                 log.warn("新建文件失败");
                 throw new RuntimeException("新建文件失败！");
             }
-            return toFileVO(file);
+            resultRef.set(String.valueOf(userFileDTO.getId()));
+            crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            return toFileVO(userFileDTO);
         }
 
         String uuid = UuidUtil.randomUuid();

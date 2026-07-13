@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
+import java.util.function.Supplier;
 
 @Service
 public class CrossStoreOperationService {
@@ -49,15 +50,33 @@ public class CrossStoreOperationService {
         return mapper.get(operationKey);
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordResultCandidate(String operationKey, String resultRef) {
+        mapper.recordResultCandidate(operationKey,resultRef,LocalDateTime.now());
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordExternalRef(String operationKey, String externalRef) {
+        mapper.recordExternalRef(operationKey,externalRef,LocalDateTime.now());
+    }
+
+    public java.util.List<CrossStoreOperation> listStaleRunning(int limit) {
+        return mapper.listStaleRunning(LocalDateTime.now(),limit);
+    }
+
     public void completeAfterCommit(String operationKey, String resultRef) {
+        completeAfterCommit(operationKey,() -> resultRef);
+    }
+
+    public void completeAfterCommit(String operationKey, Supplier<String> resultRefSupplier) {
         if(!TransactionSynchronizationManager.isSynchronizationActive()) {
-            markSuccess(operationKey,resultRef);
+            markSuccess(operationKey,resultRefSupplier.get());
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                markSuccess(operationKey,resultRef);
+                markSuccess(operationKey,resultRefSupplier.get());
             }
 
             @Override

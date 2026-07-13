@@ -26,7 +26,7 @@ public interface SpaceRagTaskMapper {
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    @Insert("insert into space_rag_task(space_id, space_file_id, document_id, task_type, task_status, total_count, success_count, failed_count, error_message, created_by, started_time, finished_time, createtime, updatetime) " +
+    @Insert("insert ignore into space_rag_task(space_id, space_file_id, document_id, task_type, task_status, total_count, success_count, failed_count, error_message, created_by, started_time, finished_time, createtime, updatetime) " +
             "values(#{spaceId}, #{spaceFileId}, #{documentId}, #{taskType}, #{taskStatus}, #{totalCount}, #{successCount}, #{failedCount}, #{errorMessage}, #{createdBy}, #{startedTime}, #{finishedTime}, #{createtime}, #{updatetime})")
     int insert(SpaceRagTask task);
 
@@ -83,6 +83,13 @@ public interface SpaceRagTaskMapper {
     SpaceRagTask findRunningSpaceTask(@Param("spaceId") Long spaceId,
                                       @Param("taskType") String taskType);
 
+    @Select("select " + TASK_COLUMNS + " from space_rag_task where space_id = #{spaceId} " +
+            "and (#{spaceFileId} is null or space_file_id = #{spaceFileId}) and task_type = #{taskType} " +
+            "and task_status in ('PENDING','RUNNING') order by createtime desc limit 1")
+    SpaceRagTask findActiveTask(@Param("spaceId") Long spaceId,
+                                @Param("spaceFileId") Long spaceFileId,
+                                @Param("taskType") String taskType);
+
     /**
      * 查询 listFailedBySpace 相关逻辑。
      * @return 列表结果
@@ -121,7 +128,7 @@ public interface SpaceRagTaskMapper {
      */
     @Select("<script>" +
             "select " + TASK_COLUMNS + " from space_rag_task " +
-            "where task_type in ('INDEX_FILE','REBUILD_FILE','REBUILD_SPACE') " +
+            "where task_type in ('INDEX_FILE','REBUILD_FILE','REBUILD_SPACE','DELETE_FILE','DELETE_SPACE') " +
             "and task_status in ('PENDING','RUNNING') " +
             "and coalesce(started_time, updatetime, createtime) &lt;= #{cutoff} " +
             "<if test='spaceId != null'>and space_id = #{spaceId} </if>" +
@@ -141,5 +148,17 @@ public interface SpaceRagTaskMapper {
                        @Param("errorMessage") String errorMessage,
                        @Param("finishedTime") LocalDateTime finishedTime,
                        @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update space_rag_task set task_status = 'RUNNING', error_message = null, started_time = #{startedTime}, " +
+            "finished_time = null, updatetime = #{startedTime} where id = #{id} and task_status = 'PENDING'")
+    int markRunningIfPending(@Param("id") Long id, @Param("startedTime") LocalDateTime startedTime);
+
+    @Update("update space_rag_task set task_status = #{taskStatus}, error_message = #{errorMessage}, " +
+            "finished_time = #{finishedTime}, updatetime = #{finishedTime} " +
+            "where id = #{id} and task_status = 'RUNNING'")
+    int finishIfRunning(@Param("id") Long id,
+                        @Param("taskStatus") String taskStatus,
+                        @Param("errorMessage") String errorMessage,
+                        @Param("finishedTime") LocalDateTime finishedTime);
 
 }

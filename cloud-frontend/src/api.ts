@@ -147,7 +147,11 @@ export const api = {
     const body = new FormData();
     body.set("file", file);
     body.set("parentId", String(parentId));
-    return request<FileItem>("/api/file/upload", { method: "POST", body });
+    return request<FileItem>("/api/file/upload", {
+      method: "POST",
+      body,
+      headers: { "Idempotency-Key": crypto.randomUUID() }
+    });
   },
   createFile: (payload: { isDir: 0 | 1; parentId?: number; name: string; type?: string }) =>
     request<FileItem>(
@@ -242,7 +246,11 @@ export const api = {
     body.set("file", file);
     if (parentId !== undefined && parentId !== null) body.set("parentId", String(parentId));
     if (name) body.set("name", name);
-    return request<SpaceFile>(`/api/space/${spaceId}/files/upload`, { method: "POST", body });
+    return request<SpaceFile>(`/api/space/${spaceId}/files/upload`, {
+      method: "POST",
+      body,
+      headers: { "Idempotency-Key": crypto.randomUUID() }
+    });
   },
   removeSpaceFile: (spaceId: number, fileId: number) =>
     request<boolean>(`/api/space/${spaceId}/files/${fileId}`, { method: "DELETE" }),
@@ -259,7 +267,11 @@ export const api = {
     const body = new FormData();
     body.set("file", file);
     if (changeNote) body.set("changeNote", changeNote);
-    return request<FileVersion>(`/api/space/${spaceId}/files/${fileId}/versions`, { method: "POST", body });
+    return request<FileVersion>(`/api/space/${spaceId}/files/${fileId}/versions`, {
+      method: "POST",
+      body,
+      headers: { "Idempotency-Key": crypto.randomUUID() }
+    });
   },
   listSpaceFileVersions: (spaceId: number, fileId: number) =>
     request<FileVersion[]>(`/api/space/${spaceId}/files/${fileId}/versions`),
@@ -270,7 +282,7 @@ export const api = {
   restoreSpaceFileVersion: (spaceId: number, fileId: number, versionRecordId: number, changeNote?: string) =>
     request<FileVersion>(
       `/api/space/${spaceId}/files/${fileId}/versions/${versionRecordId}/restore?${params({ changeNote })}`,
-      { method: "POST" }
+      { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }
     ),
   listMembers: (spaceId: number) => request<SpaceMember[]>(`/api/space/${spaceId}/members`),
   addMember: (spaceId: number, payload: { userId: number; role?: string }) =>

@@ -55,6 +55,18 @@ public interface FileVersionMapper {
             "where id = #{id} and file_uuid = #{fileUuid} and status = 1")
     FileVersion getByIdAndFileUuid(@Param("id") Long id, @Param("fileUuid") String fileUuid);
 
+    @Select("select id, file_uuid as fileUuid, version_no as versionNo, minio_version_id as minioVersionId, file_name as fileName, " +
+            "file_hash as fileHash, file_md5 as fileMd5, file_type as fileType, file_size as fileSize, change_note as changeNote, " +
+            "created_by as createdBy, is_current as current, status, createtime from file_version " +
+            "where id = #{id} and status = 1")
+    FileVersion getById(@Param("id") Long id);
+
+    @Select("select id, file_uuid as fileUuid, version_no as versionNo, minio_version_id as minioVersionId, file_name as fileName, " +
+            "file_hash as fileHash, file_md5 as fileMd5, file_type as fileType, file_size as fileSize, change_note as changeNote, " +
+            "created_by as createdBy, is_current as current, status, createtime from file_version " +
+            "where file_uuid = #{fileUuid} and status = 1 and is_current = 1 limit 1")
+    FileVersion getCurrent(@Param("fileUuid") String fileUuid);
+
     /**
      * 查询 getMaxVersionNo 相关逻辑。
      * @return 影响行数

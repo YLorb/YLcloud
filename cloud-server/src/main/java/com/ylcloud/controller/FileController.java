@@ -39,8 +39,9 @@ public class FileController {
      */
     @PostMapping("/upload")
     public Result<FileVO> upload(@RequestParam("file") MultipartFile file,
-                                 @RequestParam(value = "parentId",defaultValue = "0") Long parentId) {
-        return Result.success(fileService.upload(file,parentId));
+                                 @RequestParam(value = "parentId",defaultValue = "0") Long parentId,
+                                 @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return Result.success(fileService.upload(file,parentId,idempotencyKey));
     }
 
     /**

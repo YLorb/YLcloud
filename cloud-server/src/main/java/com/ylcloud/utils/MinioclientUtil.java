@@ -367,6 +367,19 @@ public class MinioclientUtil {
         }
     }
 
+    public String copyObjectVersion(String sourceObjectName,
+                                    String sourceVersionId,
+                                    String targetObjectName) throws Exception {
+        try (InputStream inputStream = getObjectStream(sourceObjectName,sourceVersionId)) {
+            ObjectWriteResponse response = minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(defaultBucket)
+                    .object(targetObjectName)
+                    .stream(inputStream,-1,1024 * 1024 * 5)
+                    .build());
+            return response.versionId();
+        }
+    }
+
     public void downloadObject(FileDTO fileDTO, HttpServletResponse response) throws Exception {
         throw new UnsupportedOperationException("Server-side local downloads are disabled; stream objects through HttpServletResponse instead.");
     }
@@ -457,6 +470,24 @@ public class MinioclientUtil {
                     .object(partName)
                     .build());
         }
+    }
+
+    /**
+     * 按上传任务预分配的文件 UUID 清理全部临时分片，包含尚未来得及写入数据库的孤儿对象。
+     */
+    public int removeFilePartsByFileUuidStrict(String fileUuid) throws Exception {
+        String prefix = "chunks/" + fileUuid + "/";
+        List<String> objectNames = new ArrayList<>();
+        Iterable<Result<Item>> items = minioClient.listObjects(ListObjectsArgs.builder()
+                .bucket(defaultBucket)
+                .prefix(prefix)
+                .recursive(true)
+                .build());
+        for(Result<Item> result : items) {
+            objectNames.add(result.get().objectName());
+        }
+        removeFilePartsStrict(objectNames);
+        return objectNames.size();
     }
 
     /** 删除指定对象版本，用于数据库事务回滚后的精确补偿。 */

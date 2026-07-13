@@ -22,6 +22,10 @@ mybatis:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  cross-store:
+    lease-seconds: 3600
+    recovery-delay-ms: 60000
+    recovery-initial-delay-ms: 60000
   bootstrap-admin:
     enabled: ${YLCLOUD_BOOTSTRAP_ADMIN_ENABLED:false}
     username: ${YLCLOUD_BOOTSTRAP_ADMIN_USERNAME:}
@@ -32,6 +36,10 @@ ylcloud:
     expiration-ms: ${YLCLOUD_JWT_EXPIRATION_MS:3600000}
   upload:
     max-file-size: 2147483648
+    chunk-lease-seconds: ${YLCLOUD_UPLOAD_CHUNK_LEASE_SECONDS:3600}
+    merge-lease-seconds: ${YLCLOUD_UPLOAD_MERGE_LEASE_SECONDS:600}
+    multipart-retention-hours: ${YLCLOUD_UPLOAD_MULTIPART_RETENTION_HOURS:24}
+    multipart-cleanup-delay-ms: ${YLCLOUD_UPLOAD_MULTIPART_CLEANUP_DELAY_MS:3600000}
   minio:
     endpoint: ${YLCLOUD_MINIO_ENDPOINT:http://127.0.0.1:9000}
     accessKey: ${YLCLOUD_MINIO_ACCESS_KEY:ylcloud_minio}

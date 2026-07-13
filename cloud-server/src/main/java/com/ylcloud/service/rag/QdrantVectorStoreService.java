@@ -68,7 +68,7 @@ public class QdrantVectorStoreService {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || chunks == null || chunks.isEmpty()) {
             return;
         }
-        deleteBySpaceFile(spaceId,spaceFileId);
+        deleteBySpaceFileStrict(spaceId,spaceFileId);
         int batchSize = properties.getEmbeddingBatchSize() == null || properties.getEmbeddingBatchSize() < 1
                 ? 8 : properties.getEmbeddingBatchSize();
         for(int start = 0; start < chunks.size(); start += batchSize) {
@@ -147,6 +147,14 @@ public class QdrantVectorStoreService {
         } catch (Exception ex) {
             log.warn("Failed to remove Qdrant vectors for spaceId={}, spaceFileId={}",spaceId,spaceFileId,ex);
         }
+    }
+
+    /** 删除失败时抛出异常，供持久化任务记录失败并重试。 */
+    public void deleteBySpaceFileStrict(Long spaceId, Long spaceFileId) {
+        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null || spaceFileId == null) {
+            return;
+        }
+        embeddingStore.removeAll(new And(new IsEqualTo(SPACE_ID,spaceId),new IsEqualTo(SPACE_FILE_ID,spaceFileId)));
     }
 
     /**

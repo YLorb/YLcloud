@@ -111,8 +111,10 @@ public class SpaceFileController {
     public Result<SpaceFileVO> upload(@PathVariable Long spaceId,
                                       @RequestParam("file") MultipartFile file,
                                       @RequestParam(value = "parentId", required = false) Long parentId,
-                                      @RequestParam(value = "name", required = false) String name) {
-        return Result.success(spaceFileService.uploadFile(spaceId,file,parentId,name,BaseContext.getCurrentId()));
+                                      @RequestParam(value = "name", required = false) String name,
+                                      @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return Result.success(spaceFileService.uploadFile(
+                spaceId,file,parentId,name,BaseContext.getCurrentId(),idempotencyKey));
     }
 
     /**
@@ -195,8 +197,10 @@ public class SpaceFileController {
     public Result<FileVersionVO> uploadVersion(@PathVariable Long spaceId,
                                                @PathVariable Long fileId,
                                                @RequestParam("file") MultipartFile file,
-                                               @RequestParam(value = "changeNote", required = false) String changeNote) {
-        return Result.success(fileVersionService.uploadSpaceFileVersion(spaceId,fileId,file,changeNote,BaseContext.getCurrentId()));
+                                               @RequestParam(value = "changeNote", required = false) String changeNote,
+                                               @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return Result.success(fileVersionService.uploadSpaceFileVersion(
+                spaceId,fileId,file,changeNote,BaseContext.getCurrentId(),idempotencyKey));
     }
 
     /**
@@ -272,7 +276,9 @@ public class SpaceFileController {
     public Result<FileVersionVO> restoreVersion(@PathVariable Long spaceId,
                                                 @PathVariable Long fileId,
                                                 @PathVariable Long versionRecordId,
-                                                @RequestParam(value = "changeNote", required = false) String changeNote) {
-        return Result.success(fileVersionService.restoreVersion(spaceId,fileId,versionRecordId,changeNote,BaseContext.getCurrentId()));
+                                                @RequestParam(value = "changeNote", required = false) String changeNote,
+                                                @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return Result.success(fileVersionService.restoreVersion(
+                spaceId,fileId,versionRecordId,changeNote,BaseContext.getCurrentId(),idempotencyKey));
     }
 }

@@ -83,6 +83,12 @@ public class UploadTask {
 
     private LocalDateTime mergeStartedTime;
 
+    /** 合并成功后临时分片全部清理完成的时间。 */
+    private LocalDateTime partsCleanedTime;
+
+    /** 临时分片清理尝试次数。 */
+    private Integer cleanupAttemptCount;
+
     /**
      * 创建时间。
      */

@@ -14,6 +14,7 @@ import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.File;
 import com.ylcloud.entity.Space;
 import com.ylcloud.entity.SpaceFile;
+import com.ylcloud.entity.CrossStoreOperation;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
 import com.ylcloud.utils.HashUtil;
@@ -42,6 +43,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 空间文件树业务服务。
@@ -60,6 +62,8 @@ public class SpaceFileService {
     private final SiteSettingService siteSettingService;
     private final PhysicalFileCleanupService physicalFileCleanupService;
     private final InitialFileVersionService initialFileVersionService;
+    private final CrossStoreFileWriteService crossStoreFileWriteService;
+    private final CrossStoreOperationService crossStoreOperationService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -85,7 +89,9 @@ public class SpaceFileService {
                             MinioclientUtil minioclientUtil,
                             SiteSettingService siteSettingService,
                             PhysicalFileCleanupService physicalFileCleanupService,
-                            InitialFileVersionService initialFileVersionService) {
+                            InitialFileVersionService initialFileVersionService,
+                            CrossStoreFileWriteService crossStoreFileWriteService,
+                            CrossStoreOperationService crossStoreOperationService) {
         this.spaceFileMapper = spaceFileMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceService = spaceService;
@@ -95,6 +101,8 @@ public class SpaceFileService {
         this.siteSettingService = siteSettingService;
         this.physicalFileCleanupService = physicalFileCleanupService;
         this.initialFileVersionService = initialFileVersionService;
+        this.crossStoreFileWriteService = crossStoreFileWriteService;
+        this.crossStoreOperationService = crossStoreOperationService;
     }
 
     /**
@@ -141,6 +149,7 @@ public class SpaceFileService {
         String folderName = requireSafeFileName(dto.getName());
         Long parentId = normalizeParentId(spaceId,dto.getParentId());
         SpaceFile parent = requireDirectory(spaceId,parentId);
+        spaceFileMapper.lockById(spaceId,parentId);
         requireNoSameName(spaceId,parentId,folderName,1);
 
         LocalDateTime now = LocalDateTime.now();
@@ -171,6 +180,7 @@ public class SpaceFileService {
         spacePermissionService.requireAdmin(spaceId,userId);
         Long parentId = normalizeParentId(spaceId,dto.getParentId());
         SpaceFile parent = requireDirectory(spaceId,parentId);
+        spaceFileMapper.lockById(spaceId,parentId);
         UserFileDTO userFile = fileInfoMapper.getUserFileByPhysicalFileId(dto.getUserFileId(),userId);
         if(userFile == null) {
             userFile = fileInfoMapper.getByFileId(dto.getUserFileId(),userId);
@@ -215,18 +225,47 @@ public class SpaceFileService {
      */
     @Transactional
     public SpaceFileVO uploadFile(Long spaceId, MultipartFile uploadFile, Long parentId, String name, Long userId) {
+        return uploadFile(spaceId,uploadFile,parentId,name,userId,null);
+    }
+
+    @Transactional
+    public SpaceFileVO uploadFile(Long spaceId,
+                                  MultipartFile uploadFile,
+                                  Long parentId,
+                                  String name,
+                                  Long userId,
+                                  String idempotencyKey) {
         spacePermissionService.requireAdmin(spaceId,userId);
         validateUploadFile(uploadFile);
         String fileName = name == null || name.isBlank() ? uploadFile.getOriginalFilename() : name;
         fileName = requireSafeFileName(fileName);
         Long realParentId = normalizeParentId(spaceId,parentId);
         SpaceFile parent = requireDirectory(spaceId,realParentId);
+        spaceFileMapper.lockById(spaceId,realParentId);
+        FileFingerprint fingerprint = calculateFingerprint(uploadFile);
+        CrossStoreOperation operation;
+        AtomicReference<String> resultRef = new AtomicReference<>();
+        String effectiveKey = idempotencyKey == null || idempotencyKey.isBlank() ? UuidUtil.randomUuid() : idempotencyKey;
+        requireValidIdempotencyKey(effectiveKey);
+        String operationKey = CrossStoreOperationService.key("SPACE_UPLOAD",userId,effectiveKey);
+        operation = crossStoreOperationService.claim(
+                operationKey,
+                "SPACE_UPLOAD",
+                CrossStoreOperationService.payloadHash(spaceId,realParentId,fileName,uploadFile.getSize(),fingerprint.hash()),
+                UuidUtil.randomUuid());
+        if(CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
+            return replaySpaceUpload(operation,spaceId,realParentId);
+        }
+        crossStoreOperationService.completeAfterCommit(operationKey,resultRef::get);
         requireNoSameName(spaceId,realParentId,fileName,0);
 
-        StoredPhysicalFile stored = storeMultipartFile(uploadFile,fileName);
+        StoredPhysicalFile stored = storeMultipartFile(uploadFile,fileName,fingerprint,
+                operation.getResourceId());
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
         ensureInitialVersionIfEnabled(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
+        resultRef.set(String.valueOf(spaceFile.getId()));
+        crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
         return toVO(spaceFile);
     }
 
@@ -247,13 +286,25 @@ public class SpaceFileService {
         fileName = requireSafeFileName(ensureMarkdownExtension(fileName));
         Long parentId = normalizeParentId(spaceId,dto.getParentId());
         SpaceFile parent = requireDirectory(spaceId,parentId);
+        spaceFileMapper.lockById(spaceId,parentId);
         requireNoSameName(spaceId,parentId,fileName,0);
 
         String markdown = buildWebLinkMarkdown(uri,snapshot);
-        StoredPhysicalFile stored = storeGeneratedFile(fileName,markdown.getBytes(StandardCharsets.UTF_8),"text/markdown;charset=UTF-8");
+        byte[] content = markdown.getBytes(StandardCharsets.UTF_8);
+        String operationKey = CrossStoreOperationService.key("SPACE_GENERATED",userId,UuidUtil.randomUuid());
+        AtomicReference<String> resultRef = new AtomicReference<>();
+        CrossStoreOperation operation = crossStoreOperationService.claim(
+                operationKey,"SPACE_GENERATED",
+                CrossStoreOperationService.payloadHash(spaceId,parentId,fileName,HashUtil.sha256(content)),
+                UuidUtil.randomUuid());
+        crossStoreOperationService.completeAfterCommit(operationKey,resultRef::get);
+        StoredPhysicalFile stored = storeGeneratedFile(
+                fileName,content,"text/markdown;charset=UTF-8",operation.getResourceId());
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
         ensureInitialVersionIfEnabled(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
+        resultRef.set(String.valueOf(spaceFile.getId()));
+        crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
         return toVO(spaceFile);
     }
 
@@ -686,19 +737,11 @@ public class SpaceFileService {
         }
     }
 
-    private StoredPhysicalFile storeMultipartFile(MultipartFile uploadFile, String fileName) {
-        String md5;
-        String sha1;
-        String hash;
-        try {
-            md5 = Md5Util.md5(uploadFile.getInputStream());
-            sha1 = HashUtil.sha1(uploadFile.getInputStream());
-            hash = HashUtil.sha256(uploadFile.getInputStream());
-        } catch (IOException e) {
-            throw new RuntimeException("文件哈希计算失败",e);
-        }
-
-        File existingFile = fileInfoMapper.getFileByHash(hash);
+    private StoredPhysicalFile storeMultipartFile(MultipartFile uploadFile,
+                                                  String fileName,
+                                                  FileFingerprint fingerprint,
+                                                  String reservedFileUuid) {
+        File existingFile = fileInfoMapper.getFileByHash(fingerprint.hash());
         if(existingFile != null) {
             if(fileInfoMapper.updateFileCount(existingFile.getFileUuid(),1) == 0) {
                 throw new BaseException("文件引用计数更新失败");
@@ -706,7 +749,7 @@ public class SpaceFileService {
             return new StoredPhysicalFile(existingFile.getFileUuid());
         }
 
-        String fileUuid = UuidUtil.randomUuid();
+        String fileUuid = reservedFileUuid == null ? UuidUtil.randomUuid() : reservedFileUuid;
         LocalDateTime now = LocalDateTime.now();
         File file = File.builder()
                 .fileUuid(fileUuid)
@@ -714,16 +757,16 @@ public class SpaceFileService {
                 .name(fileName)
                 .type(getFileType(fileName))
                 .size(uploadFile.getSize())
-                .hash(hash)
-                .md5(md5)
-                .sha1(sha1)
+                .hash(fingerprint.hash())
+                .md5(fingerprint.md5())
+                .sha1(fingerprint.sha1())
                 .status(StatusConstant.ENABLE)
                 .count(1)
                 .createTime(now)
                 .updateTime(now)
                 .build();
         try {
-            minioclientUtil.putObject(uploadFile,fileUuid);
+            crossStoreFileWriteService.putNewObject(uploadFile,fileUuid);
         } catch (Exception e) {
             throw new RuntimeException("空间文件上传失败",e);
         }
@@ -733,7 +776,7 @@ public class SpaceFileService {
         return new StoredPhysicalFile(fileUuid);
     }
 
-    private StoredPhysicalFile storeGeneratedFile(String fileName, byte[] content, String contentType) {
+    private StoredPhysicalFile storeGeneratedFile(String fileName, byte[] content, String contentType, String reservedFileUuid) {
         if(content == null || content.length == 0) {
             throw new BaseException("文件内容不能为空");
         }
@@ -760,7 +803,7 @@ public class SpaceFileService {
             return new StoredPhysicalFile(existingFile.getFileUuid());
         }
 
-        String fileUuid = UuidUtil.randomUuid();
+        String fileUuid = reservedFileUuid == null ? UuidUtil.randomUuid() : reservedFileUuid;
         LocalDateTime now = LocalDateTime.now();
         File file = File.builder()
                 .fileUuid(fileUuid)
@@ -777,7 +820,7 @@ public class SpaceFileService {
                 .updateTime(now)
                 .build();
         try {
-            minioclientUtil.putObject(new ByteArrayInputStream(content),content.length,contentType,fileUuid);
+            crossStoreFileWriteService.putNewObject(new ByteArrayInputStream(content),content.length,contentType,fileUuid);
         } catch (Exception e) {
             throw new RuntimeException("空间文件上传失败",e);
         }
@@ -1006,7 +1049,37 @@ public class SpaceFileService {
         return normalized;
     }
 
+    private FileFingerprint calculateFingerprint(MultipartFile uploadFile) {
+        try {
+            return new FileFingerprint(
+                    Md5Util.md5(uploadFile.getInputStream()),
+                    HashUtil.sha1(uploadFile.getInputStream()),
+                    HashUtil.sha256(uploadFile.getInputStream()));
+        } catch (IOException e) {
+            throw new RuntimeException("文件哈希计算失败",e);
+        }
+    }
+
+    private SpaceFileVO replaySpaceUpload(CrossStoreOperation operation, Long spaceId, Long parentId) {
+        if(operation.getResultRef() == null || !operation.getResultRef().matches("\\d+")) {
+            throw new BaseException("上传已完成，但结果引用不可用");
+        }
+        SpaceFile file = spaceFileMapper.getById(spaceId,Long.valueOf(operation.getResultRef()));
+        if(file == null || !parentId.equals(file.getParentId())) {
+            throw new BaseException("幂等上传结果已不在原目录，请使用新的 Idempotency-Key");
+        }
+        return toVO(file);
+    }
+
+    private void requireValidIdempotencyKey(String value) {
+        if(value.length() > 128 || !value.matches("^[A-Za-z0-9._:-]{8,128}$")) {
+            throw new BaseException("Idempotency-Key 格式不正确");
+        }
+    }
+
     private record StoredPhysicalFile(String fileUuid) {}
+
+    private record FileFingerprint(String md5, String sha1, String hash) {}
 
     private record WebPageSnapshot(String title, String contentType, String text) {}
 

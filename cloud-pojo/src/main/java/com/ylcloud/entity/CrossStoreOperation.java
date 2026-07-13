@@ -12,6 +12,7 @@ public class CrossStoreOperation {
     private String operationStatus;
     private String payloadHash;
     private String resourceId;
+    private String externalRef;
     private String resultRef;
     private Integer attemptCount;
     private LocalDateTime leaseUntil;

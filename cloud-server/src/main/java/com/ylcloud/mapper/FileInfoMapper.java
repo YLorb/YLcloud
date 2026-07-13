@@ -88,6 +88,11 @@ public interface FileInfoMapper {
             "and status = 1")
     UserFileDTO getByFileIdAny(@Param("fileId") Long fileId);
 
+    @Select("select ID as id, file_name as fileName, file_uuid as fileUuid, is_dir as dir, status, " +
+            "user_id as userId, parent_id as parentId, path, createtime, updatetime " +
+            "from user_file where ID = #{fileId} for update")
+    UserFileDTO lockUserFileById(@Param("fileId") Long fileId);
+
     /**
      * 查询 getByFileIdAnyActiveOrRecycle 相关逻辑。
      * @return 处理结果
@@ -137,6 +142,11 @@ public interface FileInfoMapper {
             "and status = 1 " +
             "limit 1")
     File getFileByFileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
+
+    @Select("select file_id as fileId, file_uuid as fileUuid, name, type, size, md5, sha1, hash, status, count, " +
+            "createtime as createTime, updatetime as updateTime from file_info " +
+            "where file_uuid = #{fileUuid} and status = 1 for update")
+    File getPhysicalFileForUpdate(@Param("fileUuid") String fileUuid);
 
     /**
      * 查询 getFileByHash 相关逻辑。
@@ -357,6 +367,20 @@ public interface FileInfoMapper {
     int updateNameById(@Param("id") Long id,
                        @Param("newName") String newName,
                        @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update user_file set file_name = #{newName}, updatetime = #{updateTime} " +
+            "where ID = #{id} and status = 2")
+    int updateRecycledNameById(@Param("id") Long id,
+                               @Param("newName") String newName,
+                               @Param("updateTime") LocalDateTime updateTime);
+
+    @Select("select count(1) from user_file where user_id = #{userId} and parent_id = #{parentId} " +
+            "and file_name = #{fileName} and is_dir = #{dir} and status = 1 and ID &lt;&gt; #{excludeId}")
+    int countActiveNameExcluding(@Param("userId") Long userId,
+                                 @Param("parentId") Long parentId,
+                                 @Param("fileName") String fileName,
+                                 @Param("dir") Integer dir,
+                                 @Param("excludeId") Long excludeId);
 
     /**
      * 更新 updateStatusById 相关逻辑。

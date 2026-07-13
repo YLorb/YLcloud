@@ -35,6 +35,21 @@ public interface SpaceFileMapper {
             "from space_file where id = #{fileId} and space_id = #{spaceId} and status = 1")
     SpaceFile getById(@Param("spaceId") Long spaceId, @Param("fileId") Long fileId);
 
+    @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "from space_file where id = #{fileId} and space_id = #{spaceId} for update")
+    SpaceFile lockById(@Param("spaceId") Long spaceId, @Param("fileId") Long fileId);
+
+    @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "from space_file where id = #{fileId} and status = 1")
+    SpaceFile getByIdAny(@Param("fileId") Long fileId);
+
+    @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "from space_file where space_id = #{spaceId} and file_uuid = #{fileUuid} and status = 1 limit 1")
+    SpaceFile getActiveByFileUuid(@Param("spaceId") Long spaceId, @Param("fileUuid") String fileUuid);
+
     /**
      * 查询 listByParentId 相关逻辑。
      * @return 列表结果
@@ -65,6 +80,14 @@ public interface SpaceFileMapper {
                       @Param("fileName") String fileName,
                       @Param("dir") Integer dir);
 
+    @Select("select count(1) from space_file where space_id = #{spaceId} and parent_id = #{parentId} " +
+            "and file_name = #{fileName} and is_dir = #{dir} and status = 1 and id &lt;&gt; #{excludeId}")
+    int countSameNameExcluding(@Param("spaceId") Long spaceId,
+                               @Param("parentId") Long parentId,
+                               @Param("fileName") String fileName,
+                               @Param("dir") Integer dir,
+                               @Param("excludeId") Long excludeId);
+
     /**
      * 更新 updateName 相关逻辑。
      * @return 影响行数
@@ -81,7 +104,7 @@ public interface SpaceFileMapper {
      * 执行 disable 函数的业务处理。
      * @return 影响行数
      */
-    @Update("update space_file set status = 0, updatetime = #{updateTime} where id = #{fileId} and space_id = #{spaceId}")
+    @Update("update space_file set status = 0, updatetime = #{updateTime} where id = #{fileId} and space_id = #{spaceId} and status = 1")
     int disable(@Param("spaceId") Long spaceId,
                 @Param("fileId") Long fileId,
                 @Param("updateTime") LocalDateTime updateTime);

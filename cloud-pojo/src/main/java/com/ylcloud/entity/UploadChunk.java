@@ -44,6 +44,12 @@ public class UploadChunk {
      */
     private Integer status;
 
+    /** 当前写入租约到期时间；仅 status=0 的占用记录使用。 */
+    private LocalDateTime leaseUntil;
+
+    /** 当前写入者令牌，用于完成时的 CAS。 */
+    private String uploadToken;
+
     /**
      * 创建时间。
      */
