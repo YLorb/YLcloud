@@ -81,7 +81,7 @@ public interface SpaceFileMapper {
                       @Param("dir") Integer dir);
 
     @Select("select count(1) from space_file where space_id = #{spaceId} and parent_id = #{parentId} " +
-            "and file_name = #{fileName} and is_dir = #{dir} and status = 1 and id &lt;&gt; #{excludeId}")
+            "and file_name = #{fileName} and is_dir = #{dir} and status = 1 and id <> #{excludeId}")
     int countSameNameExcluding(@Param("spaceId") Long spaceId,
                                @Param("parentId") Long parentId,
                                @Param("fileName") String fileName,

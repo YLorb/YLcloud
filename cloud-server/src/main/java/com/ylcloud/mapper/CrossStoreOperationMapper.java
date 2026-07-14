@@ -32,7 +32,7 @@ public interface CrossStoreOperationMapper {
     @Update("update cross_store_operation set operation_status = 'RUNNING', attempt_count = attempt_count + 1, " +
             "lease_until = #{leaseUntil}, error_message = null, updatetime = #{now} " +
             "where operation_key = #{operationKey} and (operation_status in ('PENDING','FAILED') " +
-            "or (operation_status = 'RUNNING' and lease_until &lt; #{now}))")
+            "or (operation_status = 'RUNNING' and lease_until < #{now}))")
     int claim(@Param("operationKey") String operationKey,
               @Param("leaseUntil") LocalDateTime leaseUntil,
               @Param("now") LocalDateTime now);
@@ -64,10 +64,10 @@ public interface CrossStoreOperationMapper {
                           @Param("now") LocalDateTime now);
 
     @Select("select " + COLUMNS + " from cross_store_operation where operation_status = 'RUNNING' " +
-            "and lease_until &lt; #{now} order by lease_until asc limit #{limit}")
+            "and lease_until < #{now} order by lease_until asc limit #{limit}")
     List<CrossStoreOperation> listStaleRunning(@Param("now") LocalDateTime now, @Param("limit") Integer limit);
 
     @Select("select " + COLUMNS + " from cross_store_operation where operation_status in ('PENDING','FAILED') " +
-            "or (operation_status = 'RUNNING' and lease_until &lt; #{now}) order by updatetime asc limit #{limit}")
+            "or (operation_status = 'RUNNING' and lease_until < #{now}) order by updatetime asc limit #{limit}")
     List<CrossStoreOperation> listRetryable(@Param("now") LocalDateTime now, @Param("limit") Integer limit);
 }

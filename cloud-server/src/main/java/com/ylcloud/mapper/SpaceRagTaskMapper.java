@@ -130,7 +130,7 @@ public interface SpaceRagTaskMapper {
             "select " + TASK_COLUMNS + " from space_rag_task " +
             "where task_type in ('INDEX_FILE','REBUILD_FILE','REBUILD_SPACE','DELETE_FILE','DELETE_SPACE') " +
             "and task_status in ('PENDING','RUNNING') " +
-            "and coalesce(started_time, updatetime, createtime) &lt;= #{cutoff} " +
+            "and coalesce(started_time, updatetime, createtime) <![CDATA[ <= ]]> #{cutoff} " +
             "<if test='spaceId != null'>and space_id = #{spaceId} </if>" +
             "order by createtime asc" +
             "</script>")

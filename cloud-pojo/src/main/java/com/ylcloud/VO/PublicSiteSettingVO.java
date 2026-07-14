@@ -11,4 +11,5 @@ public class PublicSiteSettingVO {
     private String logoUrl;
     private String publicUrl;
     private Boolean allowRegister;
+    private Long multipartUploadThresholdBytes;
 }

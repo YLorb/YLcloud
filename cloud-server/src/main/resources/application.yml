@@ -36,6 +36,7 @@ ylcloud:
     expiration-ms: ${YLCLOUD_JWT_EXPIRATION_MS:3600000}
   upload:
     max-file-size: 2147483648
+    multipart-threshold-bytes: ${YLCLOUD_UPLOAD_MULTIPART_THRESHOLD_BYTES:20971520}
     chunk-lease-seconds: ${YLCLOUD_UPLOAD_CHUNK_LEASE_SECONDS:3600}
     merge-lease-seconds: ${YLCLOUD_UPLOAD_MERGE_LEASE_SECONDS:600}
     multipart-retention-hours: ${YLCLOUD_UPLOAD_MULTIPART_RETENTION_HOURS:24}

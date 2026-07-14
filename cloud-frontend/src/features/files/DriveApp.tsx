@@ -7,11 +7,14 @@ import {
   ChevronRight,
   Clock3,
   CloudDownload,
+  Copy,
   Database,
   Download,
   Eye,
+  FilePlus2,
   FileText,
   Folder,
+  FolderInput,
   FolderPlus,
   Gauge,
   Grid3X3,
@@ -23,6 +26,8 @@ import {
   MoreHorizontal,
   Network,
   Pencil,
+  Pause,
+  Play,
   RefreshCw,
   Search,
   Settings,
@@ -44,6 +49,7 @@ import { AssistantChatView } from "../assistant/AssistantChatView";
 import { KnowledgeBaseView } from "../knowledge-base/KnowledgeBaseView";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { SpacesView } from "../spaces/SpacesView";
+import { uploadFileWithResume, type UploadProgress } from "./multipartUpload";
 
 type ViewMode = "grid" | "list";
 
@@ -91,7 +97,10 @@ function FileActionMenu({
   onDelete,
   onRestore,
   onDeleteForever,
-  onAddToKnowledge
+  onAddToKnowledge,
+  onShare,
+  onMove,
+  onCopy
 }: {
   item: FileItem;
   category: Category;
@@ -106,6 +115,9 @@ function FileActionMenu({
   onRestore: (item: FileItem) => void;
   onDeleteForever: (item: FileItem) => void;
   onAddToKnowledge: (items: FileItem[]) => void;
+  onShare: (item: FileItem) => void;
+  onMove: (item: FileItem) => void;
+  onCopy: (item: FileItem) => void;
 }) {
   function run(event: React.MouseEvent, action: () => void) {
     withStop(event, action);
@@ -166,6 +178,18 @@ function FileActionMenu({
                 <Pencil size={15} />
                 重命名
               </button>
+              <button type="button" role="menuitem" onClick={(event) => run(event, () => onShare(item))}>
+                <Share2 size={15} />
+                分享
+              </button>
+              <button type="button" role="menuitem" onClick={(event) => run(event, () => onMove(item))}>
+                <FolderInput size={15} />
+                移动到
+              </button>
+              <button type="button" role="menuitem" onClick={(event) => run(event, () => onCopy(item))}>
+                <Copy size={15} />
+                复制到
+              </button>
               <button className="danger" type="button" role="menuitem" onClick={(event) => run(event, () => onDelete(item))}>
                 <Trash2 size={15} />
                 删除
@@ -194,6 +218,9 @@ function FileTable({
   onRestore,
   onDeleteForever,
   onAddToKnowledge,
+  onShare,
+  onMove,
+  onCopy,
   onContextMenu
 }: {
   files: FileItem[];
@@ -211,6 +238,9 @@ function FileTable({
   onRestore: (item: FileItem) => void;
   onDeleteForever: (item: FileItem) => void;
   onAddToKnowledge: (items: FileItem[]) => void;
+  onShare: (item: FileItem) => void;
+  onMove: (item: FileItem) => void;
+  onCopy: (item: FileItem) => void;
   onContextMenu: (item: FileItem, x: number, y: number) => void;
 }) {
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
@@ -289,6 +319,9 @@ function FileTable({
             onRestore={onRestore}
             onDeleteForever={onDeleteForever}
             onAddToKnowledge={onAddToKnowledge}
+            onShare={onShare}
+            onMove={onMove}
+            onCopy={onCopy}
           />
         </div>
       ))}
@@ -328,6 +361,12 @@ function FileGrid({
                 type="button"
                 onClick={() => onSelect(item)}
                 onDoubleClick={() => onOpen(item)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onOpen(item);
+                  }
+                }}
               >
                 <span className="file-mark folder">{fileIcon(item, 22)}</span>
                 <span>{item.name}</span>
@@ -492,6 +531,158 @@ function KnowledgeTargetModal({
   );
 }
 
+function CreateEntryDialog({
+  mode,
+  onClose,
+  onSubmit
+}: {
+  mode: "file" | "folder";
+  onClose: () => void;
+  onSubmit: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(mode === "file" ? "新建文档.txt" : "新建文件夹");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !submitting) onClose();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, submitting]);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const normalized = name.trim();
+    if (!normalized || normalized.length > 255 || /[\\/]/.test(normalized) || normalized.includes("..")) {
+      setError("名称不能为空、不能超过 255 个字符，且不能包含路径字符或 ..");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await onSubmit(normalized);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "创建失败");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={() => !submitting && onClose()}>
+      <form className="dialog-modal compact-dialog create-entry-dialog" onSubmit={(event) => void submit(event)} onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <h3>{mode === "file" ? "新建文件" : "新建文件夹"}</h3>
+            <p>{mode === "file" ? "请输入包含扩展名的文件全名。" : "文件夹会创建在当前目录中。"}</p>
+          </div>
+          <button type="button" aria-label="关闭" disabled={submitting} onClick={onClose}><X size={18} /></button>
+        </header>
+        <div className="dialog-body">
+          <label>
+            {mode === "file" ? "文件名" : "文件夹名称"}
+            <input ref={inputRef} value={name} maxLength={255} onChange={(event) => setName(event.target.value)} />
+          </label>
+          {error && <div className="form-error" role="alert">{error}</div>}
+        </div>
+        <footer className="dialog-actions">
+          <button className="soft-button" type="button" disabled={submitting} onClick={onClose}>取消</button>
+          <button className="primary-button" type="submit" disabled={submitting || !name.trim()}>
+            {submitting && <Loader2 className="spin" size={16} />}
+            创建
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+type DirectoryOption = { id: number; label: string };
+
+function TransferDialog({
+  item,
+  action,
+  onClose,
+  onSubmit
+}: {
+  item: FileItem;
+  action: "move" | "copy";
+  onClose: () => void;
+  onSubmit: (targetId: number) => Promise<void>;
+}) {
+  const [directories, setDirectories] = useState<DirectoryOption[]>([{ id: 0, label: "我的文件" }]);
+  const [targetId, setTargetId] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTree() {
+      const options: DirectoryOption[] = [{ id: 0, label: "我的文件" }];
+      async function visit(parentId: number, path: string, depth: number) {
+        if (depth > 12 || options.length >= 500) return;
+        const children = await api.listFiles(parentId);
+        for (const directory of children.filter((child) => child.isDir)) {
+          if (directory.fileId === item.fileId) continue;
+          const label = path ? `${path} / ${directory.name}` : directory.name;
+          options.push({ id: directory.fileId, label });
+          await visit(directory.fileId, label, depth + 1);
+        }
+      }
+      await visit(0, "", 0);
+      if (!cancelled) setDirectories(options);
+    }
+    loadTree()
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "目录加载失败"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [item.fileId]);
+
+  async function submit() {
+    setLoading(true);
+    setError("");
+    try {
+      await onSubmit(targetId);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "操作失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={() => !loading && onClose()}>
+      <section className="dialog-modal compact-dialog" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div><h3>{action === "move" ? "移动文件" : "复制文件"}</h3><p>选择“{item.name}”的目标目录。</p></div>
+          <button type="button" aria-label="关闭" disabled={loading} onClick={onClose}><X size={18} /></button>
+        </header>
+        <div className="dialog-body">
+          <label>目标目录
+            <select value={targetId} disabled={loading} onChange={(event) => setTargetId(Number(event.target.value))}>
+              {directories.map((directory) => <option value={directory.id} key={directory.id}>{directory.label}</option>)}
+            </select>
+          </label>
+          {error && <div className="form-error" role="alert">{error}</div>}
+        </div>
+        <footer className="dialog-actions">
+          <button className="soft-button" type="button" disabled={loading} onClick={onClose}>取消</button>
+          <button className="primary-button" type="button" disabled={loading} onClick={() => void submit()}>
+            {loading && <Loader2 className="spin" size={16} />}{action === "move" ? "移动" : "复制"}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function Sidebar({
   siteName,
   effectiveView,
@@ -515,8 +706,8 @@ function Sidebar({
   const percent = Math.min(100, Math.max(0, quota?.usagePercent || 0));
   const fileChildren = categoryMeta.filter((item) => item.key !== "all");
 
-  function unavailable(label: string) {
-    onNotice({ type: "info", text: `${label} 需要后端接口补齐后启用` });
+  function unavailable() {
+    onNotice({ type: "info", text: "功能尚未开发，敬请期待" });
   }
 
   return (
@@ -558,15 +749,15 @@ function Sidebar({
         )}
 
         <div className="nav-group">
-          <button type="button" onClick={() => unavailable("与我共享")}>
+          <button type="button" onClick={unavailable}>
             <UsersRound size={18} />
             与我共享
           </button>
-          <button type="button" onClick={() => unavailable("我的分享")}>
+          <button type="button" onClick={unavailable}>
             <Share2 size={18} />
             我的分享
           </button>
-          <button type="button" onClick={() => unavailable("连接与挂载")}>
+          <button type="button" onClick={unavailable}>
             <Link2 size={18} />
             连接与挂载
           </button>
@@ -574,7 +765,7 @@ function Sidebar({
             <Clock3 size={18} />
             后台任务
           </button>
-          <button type="button" onClick={() => unavailable("离线下载")}>
+          <button type="button" onClick={unavailable}>
             <CloudDownload size={18} />
             离线下载
           </button>
@@ -587,7 +778,7 @@ function Sidebar({
           </button>
           <button className={effectiveView === "knowledge" ? "active" : ""} type="button" onClick={() => onView("knowledge", "/knowledge/dashboard")}>
             <BookOpen size={18} />
-            Knowledge Base
+            知识库
           </button>
           <button className={effectiveView === "spaces" ? "active" : ""} type="button" onClick={() => onView("spaces", "/spaces")}>
             <Network size={18} />
@@ -652,7 +843,14 @@ export function DriveApp({
   const [contextMenu, setContextMenu] = useState<{ item: FileItem; x: number; y: number } | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [storageQuota, setStorageQuota] = useState<StorageQuota | null>(null);
+  const [createMode, setCreateMode] = useState<"file" | "folder" | null>(null);
+  const [transfer, setTransfer] = useState<{ item: FileItem; action: "move" | "copy" } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [uploadPaused, setUploadPaused] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const noticeTimer = useRef<number | null>(null);
+  const uploadPausedRef = useRef(false);
+  const uploadResumeWaiters = useRef<Array<() => void>>([]);
   const parentId = crumbs[crumbs.length - 1]?.id ?? 0;
   const siteName = publicSettings?.siteName || "YL Cloud";
 
@@ -707,9 +905,38 @@ export function DriveApp({
     void loadFiles(0, "all");
   }, []);
 
+  useEffect(() => () => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    uploadResumeWaiters.current.splice(0).forEach((resume) => resume());
+  }, []);
+
   function showNotice(next: Notice) {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
     setNotice(next);
-    if (next) window.setTimeout(() => setNotice(null), 3200);
+    noticeTimer.current = next
+      ? window.setTimeout(() => {
+          setNotice(null);
+          noticeTimer.current = null;
+        }, next.type === "error" ? 5600 : 3200)
+      : null;
+  }
+
+  function closeNotice() {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = null;
+    setNotice(null);
+  }
+
+  function waitIfUploadPaused() {
+    if (!uploadPausedRef.current) return Promise.resolve();
+    return new Promise<void>((resolve) => uploadResumeWaiters.current.push(resolve));
+  }
+
+  function toggleUploadPause() {
+    const next = !uploadPausedRef.current;
+    uploadPausedRef.current = next;
+    setUploadPaused(next);
+    if (!next) uploadResumeWaiters.current.splice(0).forEach((resume) => resume());
   }
 
   function switchView(view: MainView, nextPath: string) {
@@ -736,7 +963,12 @@ export function DriveApp({
     setError("");
     try {
       for (const file of Array.from(selectedFiles)) {
-        await api.uploadFile(file, parentId);
+        await uploadFileWithResume(
+          file,
+          parentId,
+          publicSettings?.multipartUploadThresholdBytes || 20 * 1024 * 1024,
+          { onProgress: setUploadProgress, waitIfPaused: waitIfUploadPaused }
+        );
       }
       await loadFiles(parentId, category);
       showNotice({ type: "success", text: "文件上传完成" });
@@ -744,19 +976,22 @@ export function DriveApp({
       showNotice({ type: "error", text: err instanceof Error ? err.message : "上传失败" });
     } finally {
       setLoading(false);
+      setUploadProgress(null);
+      uploadPausedRef.current = false;
+      setUploadPaused(false);
+      uploadResumeWaiters.current.splice(0).forEach((resume) => resume());
       event.target.value = "";
     }
   }
 
-  async function createFolder() {
-    const name = window.prompt("请输入文件夹名称");
-    if (!name?.trim()) return;
+  async function createEntry(mode: "file" | "folder", name: string) {
     try {
-      await api.createFile({ isDir: 1, parentId, name: name.trim(), type: "folder" });
+      await api.createFile({ isDir: mode === "folder" ? 1 : 0, parentId, name });
       await loadFiles(parentId, category);
-      showNotice({ type: "success", text: "文件夹已创建" });
+      showNotice({ type: "success", text: mode === "folder" ? "文件夹已创建" : "文件已创建" });
     } catch (err) {
-      showNotice({ type: "error", text: err instanceof Error ? err.message : "创建文件夹失败" });
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "创建失败" });
+      throw err;
     }
   }
 
@@ -810,6 +1045,36 @@ export function DriveApp({
       showNotice({ type: "info", text: "已开始下载" });
     } catch (err) {
       showNotice({ type: "error", text: err instanceof Error ? err.message : "下载失败" });
+    }
+  }
+
+  async function shareItem(item: FileItem) {
+    try {
+      const apiPath = await api.shareFile(item.fileUuid, item.parentId ?? parentId);
+      const shareCode = apiPath.split("/").filter(Boolean).pop();
+      if (!shareCode) throw new Error("分享链接格式不正确");
+      const url = `${window.location.origin}/share/${encodeURIComponent(shareCode)}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        showNotice({ type: "success", text: "分享链接已复制到剪贴板" });
+      } catch {
+        window.prompt("分享链接已创建，请复制", url);
+        showNotice({ type: "info", text: "分享链接已创建" });
+      }
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "创建分享失败" });
+    }
+  }
+
+  async function transferItem(item: FileItem, action: "move" | "copy", targetId: number) {
+    try {
+      if (action === "move") await api.moveFiles(item.fileId, targetId);
+      else await api.copyFiles(item.fileId, targetId);
+      await loadFiles(parentId, category);
+      showNotice({ type: "success", text: action === "move" ? "文件已移动" : "文件已复制" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : action === "move" ? "移动失败" : "复制失败" });
+      throw err;
     }
   }
 
@@ -884,7 +1149,7 @@ export function DriveApp({
       : effectiveView === "async"
         ? "后台任务"
         : effectiveView === "knowledge"
-          ? "Knowledge Base"
+          ? "知识库"
           : effectiveView === "spaces"
             ? "团队空间"
             : categoryMeta.find((item) => item.key === category)?.label || "我的文件";
@@ -1008,7 +1273,11 @@ export function DriveApp({
                         <UploadCloud size={17} />
                         上传
                       </button>
-                      <button className="soft-button" type="button" onClick={() => void createFolder()}>
+                      <button className="soft-button" type="button" onClick={() => setCreateMode("file")}>
+                        <FilePlus2 size={17} />
+                        新建文件
+                      </button>
+                      <button className="soft-button" type="button" onClick={() => setCreateMode("folder")}>
                         <FolderPlus size={17} />
                         新建文件夹
                       </button>
@@ -1016,6 +1285,27 @@ export function DriveApp({
                   )}
                 </div>
               </div>
+
+              {uploadProgress && (
+                <div className="upload-progress-card" aria-live="polite">
+                  <div>
+                    <strong>{uploadProgress.fileName}</strong>
+                    <span>
+                      {uploadProgress.stage === "hashing" ? "正在计算文件指纹" : uploadProgress.stage === "merging" ? "正在合并分片" : "正在上传"}
+                      {uploadProgress.totalChunks ? ` · ${uploadProgress.uploadedChunks || 0}/${uploadProgress.totalChunks} 分片` : ""}
+                    </span>
+                  </div>
+                  <div className="upload-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadProgress.percent}>
+                    <span style={{ width: `${uploadProgress.percent}%` }} />
+                  </div>
+                  {uploadProgress.stage === "uploading" && uploadProgress.totalChunks && (
+                    <button className="soft-button" type="button" onClick={toggleUploadPause}>
+                      {uploadPaused ? <Play size={16} /> : <Pause size={16} />}
+                      {uploadPaused ? "继续" : "暂停"}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {category !== "recycle" && selectedIds.size > 0 && (
                 <div className="selection-toolbar">
@@ -1032,7 +1322,7 @@ export function DriveApp({
               )}
 
               {error && (
-                <div className="error-state">
+                <div className="error-state" role="alert" aria-live="assertive">
                   <strong>加载失败</strong>
                   <span>{error}</span>
                   <button type="button" onClick={() => void loadFiles(parentId, category)}>
@@ -1074,6 +1364,9 @@ export function DriveApp({
                     onRestore={(item) => void restoreFile(item)}
                     onDeleteForever={(item) => void deleteForever(item)}
                     onAddToKnowledge={(items) => openAddToKnowledge(items)}
+                    onShare={(item) => void shareItem(item)}
+                    onMove={(item) => setTransfer({ item, action: "move" })}
+                    onCopy={(item) => setTransfer({ item, action: "copy" })}
                     onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
                   />
                 ))
@@ -1116,10 +1409,12 @@ export function DriveApp({
                         恢复
                       </button>
                     ) : (
-                      <button type="button" onClick={() => void renameFile(selected)}>
-                        <MoreHorizontal size={16} />
-                        重命名
-                      </button>
+                      <>
+                        <button type="button" onClick={() => void shareItem(selected)}><Share2 size={16} />分享</button>
+                        <button type="button" onClick={() => setTransfer({ item: selected, action: "move" })}><FolderInput size={16} />移动</button>
+                        <button type="button" onClick={() => setTransfer({ item: selected, action: "copy" })}><Copy size={16} />复制</button>
+                        <button type="button" onClick={() => void renameFile(selected)}><MoreHorizontal size={16} />重命名</button>
+                      </>
                     )}
                   </div>
                 </>
@@ -1133,6 +1428,15 @@ export function DriveApp({
 
       {contextMenu && (
         <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} role="menu">
+          <button type="button" onClick={() => { void shareItem(contextMenu.item); setContextMenu(null); }}>
+            分享
+          </button>
+          <button type="button" onClick={() => { setTransfer({ item: contextMenu.item, action: "move" }); setContextMenu(null); }}>
+            移动到
+          </button>
+          <button type="button" onClick={() => { setTransfer({ item: contextMenu.item, action: "copy" }); setContextMenu(null); }}>
+            复制到
+          </button>
           <button type="button" onClick={() => openAddToKnowledge([contextMenu.item])}>
             添加到知识库
           </button>
@@ -1151,7 +1455,16 @@ export function DriveApp({
           }}
         />
       )}
-      <NoticeBar notice={notice} onClose={() => setNotice(null)} />
+      {transfer && (
+        <TransferDialog
+          item={transfer.item}
+          action={transfer.action}
+          onClose={() => setTransfer(null)}
+          onSubmit={(targetId) => transferItem(transfer.item, transfer.action, targetId)}
+        />
+      )}
+      {createMode && <CreateEntryDialog mode={createMode} onClose={() => setCreateMode(null)} onSubmit={(name) => createEntry(createMode, name)} />}
+      <NoticeBar notice={notice} onClose={closeNotice} />
       <PreviewModal preview={preview} file={previewFile} onClose={() => setPreviewFile(null)} />
     </main>
   );

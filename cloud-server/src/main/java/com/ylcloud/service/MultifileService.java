@@ -92,7 +92,10 @@ public class MultifileService {
         }
         UploadTask occupyingTask = multifileMapper.getActiveByFileKey(fileKey);
         if(occupyingTask != null) {
-            throw new ConflictException("同名文件正在上传，请使用原 uploadId 继续断点续传");
+            if(!Objects.equals(occupyingTask.getUserId(),userId)) {
+                throw new ConflictException("同名文件正在上传，请稍后重试");
+            }
+            return resumeExistingTask(occupyingTask,multifileDTO,parentId);
         }
         requireNoSameName(multifileDTO.getFileName(), parentId, userId);
 

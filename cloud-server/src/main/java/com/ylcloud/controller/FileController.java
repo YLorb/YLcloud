@@ -168,8 +168,9 @@ public class FileController {
     public Result<FileVO> makefile(@PathVariable int isDir,
                                    @RequestParam(value = "parentId", defaultValue = "0") Long parentId,
                                    @RequestParam("name") String name,
-                                   @RequestParam("type") String type) {
-        return Result.success(fileService.makefile(isDir,parentId,name,type));
+                                   @RequestParam(value = "type", required = false) String type,
+                                   @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return Result.success(fileService.makefile(isDir,parentId,name,type,idempotencyKey));
     }
 
     /**

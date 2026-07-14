@@ -110,17 +110,17 @@ public interface MultifileMapper {
             "chunk_size as chunkSize, total_chunks as totalChunks, uploaded_chunks as uploadedChunks, status, " +
             "file_uuid as fileUuid, last_activity_time as lastActivityTime, merge_started_time as mergeStartedTime, " +
             "parts_cleaned_time as partsCleanedTime, cleanup_attempt_count as cleanupAttemptCount, createtime, updatetime " +
-            "from upload_task where status in (1, 4) and last_activity_time &lt; #{cutoff} order by last_activity_time limit #{limit}")
+            "from upload_task where status in (1, 4) and last_activity_time < #{cutoff} order by last_activity_time limit #{limit}")
     java.util.List<UploadTask> listStale(@Param("cutoff") java.time.LocalDateTime cutoff, @Param("limit") Integer limit);
 
-    @Update("update upload_task set status = 6, updatetime = now() where id = #{id} and status in (1, 4) and last_activity_time &lt; #{cutoff}")
+    @Update("update upload_task set status = 6, updatetime = now() where id = #{id} and status in (1, 4) and last_activity_time < #{cutoff}")
     int markExpired(@Param("id") Long id, @Param("cutoff") java.time.LocalDateTime cutoff);
 
     @Update("update upload_task set status = 4, updatetime = now() where id = #{id} and status = 6")
     int markCleanupRetry(@Param("id") Long id);
 
     @Update("update upload_task set status = 4, merge_started_time = null, updatetime = now() " +
-            "where status = 5 and merge_started_time &lt; #{cutoff}")
+            "where status = 5 and merge_started_time < #{cutoff}")
     int recoverStaleMerges(@Param("cutoff") java.time.LocalDateTime cutoff);
 
     @Select("select id, upload_id as uploadId, file_uuid as fileUuid from upload_task " +

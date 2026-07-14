@@ -3,22 +3,148 @@ import {
   ArrowRight,
   Bot,
   ChevronRight,
+  Download,
+  Eye,
   FileText,
   Folder,
   FolderPlus,
   HardDrive,
+  History,
   Loader2,
   Network,
   RefreshCw,
+  RotateCcw,
   Settings2,
+  Trash2,
   UploadCloud,
+  UserPlus,
   UsersRound,
   X
 } from "lucide-react";
 import { api } from "../../api";
 import type { Crumb, Notice } from "../../appTypes";
-import type { FileItem, RagConfig, RagDocument, RagQuery, RagTask, Space, SpaceFile, SpaceMember } from "../../types";
+import type { FileItem, FilePreview, FileVersion, RagConfig, RagDocument, RagQuery, RagTask, Space, SpaceFile, SpaceMember } from "../../types";
 import { fileIcon, fileTypeLabel, formatSize } from "../../fileUtils";
+
+function SpacePreviewDialog({ file, preview, onClose }: { file: SpaceFile; preview: FilePreview; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="preview-modal" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div><h3>{file.name}</h3><p>{preview.contentType || file.type || "文件"}</p></div>
+          <button type="button" onClick={onClose} aria-label="关闭预览"><X size={18} /></button>
+        </header>
+        <div className="preview-body">
+          {preview.textContent ? <pre>{preview.textContent}</pre>
+            : preview.previewUrl && preview.contentType?.startsWith("image/") ? <img src={preview.previewUrl} alt={file.name} />
+            : preview.previewUrl ? <iframe title={file.name} src={preview.previewUrl} />
+            : <div className="preview-placeholder"><Eye size={34} /><h4>暂不支持内嵌预览</h4><p>仍可下载文件查看。</p></div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SpaceVersionDialog({
+  space,
+  file,
+  canManage,
+  onClose,
+  onNotice
+}: {
+  space: Space;
+  file: SpaceFile;
+  canManage: boolean;
+  onClose: () => void;
+  onNotice: (notice: Notice) => void;
+}) {
+  const [versions, setVersions] = useState<FileVersion[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [versionPreview, setVersionPreview] = useState<FilePreview | null>(null);
+  const versionInput = useRef<HTMLInputElement>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setVersions(await api.listSpaceFileVersions(space.id, file.id));
+    } catch (err) {
+      onNotice({ type: "error", text: err instanceof Error ? err.message : "版本列表加载失败" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [space.id, file.id]);
+
+  async function uploadVersion(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0];
+    if (!selected) return;
+    const note = window.prompt("请输入本次版本说明", "更新文件内容") || undefined;
+    setLoading(true);
+    try {
+      await api.uploadSpaceFileVersion(space.id, file.id, selected, note);
+      await load();
+      onNotice({ type: "success", text: "新版本已上传" });
+    } catch (err) {
+      onNotice({ type: "error", text: err instanceof Error ? err.message : "版本上传失败" });
+    } finally {
+      setLoading(false);
+      event.target.value = "";
+    }
+  }
+
+  async function restore(version: FileVersion) {
+    if (!window.confirm(`确认将“${file.name}”恢复到版本 ${version.versionNo ?? version.id}？`)) return;
+    try {
+      await api.restoreSpaceFileVersion(space.id, file.id, version.id, "从版本历史恢复");
+      await load();
+      onNotice({ type: "success", text: "版本已恢复" });
+    } catch (err) {
+      onNotice({ type: "error", text: err instanceof Error ? err.message : "版本恢复失败" });
+    }
+  }
+
+  async function previewVersion(version: FileVersion) {
+    try {
+      setVersionPreview(await api.previewSpaceFileVersion(space.id, file.id, version.id));
+    } catch (err) {
+      onNotice({ type: "error", text: err instanceof Error ? err.message : "版本预览失败" });
+    }
+  }
+
+  return (
+    <>
+    <div className="modal-backdrop" onClick={onClose}>
+      <section className="dialog-modal version-dialog" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div><h3>版本历史</h3><p>{file.name} · {versions.length} 个版本</p></div>
+          <button type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button>
+        </header>
+        <div className="dialog-body version-list">
+          {loading && <div className="loading-state compact-loading"><Loader2 className="spin" size={18} />正在同步版本</div>}
+          {!loading && versions.map((version) => (
+            <div className="version-row" key={version.id}>
+              <div><strong>版本 {version.versionNo ?? version.id}{version.current ? " · 当前" : ""}</strong><span>{version.changeNote || "无版本说明"} · {formatSize(version.fileSize)}</span></div>
+              <div className="row-inline-actions">
+                <button type="button" onClick={() => void previewVersion(version)}><Eye size={15} />预览</button>
+                <button type="button" onClick={() => void api.downloadSpaceFileVersion(space.id, file.id, version.id, version.fileName || file.name)}><Download size={15} />下载</button>
+                {canManage && !version.current && <button type="button" onClick={() => void restore(version)}><RotateCcw size={15} />恢复</button>}
+              </div>
+            </div>
+          ))}
+          {!loading && !versions.length && <p className="muted-line">暂无版本记录</p>}
+        </div>
+        <footer className="dialog-actions">
+          <input ref={versionInput} type="file" hidden onChange={(event) => void uploadVersion(event)} />
+          <button className="soft-button" type="button" onClick={onClose}>关闭</button>
+          {canManage && <button className="primary-button" type="button" disabled={loading} onClick={() => versionInput.current?.click()}><UploadCloud size={16} />上传新版本</button>}
+        </footer>
+      </section>
+    </div>
+    {versionPreview && <SpacePreviewDialog file={file} preview={versionPreview} onClose={() => setVersionPreview(null)} />}
+    </>
+  );
+}
 
 function DriveFilePickerModal({
   space,
@@ -354,6 +480,8 @@ export function SpacesView({
   const [retrievalMode, setRetrievalMode] = useState<"precise" | "balanced" | "broad">("balanced");
   const [loading, setLoading] = useState(false);
   const [addDocumentOpen, setAddDocumentOpen] = useState(false);
+  const [versionFile, setVersionFile] = useState<SpaceFile | null>(null);
+  const [spacePreview, setSpacePreview] = useState<{ file: SpaceFile; preview: FilePreview } | null>(null);
 
   async function loadSpaces() {
     setLoading(true);
@@ -379,13 +507,15 @@ export function SpacesView({
     }
     setLoading(true);
     try {
-      const [nextFiles, nextMembers, nextConfig, nextDocuments, nextTasks] = await Promise.all([
+      const [nextFiles, nextMembers, nextConfig] = await Promise.all([
         api.listSpaceFiles(space.id, null),
         api.listMembers(space.id),
-        api.ragConfig(space.id),
-        api.listRagDocuments(space.id),
-        api.listRagTasks(space.id)
+        api.ragConfig(space.id)
       ]);
+      const canManage = space.role === "OWNER" || space.role === "ADMIN";
+      const [nextDocuments, nextTasks] = canManage
+        ? await Promise.all([api.listRagDocuments(space.id), api.listRagTasks(space.id)])
+        : [[], []];
       setFiles(nextFiles || []);
       setMembers(nextMembers || []);
       setRagConfig(nextConfig);
@@ -408,7 +538,8 @@ export function SpacesView({
 
   async function createSpace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("name") || "").trim();
     const description = String(form.get("description") || "").trim();
     if (!name) return;
@@ -416,10 +547,120 @@ export function SpacesView({
       const created = await api.createSpace({ name, description });
       setSpaces((items) => [created, ...items]);
       setActive(created);
-      event.currentTarget.reset();
+      formElement.reset();
       showNotice({ type: "success", text: "空间已创建" });
     } catch (err) {
       showNotice({ type: "error", text: err instanceof Error ? err.message : "创建空间失败" });
+    }
+  }
+
+  async function editSpace() {
+    if (!active || active.role !== "OWNER") return;
+    const name = window.prompt("空间名称", active.name)?.trim();
+    if (!name) return;
+    const description = window.prompt("空间描述", active.description || "")?.trim();
+    try {
+      const updated = await api.updateSpace(active.id, { name, description });
+      setActive(updated);
+      setSpaces((items) => items.map((item) => item.id === updated.id ? updated : item));
+      showNotice({ type: "success", text: "空间信息已更新" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "空间更新失败" });
+    }
+  }
+
+  async function deleteSpace() {
+    if (!active || active.role !== "OWNER" || !window.confirm(`确认删除空间“${active.name}”？`)) return;
+    try {
+      await api.deleteSpace(active.id);
+      const next = spaces.filter((space) => space.id !== active.id);
+      setSpaces(next);
+      setActive(next[0] || null);
+      showNotice({ type: "success", text: "空间已删除" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "空间删除失败" });
+    }
+  }
+
+  async function toggleSpaceVersions() {
+    if (!active || !canManageSpace) return;
+    try {
+      const updated = await api.updateSpaceVersionSetting(active.id, active.versionEnabled ? 0 : 1);
+      setActive(updated);
+      setSpaces((items) => items.map((item) => item.id === updated.id ? updated : item));
+      showNotice({ type: "success", text: updated.versionEnabled ? "空间版本管理已启用" : "空间版本管理已停用" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "版本设置更新失败" });
+    }
+  }
+
+  async function previewSpaceFile(file: SpaceFile) {
+    try {
+      setSpacePreview({ file, preview: await api.previewSpaceFile(file.spaceId, file.id) });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "文件预览失败" });
+    }
+  }
+
+  async function removeSpaceFile(file: SpaceFile) {
+    if (!active || !canManageSpace || !window.confirm(`确认从空间移除“${file.name}”？`)) return;
+    try {
+      await api.removeSpaceFile(active.id, file.id);
+      await loadSpaceDetail(active);
+      showNotice({ type: "success", text: "空间文件已移除" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "移除文件失败" });
+    }
+  }
+
+  async function toggleFileVersions(file: SpaceFile) {
+    if (!active || !canManageSpace) return;
+    try {
+      await api.updateSpaceFileVersionSetting(active.id, file.id, file.effectiveVersionEnabled ? 0 : 1);
+      await loadSpaceDetail(active);
+      showNotice({ type: "success", text: file.effectiveVersionEnabled ? "文件版本管理已停用" : "文件版本管理已启用" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "文件版本设置失败" });
+    }
+  }
+
+  async function addMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!active || !canManageSpace) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const userId = Number(form.get("userId"));
+    const role = String(form.get("role") || "MEMBER");
+    if (!Number.isInteger(userId) || userId <= 0) return;
+    try {
+      await api.addMember(active.id, { userId, role });
+      formElement.reset();
+      await loadSpaceDetail(active);
+      showNotice({ type: "success", text: "成员已添加" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "添加成员失败" });
+    }
+  }
+
+  async function changeMemberRole(member: SpaceMember, role: string) {
+    if (!active || active.role !== "OWNER") return;
+    try {
+      await api.updateMemberRole(active.id, member.userId, role);
+      await loadSpaceDetail(active);
+      showNotice({ type: "success", text: "成员角色已更新" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "角色更新失败" });
+    }
+  }
+
+  async function removeMember(member: SpaceMember) {
+    if (!active || !canManageSpace || !window.confirm(`确认移除用户 ${member.userId}？`)) return;
+    try {
+      await api.removeMember(active.id, member.userId);
+      await loadSpaceDetail(active);
+      showNotice({ type: "success", text: "成员已移除" });
+    } catch (err) {
+      showNotice({ type: "error", text: err instanceof Error ? err.message : "移除成员失败" });
     }
   }
 
@@ -484,7 +725,8 @@ export function SpacesView({
     }
   }
 
-  const canManageRag = active?.role === "OWNER" || active?.role === "ADMIN";
+  const canManageSpace = active?.role === "OWNER" || active?.role === "ADMIN";
+  const canManageRag = canManageSpace;
 
   return (
     <section className="spaces-view">
@@ -545,18 +787,12 @@ export function SpacesView({
                   <RefreshCw size={17} />
                   刷新
                 </button>
-                <button className="primary-button" type="button" onClick={() => setAddDocumentOpen(true)}>
-                  <FileText size={17} />
-                  添加文档
-                </button>
-                <button className="soft-button" type="button" onClick={() => void rebuildSpaceRag()}>
-                  <Bot size={17} />
-                  重建索引
-                </button>
-                <button className="soft-button" type="button" onClick={() => void repairSpaceVectors()}>
-                  <Settings2 size={17} />
-                  修复向量
-                </button>
+                {canManageSpace && <button className="primary-button" type="button" onClick={() => setAddDocumentOpen(true)}><FileText size={17} />添加文档</button>}
+                {canManageRag && <button className="soft-button" type="button" onClick={() => void rebuildSpaceRag()}><Bot size={17} />重建索引</button>}
+                {canManageRag && <button className="soft-button" type="button" onClick={() => void repairSpaceVectors()}><Settings2 size={17} />修复向量</button>}
+                {canManageSpace && <button className="soft-button" type="button" onClick={() => void toggleSpaceVersions()}><History size={17} />{active.versionEnabled ? "停用版本" : "启用版本"}</button>}
+                {active.role === "OWNER" && <button className="soft-button" type="button" onClick={() => void editSpace()}><Settings2 size={17} />编辑空间</button>}
+                {active.role === "OWNER" && <button className="soft-button danger-button" type="button" onClick={() => void deleteSpace()}><Trash2 size={17} />删除空间</button>}
                 <button className="soft-button" type="button" onClick={() => onNavigate?.("/assistant/chat")}>
                   <ArrowRight size={17} />
                   完整问答
@@ -599,8 +835,17 @@ export function SpacesView({
                       <span className={`file-mark ${file.dir ? "folder" : ""}`}>{file.dir ? <Folder size={18} /> : <FileText size={18} />}</span>
                       <div>
                         <strong>{file.name}</strong>
-                        <small>{file.dir ? "文件夹" : file.type || "文件"} · {formatSize(file.size)}</small>
+                        <small>{file.dir ? "文件夹" : file.type || "文件"} · {formatSize(file.size)}{!file.dir ? ` · 版本${file.effectiveVersionEnabled ? "开启" : "关闭"}` : ""}</small>
                       </div>
+                      {!file.dir && (
+                        <div className="row-inline-actions space-file-actions">
+                          <button type="button" title="预览" onClick={() => void previewSpaceFile(file)}><Eye size={15} /></button>
+                          <button type="button" title="下载" onClick={() => void api.downloadSpaceFile(active.id, file.id, file.name)}><Download size={15} /></button>
+                          <button type="button" title="版本历史" onClick={() => setVersionFile(file)}><History size={15} /></button>
+                          {canManageSpace && <button type="button" title="切换版本管理" onClick={() => void toggleFileVersions(file)}><Settings2 size={15} /></button>}
+                          {canManageSpace && <button className="danger" type="button" title="移除" onClick={() => void removeSpaceFile(file)}><Trash2 size={15} /></button>}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {!files.length && <p className="muted-line">暂无空间文件</p>}
@@ -682,6 +927,16 @@ export function SpacesView({
                   <h3>空间成员</h3>
                   <span>{members.length} 人</span>
                 </div>
+                {canManageSpace && (
+                  <form className="member-add-form" onSubmit={addMember}>
+                    <input name="userId" type="number" min="1" required placeholder="用户 ID" aria-label="用户 ID" />
+                    <select name="role" aria-label="成员角色">
+                      <option value="MEMBER">成员</option>
+                      {active.role === "OWNER" && <option value="ADMIN">管理员</option>}
+                    </select>
+                    <button className="soft-button" type="submit"><UserPlus size={16} />添加</button>
+                  </form>
+                )}
                 <div className="compact-list">
                   {members.map((member) => (
                     <div className="compact-row" key={`${member.spaceId}-${member.userId}`}>
@@ -692,6 +947,17 @@ export function SpacesView({
                         <strong>用户 {member.userId}</strong>
                         <small>{member.role || "MEMBER"}</small>
                       </div>
+                      {member.role !== "OWNER" && (
+                        <div className="row-inline-actions member-actions">
+                          {active.role === "OWNER" && (
+                            <select value={member.role || "MEMBER"} aria-label={`用户 ${member.userId} 的角色`} onChange={(event) => void changeMemberRole(member, event.target.value)}>
+                              <option value="MEMBER">成员</option>
+                              <option value="ADMIN">管理员</option>
+                            </select>
+                          )}
+                          {canManageSpace && <button className="danger" type="button" onClick={() => void removeMember(member)}><Trash2 size={15} />移除</button>}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {!members.length && <p className="muted-line">暂无成员信息</p>}
@@ -765,6 +1031,10 @@ export function SpacesView({
           onNotice={showNotice}
         />
       )}
+      {active && versionFile && (
+        <SpaceVersionDialog space={active} file={versionFile} canManage={Boolean(canManageSpace)} onClose={() => setVersionFile(null)} onNotice={showNotice} />
+      )}
+      {spacePreview && <SpacePreviewDialog file={spacePreview.file} preview={spacePreview.preview} onClose={() => setSpacePreview(null)} />}
     </section>
   );
 }
