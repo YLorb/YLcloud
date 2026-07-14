@@ -1,6 +1,17 @@
+# Alibaba Cloud ACR deployment compose file.
+# Required values belong in .env.server (copy .env.server.example first):
+#   ACR_REGISTRY=crpi-xxxx.cn-hangzhou.personal.cr.aliyuncs.com
+#   ACR_NAMESPACE=replace-with-your-acr-namespace
+#   YLCLOUD_IMAGE_TAG=dev
+# Authenticate on the server before pull/up; never put the Registry password here:
+#   docker login --username <your-acr-login-name> <your-ACR_REGISTRY>
+# Start with the explicit server environment file:
+#   docker compose --env-file .env.server -f docker-compose.hub.yml pull
+#   docker compose --env-file .env.server -f docker-compose.hub.yml up -d
+
 services:
   mysql:
-    image: mysql:8.3
+    image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/mysql:8.3
     container_name: ylcloud-mysql
     restart: unless-stopped
     environment:
@@ -20,7 +31,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: ylcloud-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -39,7 +50,7 @@ services:
       retries: 12
 
   qdrant:
-    image: qdrant/qdrant:v1.15.4
+    image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/qdrant:v1.15.4
     container_name: ylcloud-qdrant
     restart: unless-stopped
     ports:
@@ -54,7 +65,7 @@ services:
       retries: 12
 
   model-service:
-    image: ${YLCLOUD_DOCKERHUB_NAMESPACE:-ylorb}/ylcloud-model-service:${YLCLOUD_IMAGE_TAG:-dev}
+    image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/ylcloud-model-service:${YLCLOUD_IMAGE_TAG:-dev}
     container_name: ylcloud-model-service
     restart: unless-stopped
     secrets:
@@ -90,7 +101,7 @@ services:
       retries: 5
 
   document-parser-service:
-    image: ${YLCLOUD_DOCKERHUB_NAMESPACE:-ylorb}/ylcloud-document-parser-service:${YLCLOUD_IMAGE_TAG:-dev}
+    image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/ylcloud-document-parser-service:${YLCLOUD_IMAGE_TAG:-dev}
     container_name: ylcloud-document-parser-service
     restart: unless-stopped
     secrets:
@@ -114,7 +125,7 @@ services:
       retries: 5
 
   ylcloud-app:
-    image: ${YLCLOUD_DOCKERHUB_NAMESPACE:-ylorb}/ylcloud-app:${YLCLOUD_IMAGE_TAG:-dev}
+    image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/ylcloud-app:${YLCLOUD_IMAGE_TAG:-dev}
     container_name: ylcloud-app
     restart: unless-stopped
     secrets:
@@ -183,7 +194,7 @@ services:
       start_period: 20s
 
   frontend:
-    image: ${YLCLOUD_DOCKERHUB_NAMESPACE:-ylorb}/ylcloud-frontend:${YLCLOUD_IMAGE_TAG:-dev}
+    image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/ylcloud-frontend:${YLCLOUD_IMAGE_TAG:-dev}
     container_name: ylcloud-frontend
     restart: unless-stopped
     depends_on:
