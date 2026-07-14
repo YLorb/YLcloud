@@ -59,11 +59,21 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Log in to Alibaba Cloud ACR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ vars.ACR_REGISTRY }}
+          username: ${{ vars.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
       - name: Generate image metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+          images: |
+            ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+            ${{ vars.ACR_REGISTRY }}/${{ vars.ACR_NAMESPACE }}/${{ matrix.image }}
           flavor: latest=false
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
