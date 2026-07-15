@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { HardDrive, Loader2 } from "lucide-react";
+import { BookOpenCheck, Files, HardDrive, Loader2, Network } from "lucide-react";
 import { api, setSession } from "../../api";
 import type { AuthMode } from "../../appTypes";
 import type { PublicSiteSettings, User } from "../../types";
@@ -50,17 +50,40 @@ export function AuthPage({
 
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <div className="brand">
+      <section className="auth-story" aria-label="产品介绍">
+        <div className="auth-story-brand">
           <span className="brand-icon">
-            <HardDrive size={24} />
+            <HardDrive size={22} />
           </span>
+          <div>
+            <strong>{siteName}</strong>
+            <span>Knowledge asset cloud</span>
+          </div>
+        </div>
+
+        <div className="auth-story-copy">
+          <span className="auth-eyebrow">文件，从存储走向知识</span>
+          <h1>让每一份资料，<br />都能被找到、协作与理解。</h1>
+          <p>统一管理个人文件、团队空间与知识库，让资料沉淀自然进入检索和智能问答流程。</p>
+        </div>
+
+        <div className="auth-capability-list" aria-label="核心能力">
+          <div><Files size={18} /><span><b>个人文件</b><small>上传、预览、分享与版本管理</small></span></div>
+          <div><Network size={18} /><span><b>团队空间</b><small>成员协作与空间级文件治理</small></span></div>
+          <div><BookOpenCheck size={18} /><span><b>知识工作台</b><small>文档画像、索引流水线与 RAG 问答</small></span></div>
+        </div>
+      </section>
+
+      <section className="auth-card">
+        <div className="auth-mobile-brand brand">
+          <span className="brand-icon"><HardDrive size={22} /></span>
           <span>{siteName}</span>
         </div>
 
         <div className="auth-card-title">
-          <h1>{isSign ? "创建账号" : "登录到网盘"}</h1>
-          <p>{isSign ? "注册后将自动登录并进入文件管理页面。" : `使用账号密码进入你的 ${siteName}。`}</p>
+          <span className="auth-form-kicker">{isSign ? "创建工作空间" : "欢迎回来"}</span>
+          <h2>{isSign ? "创建账号" : `登录到 ${siteName}`}</h2>
+          <p>{isSign ? "注册后将自动进入你的知识资产工作台。" : `继续管理 ${siteName} 中的文件与知识。`}</p>
         </div>
 
         <form onSubmit={handleSubmit}>

@@ -34,7 +34,8 @@ export function matchesCategory(item: FileItem, category: Category) {
 }
 
 export function formatSize(size?: number) {
-  if (!size) return "-";
+  if (size == null || Number.isNaN(size)) return "-";
+  if (size === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = size;
   let index = 0;

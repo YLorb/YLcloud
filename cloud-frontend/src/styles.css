@@ -2134,6 +2134,858 @@ select:focus {
   }
 }
 
+/* Knowledge asset console — aligned with the current backend capabilities */
+:root {
+  --bg: #edf1f5;
+  --surface: #ffffff;
+  --surface-soft: #f4f6f8;
+  --surface-hover: #e9eef4;
+  --text: #172033;
+  --muted: #667085;
+  --line: #d9e0e8;
+  --line-strong: #c4ced9;
+  --primary: #2457d6;
+  --primary-strong: #1743b5;
+  --primary-soft: #e8efff;
+  --primary-softer: #f3f6ff;
+  --folder: #b7791f;
+  --folder-soft: #fff5dc;
+  --success: #087a62;
+  --danger: #c73832;
+  --radius-card: 10px;
+  --radius-inner: 7px;
+  font-family: "Segoe UI Variable", "Aptos", "Microsoft YaHei UI", sans-serif;
+}
+
+body {
+  background: var(--bg);
+}
+
+button:not(:disabled):focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid rgba(91, 140, 255, 0.34);
+  outline-offset: 2px;
+}
+
+.primary-button,
+.soft-button,
+.icon-button {
+  border-radius: 7px;
+}
+
+.primary-button {
+  background: var(--primary);
+  box-shadow: 0 5px 12px rgba(36, 87, 214, 0.18);
+}
+
+.primary-button:not(:disabled):hover {
+  background: var(--primary-strong);
+  box-shadow: 0 7px 16px rgba(36, 87, 214, 0.24);
+}
+
+.soft-button,
+.icon-button {
+  border: 1px solid var(--line);
+  color: #3d4a5d;
+  background: #fff;
+}
+
+/* Auth: explain the real file → space → knowledge workflow */
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(420px, 1.05fr) minmax(420px, 0.95fr);
+  padding: 0;
+  background: #f7f9fb;
+}
+
+.auth-story {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  padding: 48px clamp(40px, 6vw, 88px);
+  color: #f7f9ff;
+  background: #193b76;
+}
+
+.auth-story::before {
+  content: "";
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  right: -22vw;
+  top: 15vh;
+  border: 1px solid rgba(140, 176, 255, 0.24);
+  border-radius: 50%;
+  box-shadow: 0 0 0 72px rgba(140, 176, 255, 0.05), 0 0 0 144px rgba(140, 176, 255, 0.035);
+  pointer-events: none;
+}
+
+.auth-story::after {
+  content: "FILE  →  SPACE  →  KNOWLEDGE";
+  position: absolute;
+  right: -104px;
+  bottom: 180px;
+  color: rgba(200, 218, 255, 0.14);
+  font-family: Bahnschrift, "Segoe UI", sans-serif;
+  font-size: clamp(32px, 4vw, 68px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  transform: rotate(-90deg);
+  white-space: nowrap;
+}
+
+.auth-story-brand,
+.auth-story-brand > div,
+.auth-capability-list > div,
+.auth-capability-list span {
+  display: flex;
+}
+
+.auth-story-brand {
+  position: relative;
+  z-index: 1;
+  align-items: center;
+  gap: 13px;
+}
+
+.auth-story-brand .brand-icon {
+  color: #17376c;
+  background: #f3b84b;
+  box-shadow: none;
+}
+
+.auth-story-brand > div,
+.auth-capability-list span {
+  flex-direction: column;
+}
+
+.auth-story-brand strong {
+  font-size: 20px;
+}
+
+.auth-story-brand span:last-child {
+  margin-top: 2px;
+  color: #adbee2;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.auth-story-copy {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  max-width: 680px;
+}
+
+.auth-eyebrow,
+.auth-form-kicker {
+  color: #eabf67;
+  font-family: Bahnschrift, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.auth-story-copy h1 {
+  margin: 22px 0 24px;
+  font-size: clamp(38px, 4.3vw, 66px);
+  font-weight: 720;
+  line-height: 1.16;
+  letter-spacing: -0.045em;
+}
+
+.auth-story-copy p {
+  max-width: 570px;
+  margin: 0;
+  color: #c6d3ec;
+  font-size: 17px;
+  line-height: 1.85;
+}
+
+.auth-capability-list {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.auth-capability-list > div {
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(198, 211, 236, 0.28);
+}
+
+.auth-capability-list svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #eabf67;
+}
+
+.auth-capability-list b {
+  font-size: 13px;
+}
+
+.auth-capability-list small {
+  margin-top: 5px;
+  color: #aebfdf;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.auth-card {
+  align-self: center;
+  width: min(430px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 42px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(38, 53, 74, 0.11);
+}
+
+.auth-card > .brand {
+  display: none;
+}
+
+.auth-card-title {
+  margin-bottom: 30px;
+  text-align: left;
+}
+
+.auth-card-title h2 {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: 28px;
+  line-height: 1.24;
+  letter-spacing: -0.025em;
+}
+
+.auth-card-title p {
+  margin-top: 9px;
+}
+
+.auth-form-kicker {
+  color: var(--primary);
+}
+
+/* Main application shell: a single status rail for the product workflow */
+.drive-shell {
+  grid-template-columns: 254px minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.cloud-sidebar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  height: 100vh;
+  padding: 25px 18px 20px;
+  border-right: 0;
+  color: #dce6fa;
+  background: #142c55;
+}
+
+.cloud-sidebar::after {
+  content: "";
+  position: absolute;
+  top: 98px;
+  bottom: 152px;
+  left: 27px;
+  width: 1px;
+  background: rgba(151, 177, 226, 0.16);
+  pointer-events: none;
+}
+
+.cloud-sidebar .brand.compact {
+  position: relative;
+  z-index: 1;
+  min-height: 46px;
+  margin: 0 0 30px;
+  padding: 0 7px;
+  color: #fff;
+}
+
+.cloud-sidebar .brand-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  color: #17376c;
+  background: #f0b94f;
+  box-shadow: none;
+}
+
+.brand-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.brand-copy strong {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.brand-copy small {
+  color: #95abd4;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+
+.cloud-nav {
+  position: relative;
+  z-index: 1;
+  gap: 3px;
+  padding-bottom: 150px;
+}
+
+.nav-section-label {
+  display: block;
+  margin: 0 10px 8px 28px;
+  color: #8299c4;
+  font-family: Bahnschrift, "Segoe UI", sans-serif;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.operations-label {
+  margin-top: 25px;
+}
+
+.cloud-nav .nav-group {
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.cloud-nav .operations-group {
+  margin-top: 0;
+}
+
+.cloud-nav button {
+  position: relative;
+  min-height: 41px;
+  border-radius: 7px;
+  padding: 0 12px 0 28px;
+  color: #bdcbe5;
+  font-size: 14px;
+  font-weight: 560;
+}
+
+.cloud-nav button:hover {
+  color: #fff;
+  background: rgba(232, 239, 255, 0.08);
+}
+
+.cloud-nav button.active {
+  color: #fff;
+  background: rgba(232, 239, 255, 0.12);
+  box-shadow: none;
+  font-weight: 680;
+}
+
+.nav-signal {
+  position: absolute;
+  left: 5px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #6781b1;
+  border-radius: 50%;
+  background: #142c55;
+}
+
+.cloud-nav button.active .nav-signal {
+  border-color: #f0b94f;
+  background: #f0b94f;
+  box-shadow: 0 0 0 4px rgba(240, 185, 79, 0.12);
+}
+
+.cloud-nav .nav-chevron {
+  margin-left: auto;
+  color: #738bb8;
+  transform: rotate(-90deg);
+}
+
+.cloud-nav .nav-chevron.open {
+  transform: rotate(0deg);
+}
+
+.cloud-nav .nav-children {
+  gap: 2px;
+  margin: 1px 0 7px;
+}
+
+.cloud-nav .nav-children button {
+  min-height: 34px;
+  padding-left: 58px;
+  color: #91a6ce;
+  font-size: 13px;
+}
+
+.cloud-nav .nav-children button.child-active {
+  color: #fff;
+  background: rgba(232, 239, 255, 0.08);
+}
+
+.storage-card {
+  left: 18px;
+  right: 18px;
+  bottom: 19px;
+  z-index: 2;
+  padding: 15px;
+  border: 1px solid rgba(176, 197, 235, 0.17);
+  border-radius: 9px;
+  color: #dce6fa;
+  background: #1b3765;
+}
+
+.storage-card div:first-child,
+.storage-card strong {
+  color: inherit;
+}
+
+.storage-card p {
+  margin-top: 8px;
+  color: #95abd4;
+  font-size: 11px;
+}
+
+.storage-bar {
+  height: 5px;
+  background: rgba(222, 231, 250, 0.14);
+}
+
+.storage-bar span {
+  background: #f0b94f;
+}
+
+.content:not(.assistant-content) {
+  min-width: 0;
+  padding: 0 28px 28px;
+}
+
+.topbar {
+  min-height: 86px;
+  margin: 0;
+  border-bottom: 1px solid #d4dce5;
+}
+
+.topbar h1 {
+  color: #16213a;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.topbar p {
+  margin-top: 4px;
+  color: #788397;
+  font-size: 13px;
+}
+
+.file-panel,
+.settings-panel,
+.spaces-main,
+.async-view,
+.kb-shell {
+  margin-top: 22px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(36, 50, 74, 0.055);
+}
+
+.folder-tile,
+.file-card {
+  border: 1px solid #e1e6ec;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.folder-tile:hover,
+.folder-tile.selected,
+.file-card:hover,
+.file-card.selected {
+  border-color: #b9c9ea;
+  background: var(--primary-softer);
+}
+
+/* Knowledge retrieval settings */
+.kb-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+
+.kb-settings-form,
+.kb-runtime-card,
+.kb-config-history {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.kb-settings-form {
+  padding: 22px;
+}
+
+.kb-settings-section-head,
+.kb-settings-section-head > div,
+.kb-runtime-card > header,
+.kb-config-history > header,
+.kb-settings-actions,
+.kb-settings-actions > div {
+  display: flex;
+  align-items: center;
+}
+
+.kb-settings-section-head {
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.kb-settings-section-head > div,
+.kb-runtime-card > header,
+.kb-config-history > header {
+  gap: 10px;
+}
+
+.kb-settings-section-head svg,
+.kb-runtime-card svg,
+.kb-config-history svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.kb-settings-section-head span,
+.kb-config-history header span {
+  display: grid;
+  gap: 3px;
+}
+
+.kb-settings-section-head h3,
+.kb-settings-section-head p,
+.kb-runtime-card h3,
+.kb-config-history h3,
+.kb-config-history header p {
+  margin: 0;
+}
+
+.kb-settings-section-head p,
+.kb-config-history header p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kb-settings-section-head.compact {
+  justify-content: flex-start;
+}
+
+.kb-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  color: var(--primary-strong);
+  background: var(--primary-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.kb-switch input {
+  width: 17px;
+  height: 17px;
+}
+
+.kb-setting-fields {
+  display: grid;
+  gap: 2px;
+}
+
+.kb-setting-fields.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.kb-setting-fields > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  align-items: center;
+  gap: 18px;
+  margin: 0;
+  padding: 14px 0;
+  border-bottom: 1px solid #e9edf2;
+}
+
+.kb-setting-fields.two-col > label {
+  grid-template-columns: 1fr;
+  align-content: start;
+  border: 1px solid #e3e8ef;
+  border-radius: 7px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.kb-setting-fields label > span {
+  display: grid;
+  gap: 4px;
+}
+
+.kb-setting-fields small {
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.kb-setting-fields input:not([type="range"]) {
+  min-height: 40px;
+}
+
+.kb-range-field > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 8px;
+}
+
+.kb-range-field input {
+  min-height: auto;
+}
+
+.kb-range-field output {
+  color: var(--primary-strong);
+  font-family: Bahnschrift, "Segoe UI", sans-serif;
+  font-weight: 700;
+  text-align: right;
+}
+
+.kb-settings-divider {
+  height: 1px;
+  margin: 24px -22px;
+  background: var(--line);
+}
+
+.kb-settings-actions {
+  justify-content: space-between;
+  gap: 16px;
+  margin: 20px -22px -22px;
+  padding: 15px 22px;
+  border-top: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.kb-settings-actions > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kb-settings-actions > div {
+  gap: 8px;
+}
+
+.kb-settings-aside {
+  display: grid;
+  gap: 14px;
+}
+
+.kb-runtime-card,
+.kb-config-history {
+  padding: 18px;
+}
+
+.kb-runtime-card > header,
+.kb-config-history > header {
+  margin-bottom: 14px;
+}
+
+.kb-runtime-card dl {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.kb-runtime-card dl div {
+  display: grid;
+  gap: 5px;
+  padding: 11px 0;
+  border-bottom: 1px solid #e9edf2;
+}
+
+.kb-runtime-card dl div:last-child {
+  border-bottom: 0;
+}
+
+.kb-runtime-card dt,
+.kb-runtime-card dd {
+  margin: 0;
+}
+
+.kb-runtime-card dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kb-runtime-card dd {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.kb-config-history details {
+  border-top: 1px solid #e9edf2;
+}
+
+.kb-config-history summary {
+  padding: 12px 2px;
+  cursor: pointer;
+}
+
+.kb-config-history summary span {
+  display: inline-grid;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.kb-config-history summary small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.kb-config-history details > p {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 9px;
+  padding-left: 18px;
+  color: #48556a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.kb-config-history details > p span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.kb-settings-empty {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.kb-settings-empty h3,
+.kb-settings-empty p {
+  margin: 0;
+}
+
+@media (max-width: 1180px) {
+  .drive-shell {
+    grid-template-columns: 224px minmax(0, 1fr);
+  }
+
+  .auth-capability-list,
+  .kb-settings-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-story {
+    display: none;
+  }
+
+  .auth-card {
+    width: min(430px, calc(100% - 32px));
+    padding: 30px 24px;
+  }
+
+  .auth-card > .auth-mobile-brand {
+    display: flex;
+    justify-content: flex-start;
+    margin-bottom: 36px;
+  }
+
+  .drive-shell:not(.assistant-mode) {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-sidebar {
+    position: static;
+    height: auto;
+    padding: 16px;
+  }
+
+  .cloud-sidebar::after,
+  .storage-card,
+  .nav-section-label,
+  .nav-children {
+    display: none;
+  }
+
+  .cloud-sidebar .brand.compact {
+    margin-bottom: 14px;
+  }
+
+  .cloud-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    padding-bottom: 0;
+  }
+
+  .cloud-nav .nav-group {
+    display: contents;
+  }
+
+  .cloud-nav button {
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .cloud-nav button .nav-signal,
+  .cloud-nav button .nav-chevron {
+    display: none;
+  }
+
+  .content:not(.assistant-content) {
+    padding: 0 14px 18px;
+  }
+
+  .kb-setting-fields.two-col,
+  .kb-setting-fields > label {
+    grid-template-columns: 1fr;
+  }
+
+  .kb-settings-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .kb-settings-actions > div {
+    justify-content: flex-end;
+  }
+}
+
 .spaces-view {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -5935,6 +6787,203 @@ select:focus {
   .spaces-main > .rag-console {
     margin-right: 16px;
     margin-left: 16px;
+  }
+}
+
+/* Final shell overrides: keep the application rail visually stable across legacy views. */
+.drive-shell > .cloud-sidebar {
+  width: auto;
+  padding: 24px 18px 18px;
+  color: #fff;
+  border-right: 0;
+  background:
+    radial-gradient(circle at 18% 6%, rgba(68, 125, 218, 0.32), transparent 28%),
+    linear-gradient(180deg, #183664 0%, #10274a 100%);
+  box-shadow: 14px 0 38px rgba(16, 39, 74, 0.14);
+}
+
+.drive-shell > .cloud-sidebar::after {
+  content: "YL / KNOWLEDGE";
+  position: absolute;
+  right: -30px;
+  bottom: 154px;
+  color: rgba(255, 255, 255, 0.04);
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  transform: rotate(-90deg);
+}
+
+.drive-shell > .cloud-sidebar .brand.compact {
+  min-height: 46px;
+  margin-bottom: 24px;
+  color: #fff;
+  font-size: 20px;
+}
+
+.drive-shell > .cloud-sidebar .brand-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: #f0b94f;
+  box-shadow: 0 10px 24px rgba(240, 185, 79, 0.22);
+}
+
+.drive-shell > .cloud-sidebar .brand-copy span {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.drive-shell > .cloud-sidebar .cloud-nav {
+  gap: 4px;
+  padding: 0 4px 14px 0;
+}
+
+.drive-shell > .cloud-sidebar .nav-section-label {
+  margin: 13px 12px 6px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.drive-shell > .cloud-sidebar .cloud-nav button {
+  min-height: 42px;
+  padding: 0 12px;
+  color: rgba(255, 255, 255, 0.72);
+  border-radius: 11px;
+  font-size: 14px;
+  font-weight: 560;
+}
+
+.drive-shell > .cloud-sidebar .cloud-nav button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.drive-shell > .cloud-sidebar .cloud-nav button.active {
+  color: #fff;
+  background: linear-gradient(100deg, rgba(53, 101, 186, 0.9), rgba(37, 87, 166, 0.72));
+  box-shadow: inset 3px 0 0 #f0b94f, 0 9px 20px rgba(4, 17, 38, 0.18);
+}
+
+.drive-shell > .cloud-sidebar .cloud-nav .nav-children button {
+  padding-left: 40px;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.drive-shell > .cloud-sidebar .cloud-nav .nav-children button.child-active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.drive-shell > .cloud-sidebar .nav-signal {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.drive-shell > .cloud-sidebar .nav-signal.live {
+  background: #f0b94f;
+  box-shadow: 0 0 0 4px rgba(240, 185, 79, 0.12);
+}
+
+.drive-shell > .cloud-sidebar .storage-card {
+  z-index: 1;
+  margin-top: 12px;
+  padding: 15px;
+  color: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(6, 19, 40, 0.24);
+  box-shadow: none;
+}
+
+.drive-shell > .cloud-sidebar .storage-card strong,
+.drive-shell > .cloud-sidebar .storage-card span {
+  color: #fff;
+}
+
+.drive-shell > .cloud-sidebar .storage-bar {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.drive-shell > .cloud-sidebar .storage-bar span {
+  background: #f0b94f;
+}
+
+@media (max-width: 760px) {
+  .drive-shell > .cloud-sidebar {
+    padding: 16px;
+  }
+
+  .drive-shell > .cloud-sidebar::after,
+  .drive-shell > .cloud-sidebar .storage-card,
+  .drive-shell > .cloud-sidebar .nav-section-label,
+  .drive-shell > .cloud-sidebar .nav-children {
+    display: none;
+  }
+
+  .drive-shell > .cloud-sidebar .cloud-nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .drive-shell > .cloud-sidebar .cloud-nav .nav-group {
+    display: contents;
+  }
+
+  .drive-shell > .cloud-sidebar .cloud-nav button {
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .drive-shell > .cloud-sidebar .cloud-nav button .nav-signal,
+  .drive-shell > .cloud-sidebar .cloud-nav button .nav-chevron {
+    display: none;
+  }
+
+  .kb-header {
+    min-height: auto;
+    align-items: stretch;
+    flex-direction: column;
+    padding: 20px;
+  }
+
+  .kb-header h2 {
+    font-size: 28px;
+    line-height: 1.15;
+  }
+
+  .kb-header-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+  }
+
+  .kb-header-actions select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .kb-workspace {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .kb-subnav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .kb-content {
+    padding: 14px;
   }
 }
 
