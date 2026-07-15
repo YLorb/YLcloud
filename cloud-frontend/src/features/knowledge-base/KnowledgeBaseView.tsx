@@ -13,6 +13,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Settings2,
   Tags,
   X
 } from "lucide-react";
@@ -31,21 +32,24 @@ import type {
   Space
 } from "../../types";
 import { formatTime } from "../../fileUtils";
+import { KnowledgeSettingsView } from "./KnowledgeSettingsView";
 
-type KnowledgeSection = "dashboard" | "documents" | "pipeline" | "analytics";
+type KnowledgeSection = "dashboard" | "documents" | "pipeline" | "analytics" | "settings";
 type FilterMode = "all" | "review" | "failed" | "category" | "tag";
 
 const sections: Array<{ key: KnowledgeSection; label: string; icon: React.ReactNode }> = [
   { key: "dashboard", label: "知识库概览", icon: <BarChart3 size={17} /> },
   { key: "documents", label: "文档管理", icon: <FileText size={17} /> },
   { key: "pipeline", label: "索引任务", icon: <Activity size={17} /> },
-  { key: "analytics", label: "检索分析", icon: <FileSearch size={17} /> }
+  { key: "analytics", label: "检索分析", icon: <FileSearch size={17} /> },
+  { key: "settings", label: "检索设置", icon: <Settings2 size={17} /> }
 ];
 
 function sectionFromPath(path: string): KnowledgeSection {
   if (path.includes("/knowledge/documents")) return "documents";
   if (path.includes("/knowledge/pipeline")) return "pipeline";
   if (path.includes("/knowledge/analytics")) return "analytics";
+  if (path.includes("/knowledge/settings")) return "settings";
   return "dashboard";
 }
 
@@ -560,12 +564,13 @@ export function KnowledgeBaseView({
   const [analyticsConfigLogs, setAnalyticsConfigLogs] = useState<RagConfigLog[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState("");
+  const [settingsReloadKey, setSettingsReloadKey] = useState(0);
 
   const activeSpace = useMemo(() => spaces.find((space) => space.id === spaceId) || null, [spaces, spaceId]);
-  const canViewAnalytics = activeSpace?.role === "OWNER" || activeSpace?.role === "ADMIN";
+  const canManageKnowledge = activeSpace?.role === "OWNER" || activeSpace?.role === "ADMIN";
   const visibleSections = useMemo(
-    () => sections.filter((item) => item.key !== "analytics" || canViewAnalytics),
-    [canViewAnalytics]
+    () => sections.filter((item) => !["analytics", "settings"].includes(item.key) || canManageKnowledge),
+    [canManageKnowledge]
   );
 
   useEffect(() => {
@@ -574,11 +579,11 @@ export function KnowledgeBaseView({
   }, [path]);
 
   useEffect(() => {
-    if (section !== "analytics" || !activeSpace || canViewAnalytics) return;
+    if (!["analytics", "settings"].includes(section) || !activeSpace || canManageKnowledge) return;
     setSection("dashboard");
     onNavigate("/knowledge/dashboard");
-    showNotice({ type: "info", text: "只有知识库所有者或管理员可以查看检索分析" });
-  }, [section, activeSpace?.id, activeSpace?.role, canViewAnalytics]);
+    showNotice({ type: "info", text: "只有知识库所有者或管理员可以查看分析与检索设置" });
+  }, [section, activeSpace?.id, activeSpace?.role, canManageKnowledge]);
 
   useEffect(() => {
     api.listSpaces()
@@ -658,8 +663,8 @@ export function KnowledgeBaseView({
   }
 
   useEffect(() => {
-    if (section === "analytics" && canViewAnalytics) void loadAnalytics(spaceId);
-  }, [section, spaceId, canViewAnalytics]);
+    if (section === "analytics" && canManageKnowledge) void loadAnalytics(spaceId);
+  }, [section, spaceId, canManageKnowledge]);
 
   function navigateSection(next: KnowledgeSection) {
     setSection(next);
@@ -718,7 +723,11 @@ export function KnowledgeBaseView({
           <button
             className="icon-button"
             type="button"
-            onClick={() => section === "analytics" ? void loadAnalytics() : void loadKnowledge()}
+            onClick={() => {
+              if (section === "analytics") void loadAnalytics();
+              else if (section === "settings") setSettingsReloadKey((value) => value + 1);
+              else void loadKnowledge();
+            }}
             title="刷新知识库"
           >
             <RefreshCw size={18} />
@@ -761,7 +770,7 @@ export function KnowledgeBaseView({
               onSelectTask={(task) => void pickTask(task)}
             />
           )}
-          {section === "analytics" && canViewAnalytics && (
+          {section === "analytics" && canManageKnowledge && (
             <AnalyticsView
               summary={analyticsSummary}
               queries={analyticsQueries}
@@ -769,6 +778,13 @@ export function KnowledgeBaseView({
               configLogs={analyticsConfigLogs}
               loading={analyticsLoading}
               error={analyticsError}
+            />
+          )}
+          {section === "settings" && canManageKnowledge && (
+            <KnowledgeSettingsView
+              reloadKey={settingsReloadKey}
+              space={activeSpace}
+              showNotice={showNotice}
             />
           )}
         </div>

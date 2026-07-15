@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  CloudDownload,
   Copy,
   Database,
   Download,
@@ -19,7 +18,6 @@ import {
   Gauge,
   Grid3X3,
   HardDrive,
-  Link2,
   List,
   Loader2,
   LogOut,
@@ -36,7 +34,6 @@ import {
   Trash2,
   UploadCloud,
   UserRound,
-  UsersRound,
   X
 } from "lucide-react";
 import { api, clearSession } from "../../api";
@@ -690,8 +687,7 @@ function Sidebar({
   isAdmin,
   quota,
   onCategory,
-  onView,
-  onNotice
+  onView
 }: {
   siteName: string;
   effectiveView: MainView;
@@ -700,15 +696,10 @@ function Sidebar({
   quota: StorageQuota | null;
   onCategory: (category: Category) => void;
   onView: (view: MainView, path: string) => void;
-  onNotice: (notice: Notice) => void;
 }) {
   const [filesOpen, setFilesOpen] = useState(true);
   const percent = Math.min(100, Math.max(0, quota?.usagePercent || 0));
   const fileChildren = categoryMeta.filter((item) => item.key !== "all");
-
-  function unavailable() {
-    onNotice({ type: "info", text: "功能尚未开发，敬请期待" });
-  }
 
   return (
     <aside className="sidebar cloud-sidebar">
@@ -716,10 +707,14 @@ function Sidebar({
         <span className="brand-icon">
           <HardDrive size={22} />
         </span>
-        <span>{siteName}</span>
+        <span className="brand-copy">
+          <strong>{siteName}</strong>
+          <small>知识资产云</small>
+        </span>
       </div>
 
       <nav className="side-nav cloud-nav" aria-label="功能导航">
+        <span className="nav-section-label">工作空间</span>
         <button
           className={effectiveView === "files" && category === "all" ? "active" : ""}
           type="button"
@@ -728,9 +723,10 @@ function Sidebar({
             onCategory("all");
           }}
         >
-          <ChevronDown className={filesOpen ? "nav-chevron open" : "nav-chevron"} size={14} />
+          <span className="nav-signal" aria-hidden="true" />
           <HardDrive size={18} />
           我的文件
+          <ChevronDown className={filesOpen ? "nav-chevron open" : "nav-chevron"} size={14} />
         </button>
         {filesOpen && (
           <div className="nav-children">
@@ -749,45 +745,35 @@ function Sidebar({
         )}
 
         <div className="nav-group">
-          <button type="button" onClick={unavailable}>
-            <UsersRound size={18} />
-            与我共享
-          </button>
-          <button type="button" onClick={unavailable}>
-            <Share2 size={18} />
-            我的分享
-          </button>
-          <button type="button" onClick={unavailable}>
-            <Link2 size={18} />
-            连接与挂载
-          </button>
-          <button type="button" onClick={() => onView("async", "/async")}>
-            <Clock3 size={18} />
-            后台任务
-          </button>
-          <button type="button" onClick={unavailable}>
-            <CloudDownload size={18} />
-            离线下载
-          </button>
-        </div>
-
-        <div className="nav-group">
           <button className={effectiveView === "assistant" ? "active" : ""} type="button" onClick={() => onView("assistant", "/assistant/chat")}>
+            <span className="nav-signal" aria-hidden="true" />
             <Sparkles size={18} />
             AI Assistant
           </button>
           <button className={effectiveView === "knowledge" ? "active" : ""} type="button" onClick={() => onView("knowledge", "/knowledge/dashboard")}>
+            <span className="nav-signal" aria-hidden="true" />
             <BookOpen size={18} />
             知识库
           </button>
           <button className={effectiveView === "spaces" ? "active" : ""} type="button" onClick={() => onView("spaces", "/spaces")}>
+            <span className="nav-signal" aria-hidden="true" />
             <Network size={18} />
             团队空间
           </button>
+        </div>
+
+        <span className="nav-section-label operations-label">运行与管理</span>
+        <div className="nav-group operations-group">
+          <button className={effectiveView === "async" ? "active" : ""} type="button" onClick={() => onView("async", "/async")}>
+            <span className="nav-signal" aria-hidden="true" />
+            <Clock3 size={18} />
+            后台任务
+          </button>
           {isAdmin && (
             <button className={effectiveView === "settings" ? "active" : ""} type="button" onClick={() => onView("settings", "/admin/setting")}>
+              <span className="nav-signal" aria-hidden="true" />
               <Settings size={18} />
-              管理面板
+              系统设置
             </button>
           )}
         </div>
@@ -1173,7 +1159,6 @@ export function DriveApp({
         siteName={siteName}
         quota={storageQuota}
         onCategory={(next) => void switchCategory(next)}
-        onNotice={showNotice}
         onView={switchView}
       />
 
