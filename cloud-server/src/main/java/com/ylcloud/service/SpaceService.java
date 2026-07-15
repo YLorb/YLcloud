@@ -248,6 +248,7 @@ public class SpaceService {
         ragConfig.setTemperature(BigDecimal.valueOf(ragProperties.getChat().getTemperature() == null ? 0.2 : ragProperties.getChat().getTemperature()));
         ragConfig.setScoreThreshold(BigDecimal.ZERO);
         ragConfig.setEnabled(StatusConstant.ENABLE);
+        ragConfig.setKnowledgeProfileEnabled(StatusConstant.ENABLE);
         ragConfig.setStatus(StatusConstant.ENABLE);
         ragConfig.setCreatetime(now);
         ragConfig.setUpdatetime(now);

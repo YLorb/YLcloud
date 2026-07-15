@@ -42,6 +42,22 @@ public interface SpaceKnowledgePipelineTaskMapper {
                    @Param("finishedTime") LocalDateTime finishedTime,
                    @Param("updateTime") LocalDateTime updateTime);
 
+    @Update("update space_knowledge_pipeline_task set task_status = #{taskStatus}, stage = #{stage}, progress = #{progress}, " +
+            "total_count = #{totalCount}, success_count = #{successCount}, failed_count = #{failedCount}, error_message = #{errorMessage}, " +
+            "started_time = coalesce(#{startedTime}, started_time), finished_time = #{finishedTime}, updatetime = #{updateTime} " +
+            "where id = #{id} and task_status = 'RUNNING'")
+    int updateFlowIfRunning(@Param("id") Long id,
+                            @Param("taskStatus") String taskStatus,
+                            @Param("stage") String stage,
+                            @Param("progress") Integer progress,
+                            @Param("totalCount") Integer totalCount,
+                            @Param("successCount") Integer successCount,
+                            @Param("failedCount") Integer failedCount,
+                            @Param("errorMessage") String errorMessage,
+                            @Param("startedTime") LocalDateTime startedTime,
+                            @Param("finishedTime") LocalDateTime finishedTime,
+                            @Param("updateTime") LocalDateTime updateTime);
+
     @Update("update space_knowledge_pipeline_task set terminal_stage = #{terminalStage}, terminal_reason = #{terminalReason}, " +
             "incremental_action = #{incrementalAction}, incremental_detail = #{incrementalDetail}, updatetime = #{updateTime} where id = #{id}")
     int updateIncremental(@Param("id") Long id,
@@ -92,4 +108,33 @@ public interface SpaceKnowledgePipelineTaskMapper {
             "from space_knowledge_pipeline_task where space_id = #{spaceId} and document_id = #{documentId} " +
             "and task_type = 'PROFILE_DOCUMENT' and task_status in ('PENDING', 'RUNNING') order by createtime desc limit 1")
     SpaceKnowledgePipelineTask getActiveDocumentTask(@Param("spaceId") Long spaceId, @Param("documentId") Long documentId);
+
+    @Select("select id, space_id as spaceId, document_id as documentId, task_type as taskType, task_status as taskStatus, " +
+            "stage, progress, total_count as totalCount, success_count as successCount, failed_count as failedCount, " +
+            "error_message as errorMessage, force_rebuild as forceRebuild, terminal_stage as terminalStage, terminal_reason as terminalReason, " +
+            "incremental_action as incrementalAction, incremental_detail as incrementalDetail, created_by as createdBy, started_time as startedTime, finished_time as finishedTime, createtime, updatetime " +
+            "from space_knowledge_pipeline_task where space_id = #{spaceId} and document_id is null " +
+            "and task_type = 'PROFILE_SPACE' and task_status in ('PENDING', 'RUNNING') order by createtime desc limit 1")
+    SpaceKnowledgePipelineTask getActiveSpaceTask(@Param("spaceId") Long spaceId);
+
+    @Update("update space_knowledge_pipeline_task set task_status = 'RUNNING', started_time = #{startedTime}, " +
+            "finished_time = null, updatetime = #{startedTime} where id = #{id} and task_status = 'PENDING'")
+    int markRunningIfPending(@Param("id") Long id, @Param("startedTime") LocalDateTime startedTime);
+
+    @Select("select id, space_id as spaceId, document_id as documentId, task_type as taskType, task_status as taskStatus, " +
+            "stage, progress, total_count as totalCount, success_count as successCount, failed_count as failedCount, " +
+            "error_message as errorMessage, force_rebuild as forceRebuild, terminal_stage as terminalStage, terminal_reason as terminalReason, " +
+            "incremental_action as incrementalAction, incremental_detail as incrementalDetail, created_by as createdBy, started_time as startedTime, finished_time as finishedTime, createtime, updatetime " +
+            "from space_knowledge_pipeline_task where task_status in ('PENDING', 'RUNNING') and updatetime <= #{cutoff} " +
+            "order by updatetime asc limit #{limit}")
+    List<SpaceKnowledgePipelineTask> listStaleActive(@Param("cutoff") LocalDateTime cutoff,
+                                                     @Param("limit") Integer limit);
+
+    @Update("update space_knowledge_pipeline_task set task_status = 'FAILED', stage = 'FAILED', progress = 100, " +
+            "failed_count = greatest(failed_count, 1), error_message = #{errorMessage}, terminal_stage = 'FAILED', " +
+            "terminal_reason = 'TASK_TIMEOUT', finished_time = #{finishedTime}, updatetime = #{finishedTime} " +
+            "where id = #{id} and task_status in ('PENDING', 'RUNNING')")
+    int failActive(@Param("id") Long id,
+                   @Param("errorMessage") String errorMessage,
+                   @Param("finishedTime") LocalDateTime finishedTime);
 }

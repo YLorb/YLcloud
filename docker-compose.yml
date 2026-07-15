@@ -68,6 +68,7 @@ services:
       USE_FP16: "false"
       OFFLINE_FALLBACK: ${YLCLOUD_MODEL_SERVICE_OFFLINE_FALLBACK:-true}
       FALLBACK_DIMENSION: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:-512}
+      EXPECTED_EMBEDDING_DIMENSION: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:-512}
       EMBEDDING_MODEL_NAME: ${YLCLOUD_RAG_EMBEDDING_MODEL:-BAAI/bge-small-zh-v1.5}
       RERANK_MODEL_NAME: ${YLCLOUD_RAG_RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
       CHAT_MODEL_NAME: ${YLCLOUD_LLM_MODEL:-deepseek-chat}
@@ -86,9 +87,10 @@ services:
     volumes:
       - model-cache:/models
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=5).read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/ready', timeout=30).read()"]
       interval: 30s
-      timeout: 10s
+      timeout: 35s
+      start_period: 60s
       retries: 5
 
   document-parser-service:

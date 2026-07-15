@@ -72,6 +72,7 @@ public class RagProperties {
     public static class Index {
         private Integer concurrency = 5;
         private Integer taskTimeoutMinutes = 10;
+        private Integer profileTaskTimeoutMinutes = 30;
     }
 
     @Data

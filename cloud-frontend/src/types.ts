@@ -160,6 +160,7 @@ export type RagConfig = {
   temperature?: number;
   scoreThreshold?: number;
   enabled?: number;
+  knowledgeProfileEnabled?: number;
   status?: number;
   createtime?: string;
   updatetime?: string;

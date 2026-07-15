@@ -5,11 +5,17 @@ import re
 from threading import Lock
 from typing import Optional
 
+MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR")
+if MODEL_CACHE_DIR:
+    # Hugging Face reads cache environment variables while its modules are imported.
+    os.environ.setdefault("HF_HOME", MODEL_CACHE_DIR)
+    os.environ.setdefault("TRANSFORMERS_CACHE", MODEL_CACHE_DIR)
+
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from FlagEmbedding import BGEM3FlagModel, FlagReranker
+from FlagEmbedding import BGEM3FlagModel, FlagModel, FlagReranker
 from secret_utils import read_secret
 
 
@@ -19,7 +25,6 @@ EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3")
 RERANK_MODEL_NAME = os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3")
 CHAT_MODEL_NAME = os.getenv("CHAT_MODEL_NAME", "deepseek-chat")
 GENERATE_MODEL_NAME = os.getenv("GENERATE_MODEL_NAME", "doubao-seed-2-0-pro-260215")
-MODEL_CACHE_DIR = os.getenv("MODEL_CACHE_DIR")
 USE_FP16 = os.getenv("USE_FP16", "true").lower() == "true"
 OPENAI_COMPATIBLE_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
 OPENAI_COMPATIBLE_API_KEY = read_secret("OPENAI_COMPATIBLE_API_KEY")
@@ -32,26 +37,109 @@ GENERATE_API_KEY = read_secret("GENERATE_API_KEY", "QUERY_REWRITE_API_KEY") or O
 GENERATE_API_STYLE = os.getenv("GENERATE_API_STYLE") or os.getenv("QUERY_REWRITE_API_STYLE") or os.getenv("LLM_API_STYLE", "responses")
 OFFLINE_FALLBACK = os.getenv("OFFLINE_FALLBACK", "false").lower() == "true"
 FALLBACK_DIMENSION = int(os.getenv("FALLBACK_DIMENSION", "512"))
-
-if MODEL_CACHE_DIR:
-    os.environ.setdefault("HF_HOME", MODEL_CACHE_DIR)
-    os.environ.setdefault("TRANSFORMERS_CACHE", MODEL_CACHE_DIR)
+EXPECTED_EMBEDDING_DIMENSION = int(os.getenv("EXPECTED_EMBEDDING_DIMENSION", "0"))
 
 embedding_model = None
 reranker = None
+embedding_model_kind = None
+embedding_ready = False
+embedding_readiness_error = None
+embedding_ready_dimension = 0
 embedding_lock = Lock()
 reranker_lock = Lock()
+
+
+def embedding_model_type(model_name: str) -> str:
+    normalized = (model_name or "").strip().lower().replace("_", "-")
+    return "m3" if normalized.endswith("bge-m3") or "/bge-m3" in normalized else "dense"
 
 
 def get_embedding_model():
     if OFFLINE_FALLBACK:
         return None
-    global embedding_model
+    global embedding_model, embedding_model_kind
     if embedding_model is None:
         with embedding_lock:
             if embedding_model is None:
-                embedding_model = BGEM3FlagModel(EMBEDDING_MODEL_NAME, use_fp16=USE_FP16)
+                embedding_model_kind = embedding_model_type(EMBEDDING_MODEL_NAME)
+                if embedding_model_kind == "m3":
+                    embedding_model = BGEM3FlagModel(EMBEDDING_MODEL_NAME, use_fp16=USE_FP16)
+                else:
+                    embedding_model = FlagModel(EMBEDDING_MODEL_NAME, use_fp16=USE_FP16)
     return embedding_model
+
+
+def encode_dense_vectors(model, texts: list[str], normalize: bool = True) -> list[list[float]]:
+    if embedding_model_type(EMBEDDING_MODEL_NAME) == "m3":
+        output = model.encode(
+            texts,
+            batch_size=8,
+            max_length=8192,
+            return_dense=True,
+            return_sparse=False,
+            return_colbert_vecs=False,
+        )
+        output = output.get("dense_vecs") if isinstance(output, dict) else output
+    else:
+        output = model.encode(texts, batch_size=8, max_length=512)
+    try:
+        vectors = output.tolist()
+    except AttributeError:
+        vectors = output
+    if vectors is None:
+        raise ValueError("embedding model returned no dense vectors")
+    vectors = [[float(value) for value in vector] for vector in vectors]
+    validate_vectors(vectors, len(texts))
+    if normalize:
+        vectors = [normalize_vector(vector) for vector in vectors]
+    return vectors
+
+
+def normalize_vector(vector: list[float]) -> list[float]:
+    norm = math.sqrt(sum(value * value for value in vector))
+    return vector if norm == 0 else [value / norm for value in vector]
+
+
+def validate_vectors(vectors: list[list[float]], expected_count: int) -> int:
+    if len(vectors) != expected_count:
+        raise ValueError(f"embedding count mismatch: expected {expected_count}, got {len(vectors)}")
+    if not vectors or not vectors[0]:
+        raise ValueError("embedding model returned an empty vector")
+    dimension = len(vectors[0])
+    if EXPECTED_EMBEDDING_DIMENSION > 0 and dimension != EXPECTED_EMBEDDING_DIMENSION:
+        raise ValueError(
+            f"embedding dimension mismatch: expected {EXPECTED_EMBEDDING_DIMENSION}, got {dimension}"
+        )
+    for vector in vectors:
+        if len(vector) != dimension:
+            raise ValueError("embedding model returned inconsistent vector dimensions")
+        if any(not math.isfinite(value) for value in vector):
+            raise ValueError("embedding model returned a non-finite value")
+    return dimension
+
+
+def ensure_embedding_ready() -> tuple[int, str]:
+    global embedding_ready, embedding_readiness_error, embedding_ready_dimension
+    if embedding_ready:
+        return embedding_ready_dimension, "offline" if OFFLINE_FALLBACK else embedding_model_type(EMBEDDING_MODEL_NAME)
+    try:
+        if OFFLINE_FALLBACK:
+            vectors = [fallback_embedding("readiness probe", FALLBACK_DIMENSION)]
+            dimension = validate_vectors(vectors, 1)
+            kind = "offline"
+        else:
+            vectors = encode_dense_vectors(get_embedding_model(), ["readiness probe"])
+            dimension = validate_vectors(vectors, 1)
+            kind = embedding_model_type(EMBEDDING_MODEL_NAME)
+        embedding_ready = True
+        embedding_ready_dimension = dimension
+        embedding_readiness_error = None
+        return dimension, kind
+    except Exception as exc:
+        embedding_ready = False
+        embedding_ready_dimension = 0
+        embedding_readiness_error = str(exc)
+        raise
 
 
 def get_reranker():
@@ -139,35 +227,48 @@ def health():
         "generateApiStyle": GENERATE_API_STYLE.lower(),
         "llmApiStyle": LLM_API_STYLE,
         "embeddingLoaded": embedding_model is not None,
+        "embeddingReady": embedding_ready,
+        "embeddingReadinessError": embedding_readiness_error,
+        "embeddingModelType": embedding_model_type(EMBEDDING_MODEL_NAME),
         "rerankerLoaded": reranker is not None,
         "cacheDir": MODEL_CACHE_DIR,
         "useFp16": USE_FP16,
     }
 
 
+@app.get("/ready")
+def ready():
+    try:
+        dimension, kind = ensure_embedding_ready()
+        return {
+            "status": "ready",
+            "embeddingModel": EMBEDDING_MODEL_NAME,
+            "embeddingModelType": kind,
+            "dimension": dimension,
+            "offlineFallback": OFFLINE_FALLBACK,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"embedding inference is not ready: {exc}") from exc
+
+
 @app.post("/embed", response_model=EmbedResponse)
 def embed(request: EmbedRequest):
+    if not request.texts:
+        raise HTTPException(status_code=422, detail="texts must not be empty")
     model = get_embedding_model()
     if model is None:
         vectors = [fallback_embedding(text, FALLBACK_DIMENSION) for text in request.texts]
+        dimension = validate_vectors(vectors, len(request.texts))
         return EmbedResponse(
             model=f"offline-fallback:{EMBEDDING_MODEL_NAME}",
-            dimension=FALLBACK_DIMENSION,
+            dimension=dimension,
             vectors=vectors,
         )
-    output = model.encode(
-        request.texts,
-        batch_size=8,
-        max_length=8192,
-        return_dense=True,
-        return_sparse=False,
-        return_colbert_vecs=False,
-    )
-    vectors = output["dense_vecs"]
+    vectors = encode_dense_vectors(model, request.texts, request.normalize)
     return EmbedResponse(
         model=EMBEDDING_MODEL_NAME,
-        dimension=len(vectors[0]) if len(vectors) > 0 else 0,
-        vectors=vectors.tolist(),
+        dimension=len(vectors[0]),
+        vectors=vectors,
     )
 
 

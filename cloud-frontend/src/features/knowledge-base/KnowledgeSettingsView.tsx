@@ -7,6 +7,7 @@ import { formatTime } from "../../fileUtils";
 
 type ConfigDraft = {
   enabled: boolean;
+  knowledgeProfileEnabled: boolean;
   topK: string;
   temperature: string;
   scoreThreshold: string;
@@ -16,6 +17,7 @@ type ConfigDraft = {
 
 const emptyDraft: ConfigDraft = {
   enabled: false,
+  knowledgeProfileEnabled: true,
   topK: "5",
   temperature: "0.2",
   scoreThreshold: "0",
@@ -26,6 +28,7 @@ const emptyDraft: ConfigDraft = {
 function draftFromConfig(config: RagConfig): ConfigDraft {
   return {
     enabled: Boolean(config.enabled),
+    knowledgeProfileEnabled: config.knowledgeProfileEnabled !== 0,
     topK: String(config.topK ?? 5),
     temperature: String(config.temperature ?? 0.2),
     scoreThreshold: String(config.scoreThreshold ?? 0),
@@ -42,7 +45,8 @@ function configSummary(raw?: string) {
       value.topK === undefined ? "" : `Top K ${value.topK}`,
       value.temperature === undefined ? "" : `温度 ${value.temperature}`,
       value.scoreThreshold === undefined ? "" : `阈值 ${value.scoreThreshold}`,
-      value.enabled === undefined ? "" : value.enabled ? "已启用" : "已停用"
+      value.enabled === undefined ? "" : value.enabled ? "已启用" : "已停用",
+      value.knowledgeProfileEnabled === undefined ? "" : value.knowledgeProfileEnabled ? "知识画像已开启" : "知识画像已关闭"
     ].filter(Boolean).join(" · ") || "配置快照";
   } catch {
     return "配置快照";
@@ -124,6 +128,7 @@ export function KnowledgeSettingsView({
     try {
       const next = await api.updateRagConfig(space.id, {
         enabled: draft.enabled ? 1 : 0,
+        knowledgeProfileEnabled: draft.knowledgeProfileEnabled ? 1 : 0,
         topK,
         temperature,
         scoreThreshold,
@@ -171,6 +176,25 @@ export function KnowledgeSettingsView({
         </div>
 
         <div className="kb-settings-divider" />
+        <header className="kb-settings-section-head compact">
+          <div>
+            <Cpu size={19} />
+            <span>
+              <h3>知识画像增强</h3>
+              <p>RAG 索引完成后可选执行。关闭后文档仍可检索，只跳过画像生成。</p>
+            </span>
+          </div>
+          <label className="kb-switch">
+            <input
+              type="checkbox"
+              checked={draft.knowledgeProfileEnabled}
+              onChange={(event) => update("knowledgeProfileEnabled", event.target.checked)}
+            />
+            <span>{draft.knowledgeProfileEnabled ? "知识画像已开启" : "知识画像已关闭"}</span>
+          </label>
+        </header>
+
+        <div className="kb-settings-divider" />
         <header className="kb-settings-section-head compact"><div><Database size={19} /><span><h3>文档分块</h3><p>新建索引任务时使用；修改后建议重建知识库索引。</p></span></div></header>
         <div className="kb-setting-fields two-col">
           <label htmlFor="kb-chunk-size"><span><b>分块大小</b><small>单个知识片段的目标长度。</small></span><input id="kb-chunk-size" type="number" min="1" step="1" value={draft.chunkSize} onChange={(event) => update("chunkSize", event.target.value)} /></label>
@@ -194,6 +218,7 @@ export function KnowledgeSettingsView({
             <div><dt>向量模型</dt><dd>{config?.embeddingModel || "未记录"}</dd></div>
             <div><dt>回答模型</dt><dd>{config?.chatModel || "未记录"}</dd></div>
             <div><dt>向量集合</dt><dd>{config?.vectorCollection || "未创建"}</dd></div>
+            <div><dt>知识画像</dt><dd>{config?.knowledgeProfileEnabled === 0 ? "已关闭" : "已开启"}</dd></div>
             <div><dt>运行状态</dt><dd>{config?.status === 1 ? "可用" : "未就绪"}</dd></div>
           </dl>
         </section>

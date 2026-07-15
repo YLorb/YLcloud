@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 空间 RAG 文本分块引用 Mapper。
@@ -50,4 +51,10 @@ public interface SpaceRagChunkRefMapper {
     int disableBySpaceFileId(@Param("spaceId") Long spaceId,
                              @Param("spaceFileId") Long spaceFileId,
                              @Param("updateTime") LocalDateTime updateTime);
+
+    @Select("select count(1) from space_rag_chunk_ref where document_id = #{documentId} and status = 1")
+    int countActiveByDocumentId(@Param("documentId") Long documentId);
+
+    @Select("select file_chunk_id from space_rag_chunk_ref where document_id = #{documentId} and status = 1 order by file_chunk_id")
+    List<Long> listActiveChunkIds(@Param("documentId") Long documentId);
 }

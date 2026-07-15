@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -27,8 +27,10 @@ import type {
   KnowledgePipelineTask,
   KnowledgeProfile,
   RagAnalyticsSummary,
+  RagConfig,
   RagConfigLog,
   RagQueryLog,
+  RagTask,
   Space
 } from "../../types";
 import { formatTime } from "../../fileUtils";
@@ -75,8 +77,33 @@ function taskStatusText(status?: string) {
   if (status === "SUCCESS") return "完成";
   if (status === "PARTIAL_SUCCESS") return "部分完成";
   if (status === "FAILED") return "失败";
+  if (status === "SKIPPED") return "已跳过";
   if (status === "RUNNING") return "执行中";
   return "等待中";
+}
+
+function profileTaskSummary(task: KnowledgePipelineTask) {
+  if (isActiveTask(task.taskStatus)) {
+    return `进度 ${task.progress ?? 0}% · ${task.stage || "PENDING"}`;
+  }
+  if (task.taskStatus === "SKIPPED") {
+    if (task.terminalReason === "PROFILE_SKIPPED_DISABLED") return "知识画像已关闭，本次已跳过";
+    if (task.terminalReason === "NO_ELIGIBLE_DOCUMENTS") return "知识画像已跳过：没有已完成 RAG 索引的文档";
+    return "知识画像任务已跳过";
+  }
+  return `知识画像完成：成功 ${task.successCount ?? 0} 个文档、失败 ${task.failedCount ?? 0} 个文档`;
+}
+
+function ragTaskSummary(task: RagTask) {
+  return `RAG 索引完成：成功 ${task.successCount ?? 0} 个文档、失败 ${task.failedCount ?? 0} 个文档`;
+}
+
+function isActiveTask(status?: string) {
+  return status === "PENDING" || status === "RUNNING";
+}
+
+function isTerminalTask(status?: string) {
+  return ["SUCCESS", "PARTIAL_SUCCESS", "FAILED", "SKIPPED"].includes(status || "");
 }
 
 function StatTile({ label, value, icon }: { label: string; value: string | number; icon: React.ReactNode }) {
@@ -356,42 +383,48 @@ function DocumentsView({
 
 function PipelineView({
   tasks,
+  ragTasks,
   events,
   loading,
   selectedTaskId,
   onSelectTask,
   onRunAction,
-  spaceId
+  spaceId,
+  canManage,
+  knowledgeProfileEnabled
 }: {
   tasks: KnowledgePipelineTask[];
+  ragTasks: RagTask[];
   events: KnowledgePipelineEvent[];
   loading: boolean;
   selectedTaskId: number | null;
   onSelectTask: (task: KnowledgePipelineTask) => void;
   onRunAction: (action: () => Promise<unknown>, success: string) => void;
   spaceId: number | null;
+  canManage: boolean;
+  knowledgeProfileEnabled: boolean;
 }) {
   return (
-    <div className="kb-pipeline-layout">
+    <div className="kb-pipeline-stack">
       <section className="kb-panel">
         <div className="kb-panel-head">
           <h3>
-            <Activity size={18} />
-            索引任务
+            <Database size={18} />
+            RAG 索引构建
           </h3>
           <div className="knowledge-actions">
             <button
               type="button"
-              disabled={!spaceId}
-              onClick={() => spaceId && onRunAction(() => api.runKnowledgePipeline(spaceId), "已提交全量知识画像任务")}
+              disabled={!spaceId || !canManage}
+              onClick={() => spaceId && onRunAction(() => api.rebuildSpaceRag(spaceId), "已提交 RAG 索引重建任务")}
             >
               <RotateCcw size={16} />
               重建
             </button>
             <button
               type="button"
-              disabled={!spaceId}
-              onClick={() => spaceId && onRunAction(() => api.retryFailedKnowledgeTasks(spaceId), "已提交失败任务重试")}
+              disabled={!spaceId || !canManage}
+              onClick={() => spaceId && onRunAction(() => api.retryFailedRagTasks(spaceId), "已提交失败 RAG 任务重试")}
             >
               <RefreshCw size={16} />
               重试失败
@@ -405,6 +438,41 @@ function PipelineView({
           </div>
         ) : (
           <div className="kb-task-list">
+            {ragTasks.map((task) => (
+              <div className="kb-task-row" key={task.id}>
+                <span className={`knowledge-status-dot ${(task.taskStatus || "").toLowerCase()}`} />
+                <strong>{task.documentId ? `文档 #${task.documentId}` : "空间索引"}</strong>
+                <small>{task.taskType || "RAG_INDEX"} · 成功 {task.successCount ?? 0} / 失败 {task.failedCount ?? 0}</small>
+                <b>{taskStatusText(task.taskStatus)}</b>
+              </div>
+            ))}
+            {!ragTasks.length && <p className="muted-line">暂无 RAG 索引任务</p>}
+          </div>
+        )}
+      </section>
+
+      <div className="kb-pipeline-layout">
+        <section className="kb-panel">
+          <div className="kb-panel-head">
+            <h3><Activity size={18} />知识画像任务</h3>
+            <div className="knowledge-actions">
+              <button
+                type="button"
+                disabled={!spaceId || !canManage || !knowledgeProfileEnabled}
+                title={knowledgeProfileEnabled ? "重建知识画像" : "请先在检索设置中开启知识画像"}
+                onClick={() => spaceId && onRunAction(() => api.runKnowledgePipeline(spaceId), "已提交全量知识画像任务")}
+              ><RotateCcw size={16} />重建画像</button>
+              <button
+                type="button"
+                disabled={!spaceId || !canManage || !knowledgeProfileEnabled}
+                onClick={() => spaceId && onRunAction(() => api.retryFailedKnowledgeTasks(spaceId), "已提交失败画像任务重试")}
+              ><RefreshCw size={16} />重试失败</button>
+            </div>
+          </div>
+          {!knowledgeProfileEnabled && (
+            <p className="kb-task-hint"><AlertCircle size={15} />知识画像已关闭；RAG 索引完成后仍可正常检索。</p>
+          )}
+          <div className="kb-task-list">
             {tasks.map((task) => (
               <button
                 className={`kb-task-row as-button ${selectedTaskId === task.id ? "active" : ""}`}
@@ -413,42 +481,37 @@ function PipelineView({
                 onClick={() => onSelectTask(task)}
               >
                 <span className={`knowledge-status-dot ${(task.taskStatus || "").toLowerCase()}`} />
-                <strong>{task.documentId ? `文档 #${task.documentId}` : "空间任务"}</strong>
-                <small>{task.stage || task.terminalStage || "PENDING"}</small>
+                <strong>{task.documentId ? `文档 #${task.documentId}` : "空间画像"}</strong>
+                <small>{profileTaskSummary(task)}</small>
                 <b>{taskStatusText(task.taskStatus)}</b>
               </button>
             ))}
-            {!tasks.length && <p className="muted-line">暂无索引任务</p>}
+            {!tasks.length && <p className="muted-line">暂无知识画像任务</p>}
           </div>
-        )}
-      </section>
+        </section>
 
-      <section className="kb-panel">
-        <div className="kb-panel-head">
-          <h3>
-            <Search size={18} />
-            任务事件
-          </h3>
-          <span>{events.length} 条</span>
-        </div>
-        <div className="knowledge-event-timeline">
-          {events.map((event) => (
-            <div className={`knowledge-event-item ${(event.eventStatus || "").toLowerCase()}`} key={event.id}>
-              <span />
-              <div>
-                <strong>{event.stage || event.eventType}</strong>
-                <small>
-                  {event.eventType || "-"} · {event.eventStatus || "-"}
-                </small>
-                {(event.errorMessage || event.outputSummary || event.message) && (
-                  <p>{event.errorMessage || event.outputSummary || event.message}</p>
-                )}
+        <section className="kb-panel">
+          <div className="kb-panel-head">
+            <h3><Search size={18} />画像任务事件</h3>
+            <span>{events.length} 条</span>
+          </div>
+          <div className="knowledge-event-timeline">
+            {events.map((event) => (
+              <div className={`knowledge-event-item ${(event.eventStatus || "").toLowerCase()}`} key={event.id}>
+                <span />
+                <div>
+                  <strong>{event.stage || event.eventType}</strong>
+                  <small>{event.eventType || "-"} · {event.eventStatus || "-"}</small>
+                  {(event.errorMessage || event.outputSummary || event.message) && (
+                    <p>{event.errorMessage || event.outputSummary || event.message}</p>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          {!events.length && <p className="muted-line">选择一个任务后查看事件详情</p>}
-        </div>
-      </section>
+            ))}
+            {!events.length && <p className="muted-line">选择一个画像任务后查看事件详情</p>}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -552,6 +615,8 @@ export function KnowledgeBaseView({
   const [dashboard, setDashboard] = useState<KnowledgeDashboard | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [tasks, setTasks] = useState<KnowledgePipelineTask[]>([]);
+  const [ragTasks, setRagTasks] = useState<RagTask[]>([]);
+  const [ragConfig, setRagConfig] = useState<RagConfig | null>(null);
   const [events, setEvents] = useState<KnowledgePipelineEvent[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [mode, setMode] = useState<FilterMode>("all");
@@ -565,6 +630,9 @@ export function KnowledgeBaseView({
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState("");
   const [settingsReloadKey, setSettingsReloadKey] = useState(0);
+  const knownProfileTaskStatus = useRef(new Map<number, string>());
+  const knownRagTaskStatus = useRef(new Map<number, string>());
+  const tasksInitialized = useRef(false);
 
   const activeSpace = useMemo(() => spaces.find((space) => space.id === spaceId) || null, [spaces, spaceId]);
   const canManageKnowledge = activeSpace?.role === "OWNER" || activeSpace?.role === "ADMIN";
@@ -600,6 +668,8 @@ export function KnowledgeBaseView({
       setDashboard(null);
       setDocuments([]);
       setTasks([]);
+      setRagTasks([]);
+      setRagConfig(null);
       return;
     }
     setLoading(true);
@@ -614,14 +684,39 @@ export function KnowledgeBaseView({
               : nextMode === "failed"
                 ? { profileStatus: "INVALID" }
                 : {};
-      const [nextDashboard, nextDocuments, nextTasks] = await Promise.all([
+      const [nextDashboard, nextDocuments, nextTasks, nextRagTasks, nextRagConfig] = await Promise.all([
         api.knowledgeDashboard(targetSpaceId),
         api.listKnowledgeDocuments(targetSpaceId, filter),
-        api.listKnowledgeTasks(targetSpaceId)
+        api.listKnowledgeTasks(targetSpaceId),
+        api.listRagTasks(targetSpaceId),
+        api.ragConfig(targetSpaceId)
       ]);
       setDashboard(nextDashboard);
       setDocuments(nextDocuments || []);
       setTasks(nextTasks || []);
+      setRagTasks(nextRagTasks || []);
+      setRagConfig(nextRagConfig);
+
+      if (tasksInitialized.current) {
+        for (const task of nextTasks || []) {
+          const previous = knownProfileTaskStatus.current.get(task.id);
+          if (isTerminalTask(task.taskStatus) && (!previous || isActiveTask(previous))) {
+            showNotice({
+              type: task.taskStatus === "FAILED" ? "error" : task.taskStatus === "SUCCESS" ? "success" : "info",
+              text: profileTaskSummary(task)
+            });
+          }
+        }
+        for (const task of nextRagTasks || []) {
+          const previous = knownRagTaskStatus.current.get(task.id);
+          if (isTerminalTask(task.taskStatus) && (!previous || isActiveTask(previous))) {
+            showNotice({ type: task.taskStatus === "SUCCESS" ? "success" : "error", text: ragTaskSummary(task) });
+          }
+        }
+      }
+      knownProfileTaskStatus.current = new Map((nextTasks || []).map((task) => [task.id, task.taskStatus || ""]));
+      knownRagTaskStatus.current = new Map((nextRagTasks || []).map((task) => [task.id, task.taskStatus || ""]));
+      tasksInitialized.current = true;
     } catch (err) {
       showNotice({ type: "error", text: err instanceof Error ? err.message : "知识库数据加载失败" });
     } finally {
@@ -630,8 +725,22 @@ export function KnowledgeBaseView({
   }
 
   useEffect(() => {
+    tasksInitialized.current = false;
+    knownProfileTaskStatus.current.clear();
+    knownRagTaskStatus.current.clear();
     void loadKnowledge(spaceId);
   }, [spaceId]);
+
+  const hasRunningTasks = useMemo(
+    () => tasks.some((task) => isActiveTask(task.taskStatus)) || ragTasks.some((task) => isActiveTask(task.taskStatus)),
+    [tasks, ragTasks]
+  );
+
+  useEffect(() => {
+    if (!spaceId || !hasRunningTasks) return;
+    const timer = window.setInterval(() => void loadKnowledge(spaceId), 3000);
+    return () => window.clearInterval(timer);
+  }, [spaceId, hasRunningTasks, mode, facetValue]);
 
   async function loadAnalytics(targetSpaceId = spaceId) {
     if (!targetSpaceId) {
@@ -763,6 +872,9 @@ export function KnowledgeBaseView({
             <PipelineView
               events={events}
               loading={loading}
+              canManage={canManageKnowledge}
+              knowledgeProfileEnabled={ragConfig?.knowledgeProfileEnabled !== 0}
+              ragTasks={ragTasks}
               selectedTaskId={selectedTaskId}
               spaceId={spaceId}
               tasks={tasks}

@@ -19,11 +19,13 @@ import com.ylcloud.entity.SpaceKnowledgeDocumentProfile;
 import com.ylcloud.entity.SpaceKnowledgePipelineTask;
 import com.ylcloud.entity.SpaceKnowledgeQuestion;
 import com.ylcloud.entity.SpaceRagDocument;
+import com.ylcloud.entity.SpaceRagConfig;
 import com.ylcloud.mapper.FileRagChunkMapper;
 import com.ylcloud.mapper.SpaceKnowledgeDocumentProfileMapper;
 import com.ylcloud.mapper.SpaceKnowledgePipelineTaskMapper;
 import com.ylcloud.mapper.SpaceKnowledgeQuestionMapper;
 import com.ylcloud.mapper.SpaceRagDocumentMapper;
+import com.ylcloud.mapper.SpaceRagMapper;
 import com.ylcloud.service.knowledge.event.PipelineEventService;
 import com.ylcloud.service.knowledge.pipeline.KnowledgePipelineIncrementalDecision;
 import com.ylcloud.service.knowledge.pipeline.KnowledgePipelineIncrementalService;
@@ -44,6 +46,7 @@ import com.ylcloud.service.rag.RagGenerateRequest;
 import com.ylcloud.service.rag.RagGenerateResponse;
 import com.ylcloud.service.rag.RagModelClient;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -79,6 +82,7 @@ public class KnowledgePipelineService {
     private final KnowledgeProfileRepairService knowledgeProfileRepairService;
     private final RagModelClient ragModelClient;
     private final RagProperties ragProperties;
+    private final SpaceRagMapper spaceRagMapper;
     private final ObjectMapper objectMapper;
 
     public KnowledgePipelineService(SpacePermissionService spacePermissionService,
@@ -99,6 +103,7 @@ public class KnowledgePipelineService {
                                     KnowledgeProfileRepairService knowledgeProfileRepairService,
                                     RagModelClient ragModelClient,
                                     RagProperties ragProperties,
+                                    SpaceRagMapper spaceRagMapper,
                                     ObjectMapper objectMapper) {
         this.spacePermissionService = spacePermissionService;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
@@ -118,19 +123,23 @@ public class KnowledgePipelineService {
         this.knowledgeProfileRepairService = knowledgeProfileRepairService;
         this.ragModelClient = ragModelClient;
         this.ragProperties = ragProperties;
+        this.spaceRagMapper = spaceRagMapper;
         this.objectMapper = objectMapper;
     }
 
     public SpaceKnowledgePipelineTaskVO submitDocument(Long spaceId, Long documentId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
+        requireKnowledgeProfileEnabled(spaceId);
         return toTaskVO(createDocumentProfileTask(spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,true));
     }
 
     public SpaceKnowledgePipelineTaskVO submitDocumentProfileTask(Long spaceId, Long documentId, Long userId) {
+        requireKnowledgeProfileEnabled(spaceId);
         return toTaskVO(createDocumentProfileTask(spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,false));
     }
 
     public SpaceKnowledgePipelineTaskVO submitDocumentProfileTaskIfAbsent(Long spaceId, Long documentId, Long userId) {
+        requireKnowledgeProfileEnabled(spaceId);
         SpaceRagDocument document = requireDocument(spaceId,documentId);
         SpaceKnowledgePipelineTask activeTask = taskMapper.getActiveDocumentTask(spaceId,document.getId());
         if(activeTask != null) {
@@ -139,19 +148,55 @@ public class KnowledgePipelineService {
         return toTaskVO(createDocumentProfileTask(spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,false));
     }
 
+    public SpaceKnowledgePipelineTaskVO recordDocumentProfileSkipped(Long spaceId, Long documentId, Long userId, String reason) {
+        SpaceRagDocument document = requireDocument(spaceId,documentId);
+        SpaceKnowledgePipelineTask active = taskMapper.getActiveDocumentTask(spaceId,document.getId());
+        if(active != null) {
+            return toTaskVO(active);
+        }
+        SpaceKnowledgePipelineTask task = createTask(
+                spaceId,document.getId(),SpaceConstant.KNOWLEDGE_TASK_PROFILE_DOCUMENT,userId,false);
+        LocalDateTime finished = LocalDateTime.now();
+        updateFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_SKIPPED,SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,
+                100,1,0,0,null,null,finished);
+        taskMapper.updateIncremental(task.getId(),SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,reason,
+                null,null,finished);
+        return toTaskVO(taskMapper.getById(task.getId()));
+    }
+
+    public SpaceKnowledgePipelineTaskVO recordSpaceProfileSkipped(Long spaceId, Long userId, String reason) {
+        SpaceKnowledgePipelineTask active = taskMapper.getActiveSpaceTask(spaceId);
+        if(active != null) {
+            return toTaskVO(active);
+        }
+        SpaceKnowledgePipelineTask task = createTask(
+                spaceId,null,SpaceConstant.KNOWLEDGE_TASK_PROFILE_SPACE,userId,false);
+        markTaskSkipped(task,reason);
+        return toTaskVO(taskMapper.getById(task.getId()));
+    }
+
     public void executeTask(Long taskId) {
         SpaceKnowledgePipelineTask task = taskMapper.getById(taskId);
         if(task == null) {
             return;
         }
         LocalDateTime started = LocalDateTime.now();
-        updateFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_LOAD_CHUNKS,10,1,0,0,null,started,null);
+        if(taskMapper.markRunningIfPending(taskId,started) != 1) {
+            return;
+        }
+        if(!isKnowledgeProfileEnabled(task.getSpaceId())) {
+            markRunningTaskSkipped(task,SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+            return;
+        }
+        updateRunningFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_LOAD_CHUNKS,10,1,0,0,null,started,null);
         SpaceRagDocument document = null;
         try {
             document = requireDocument(task.getSpaceId(),task.getDocumentId());
             KnowledgePipelineContext context = createPipelineContext(task,document);
             SpaceKnowledgeDocumentProfileVO profile = runDocumentPipeline(context);
-            updateFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_SUCCESS,SpaceConstant.KNOWLEDGE_STAGE_SUCCESS,100,1,1,0,null,started,LocalDateTime.now());
+            if(updateRunningFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_SUCCESS,SpaceConstant.KNOWLEDGE_STAGE_SUCCESS,100,1,1,0,null,started,LocalDateTime.now()) != 1) {
+                return;
+            }
             pipelineEventService.taskFinished(context,SpaceConstant.KNOWLEDGE_EVENT_STATUS_SUCCEEDED,
                     "Document pipeline finished with profile status " + profile.getProfileStatus());
         } catch (Exception ex) {
@@ -159,12 +204,28 @@ public class KnowledgePipelineService {
             if(document != null) {
                 saveFailedProfile(document,message);
             }
-            updateFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_FAILED,SpaceConstant.KNOWLEDGE_STAGE_FAILED,100,1,0,1,message,started,LocalDateTime.now());
+            updateRunningFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_FAILED,SpaceConstant.KNOWLEDGE_STAGE_FAILED,100,1,0,1,message,started,LocalDateTime.now());
         }
     }
 
     public SpaceKnowledgePipelineTaskVO submitSpace(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
+        requireKnowledgeProfileEnabled(spaceId);
+        if(taskMapper.getActiveSpaceTask(spaceId) != null) {
+            throw new BaseException("当前知识库已有正在执行的知识画像批次");
+        }
+        return createSpaceProfileTask(spaceId,userId);
+    }
+
+    public SpaceKnowledgePipelineTaskVO submitSpaceProfileTaskIfAbsent(Long spaceId, Long userId) {
+        requireKnowledgeProfileEnabled(spaceId);
+        if(taskMapper.getActiveSpaceTask(spaceId) != null) {
+            return null;
+        }
+        return createSpaceProfileTask(spaceId,userId);
+    }
+
+    private SpaceKnowledgePipelineTaskVO createSpaceProfileTask(Long spaceId, Long userId) {
         SpaceKnowledgePipelineTask task = createTask(spaceId,null,SpaceConstant.KNOWLEDGE_TASK_PROFILE_SPACE,userId,true);
         pipelineEventService.taskCreated(task.getId(),spaceId,null,"knowledge-" + task.getId());
         return toTaskVO(task);
@@ -176,10 +237,21 @@ public class KnowledgePipelineService {
             return;
         }
         LocalDateTime started = LocalDateTime.now();
+        if(taskMapper.markRunningIfPending(taskId,started) != 1) {
+            return;
+        }
+        if(!isKnowledgeProfileEnabled(task.getSpaceId())) {
+            markRunningTaskSkipped(task,SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+            return;
+        }
         List<SpaceRagDocument> documents = spaceRagDocumentMapper.listBySpaceId(task.getSpaceId()).stream()
-                .filter(document -> SpaceConstant.RAG_INDEX_SUCCESS.equals(document.getIndexStatus()))
+                .filter(document -> SpaceConstant.RAG_INDEX_READY.equals(document.getIndexStatus()))
                 .toList();
-        updateFlow(taskId,SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_STAGE_PROFILING,10,documents.size(),0,0,null,started,null);
+        if(documents.isEmpty()) {
+            markRunningTaskSkipped(task,SpaceConstant.KNOWLEDGE_TERMINAL_NO_ELIGIBLE_DOCUMENTS);
+            return;
+        }
+        updateRunningFlow(taskId,SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_STAGE_PROFILING,10,documents.size(),0,0,null,started,null);
         int success = 0;
         int failed = 0;
         int needsReview = 0;
@@ -197,12 +269,14 @@ public class KnowledgePipelineService {
             } finally {
                 int done = success + failed;
                 int progress = documents.isEmpty() ? 100 : Math.min(95,10 + (int) Math.floor(done * 80.0 / documents.size()));
-                updateFlow(taskId,SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_STAGE_PROFILING,progress,documents.size(),success,failed,null,started,null);
+                updateRunningFlow(taskId,SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_STAGE_PROFILING,progress,documents.size(),success,failed,null,started,null);
             }
         }
-        String status = failed == 0 ? SpaceConstant.KNOWLEDGE_TASK_SUCCESS : SpaceConstant.KNOWLEDGE_TASK_PARTIAL_SUCCESS;
+        String status = spaceTaskStatus(success,failed);
         String error = failed == 0 ? null : failed + " document(s) failed";
-        updateFlow(taskId,status,SpaceConstant.KNOWLEDGE_STAGE_SUCCESS,100,documents.size(),success,failed,error,started,LocalDateTime.now());
+        String terminalStage = SpaceConstant.KNOWLEDGE_TASK_FAILED.equals(status)
+                ? SpaceConstant.KNOWLEDGE_STAGE_FAILED : SpaceConstant.KNOWLEDGE_STAGE_SUCCESS;
+        updateRunningFlow(taskId,status,terminalStage,100,documents.size(),success,failed,error,started,LocalDateTime.now());
     }
 
     public SpaceKnowledgeDocumentProfileVO getProfile(Long spaceId, Long documentId, Long userId) {
@@ -395,7 +469,7 @@ public class KnowledgePipelineService {
             return toProfileVO(existing);
         }
         if(incrementalDecision.syncsRetrievalSource()) {
-            updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,95,1,1,0,null,null,null);
+            updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,95,1,1,0,null,null,null);
             SpaceKnowledgeDocumentProfile refreshed = pipelineEventService.executeStage(context,
                     SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,
                     incrementalDecision.detail(),
@@ -406,19 +480,19 @@ public class KnowledgePipelineService {
                             currentProfile == null ? 0L : currentProfile.getSourceSnapshotRevision()));
             return toProfileVO(refreshed);
         }
-        updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_GENERATE_PROFILE,25,1,0,0,null,null,null);
+        updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_GENERATE_PROFILE,25,1,0,0,null,null,null);
 
         String rawOutput = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_GENERATE_PROFILE,
                 "contextChars=" + profileContext.context().length(),() -> generateProfileRaw(context.getDocument(),profileContext.context()));
         context.setRawLlmOutput(rawOutput);
-        updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_PARSE_PROFILE,40,1,0,0,null,null,null);
+        updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_PARSE_PROFILE,40,1,0,0,null,null,null);
 
         KnowledgeProfileParseResult parseResult = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_PARSE_PROFILE,
                 "rawChars=" + rawOutput.length(),() -> knowledgeProfileParser.parse(rawOutput));
         KnowledgeProfileDraft parsed = parseResult.isParsed() ? parseResult.getProfile() : fallbackDraft(context.getDocument(),profileContext.context());
         parsed.setSchemaValid(parseResult.isParsed());
         context.setProfile(parsed);
-        updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_NORMALIZE_PROFILE,50,1,0,0,null,null,null);
+        updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_NORMALIZE_PROFILE,50,1,0,0,null,null,null);
 
         KnowledgeProfileDraft normalized = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_NORMALIZE_PROFILE,
                 "profile",() -> knowledgeProfileNormalizer.normalize(context.getProfile(),context.getDocument()));
@@ -427,7 +501,7 @@ public class KnowledgePipelineService {
         KnowledgeProfileValidationResult validation = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_VALIDATE_PROFILE,
                 "schemaValid=" + normalized.isSchemaValid(),() -> knowledgeProfileValidator.validate(normalized));
         context.setValidationResult(validation);
-        updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SCORE_PROFILE,65,1,0,0,null,null,null);
+        updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SCORE_PROFILE,65,1,0,0,null,null,null);
 
         KnowledgeProfileQualityResult before = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_SCORE_PROFILE,
                 "beforeRepair",() -> knowledgeProfileQualityService.evaluate(context.getProfile(),context.getValidationResult(),
@@ -449,7 +523,7 @@ public class KnowledgePipelineService {
             context.setScoreAfterRepair(after);
         }
 
-        updateFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SAVE_PROFILE,80,1,0,0,null,null,null);
+        updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SAVE_PROFILE,80,1,0,0,null,null,null);
         SpaceKnowledgeDocumentProfileVO profile = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_SAVE_PROFILE,
                 "score=" + context.getScoreAfterRepair().getTotalScore(),() -> saveProfile(context,profileContext,sourceSnapshot));
         if(SpaceConstant.KNOWLEDGE_PROFILE_NEEDS_REVIEW.equals(profile.getProfileStatus())) {
@@ -706,13 +780,69 @@ public class KnowledgePipelineService {
         task.setCreatedBy(userId);
         task.setCreatetime(now);
         task.setUpdatetime(now);
-        taskMapper.insert(task);
-        return task;
+        try {
+            taskMapper.insert(task);
+            return task;
+        } catch (DuplicateKeyException ex) {
+            SpaceKnowledgePipelineTask active = documentId == null
+                    ? taskMapper.getActiveSpaceTask(spaceId)
+                    : taskMapper.getActiveDocumentTask(spaceId,documentId);
+            if(active != null) {
+                return active;
+            }
+            throw ex;
+        }
+    }
+
+    private void requireKnowledgeProfileEnabled(Long spaceId) {
+        if(!isKnowledgeProfileEnabled(spaceId)) {
+            throw new BaseException("知识画像功能已关闭，请先在检索设置中开启");
+        }
+    }
+
+    private boolean isKnowledgeProfileEnabled(Long spaceId) {
+        if(spaceRagMapper == null) {
+            return true;
+        }
+        SpaceRagConfig config = spaceRagMapper.getBySpaceId(spaceId);
+        if(config == null) {
+            throw new BaseException("空间 RAG 配置不存在");
+        }
+        return !StatusConstant.DISABLE.equals(config.getKnowledgeProfileEnabled());
+    }
+
+    private void markTaskSkipped(SpaceKnowledgePipelineTask task, String reason) {
+        LocalDateTime finished = LocalDateTime.now();
+        updateFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_SKIPPED,SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,
+                100,task.getDocumentId() == null ? 0 : 1,0,0,null,task.getStartedTime(),finished);
+        taskMapper.updateIncremental(task.getId(),SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,reason,
+                null,null,finished);
+    }
+
+    private void markRunningTaskSkipped(SpaceKnowledgePipelineTask task, String reason) {
+        LocalDateTime finished = LocalDateTime.now();
+        updateRunningFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_SKIPPED,SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,
+                100,task.getDocumentId() == null ? 0 : 1,0,0,null,task.getStartedTime(),finished);
+        taskMapper.updateIncremental(task.getId(),SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,reason,
+                null,null,finished);
+    }
+
+    static String spaceTaskStatus(int success, int failed) {
+        if(failed == 0) {
+            return success == 0 ? SpaceConstant.KNOWLEDGE_TASK_SKIPPED : SpaceConstant.KNOWLEDGE_TASK_SUCCESS;
+        }
+        return success == 0 ? SpaceConstant.KNOWLEDGE_TASK_FAILED : SpaceConstant.KNOWLEDGE_TASK_PARTIAL_SUCCESS;
     }
 
     private void updateFlow(Long taskId, String status, String stage, int progress, int totalCount, int successCount, int failedCount,
                             String errorMessage, LocalDateTime startedTime, LocalDateTime finishedTime) {
         taskMapper.updateFlow(taskId,status,stage,progress,totalCount,successCount,failedCount,errorMessage,startedTime,finishedTime,LocalDateTime.now());
+    }
+
+    private int updateRunningFlow(Long taskId, String status, String stage, int progress, int totalCount, int successCount, int failedCount,
+                                  String errorMessage, LocalDateTime startedTime, LocalDateTime finishedTime) {
+        return taskMapper.updateFlowIfRunning(taskId,status,stage,progress,totalCount,successCount,failedCount,
+                errorMessage,startedTime,finishedTime,LocalDateTime.now());
     }
 
     private String buildContext(List<FileRagChunk> chunks, List<FileRagChunk> usedChunks) {

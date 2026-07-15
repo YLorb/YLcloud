@@ -19,7 +19,6 @@ import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.File;
 import com.ylcloud.entity.FileRagChunk;
 import com.ylcloud.entity.SpaceFile;
-import com.ylcloud.entity.SpaceRagChunkRef;
 import com.ylcloud.entity.SpaceRagConfig;
 import com.ylcloud.entity.SpaceRagConfigLog;
 import com.ylcloud.entity.SpaceRagDocument;
@@ -105,6 +104,8 @@ public class SpaceRagService {
     private final KnowledgePipelineService knowledgePipelineService;
     private final KnowledgePipelineExecutorService knowledgePipelineExecutorService;
     private final SiteSettingService siteSettingService;
+    private final RagIndexTransactionService ragIndexTransactionService;
+    private final RagIndexConsistencyService ragIndexConsistencyService;
 
     /**
      * 初始化 SpaceRagService 对象。
@@ -148,7 +149,9 @@ public class SpaceRagService {
                            RagTaskExecutorService ragTaskExecutorService,
                            KnowledgePipelineService knowledgePipelineService,
                            KnowledgePipelineExecutorService knowledgePipelineExecutorService,
-                           SiteSettingService siteSettingService) {
+                           SiteSettingService siteSettingService,
+                           RagIndexTransactionService ragIndexTransactionService,
+                           RagIndexConsistencyService ragIndexConsistencyService) {
         this.spaceRagMapper = spaceRagMapper;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
         this.fileRagChunkMapper = fileRagChunkMapper;
@@ -171,6 +174,8 @@ public class SpaceRagService {
         this.knowledgePipelineService = knowledgePipelineService;
         this.knowledgePipelineExecutorService = knowledgePipelineExecutorService;
         this.siteSettingService = siteSettingService;
+        this.ragIndexTransactionService = ragIndexTransactionService;
+        this.ragIndexConsistencyService = ragIndexConsistencyService;
     }
 
     /**
@@ -214,6 +219,7 @@ public class SpaceRagService {
                 temperature,
                 dto.getScoreThreshold() == null ? current.getScoreThreshold() : dto.getScoreThreshold(),
                 dto.getEnabled() == null ? current.getEnabled() : dto.getEnabled(),
+                dto.getKnowledgeProfileEnabled() == null ? current.getKnowledgeProfileEnabled() : dto.getKnowledgeProfileEnabled(),
                 LocalDateTime.now()
         );
         if(rows == 0) {
@@ -529,16 +535,13 @@ public class SpaceRagService {
             if(document == null) {
                 throw new BaseException("RAG document not found");
             }
-            rebuildDocument(document,userId);
+            rebuildDocument(document,userId,true);
             updateTaskProgress(taskId,1,1,0);
             finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
         } catch (Throwable ex) {
             String errorMessage = truncate(ex.getMessage(),1000);
             updateTaskProgress(taskId,1,0,1);
             finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,errorMessage,started);
-            if(documentId != null) {
-                spaceRagDocumentMapper.updateIndexResult(documentId,SpaceConstant.RAG_INDEX_FAILED,0,errorMessage,LocalDateTime.now());
-            }
         }
     }
 
@@ -580,17 +583,10 @@ public class SpaceRagService {
                 for(SpaceRagDocument document : documents) {
                     futures.add(CompletableFuture.runAsync(() -> {
                         try {
-                            rebuildDocument(document,userId);
+                            rebuildDocument(document,userId,false);
                             success.incrementAndGet();
                         } catch (Throwable ex) {
                             failed.incrementAndGet();
-                            spaceRagDocumentMapper.updateIndexResult(
-                                    document.getId(),
-                                    SpaceConstant.RAG_INDEX_FAILED,
-                                    0,
-                                    truncate(ex.getMessage(),1000),
-                                    LocalDateTime.now()
-                            );
                         } finally {
                             updateTaskProgress(taskId,documents.size(),success.get(),failed.get());
                         }
@@ -600,6 +596,7 @@ public class SpaceRagService {
             } finally {
                 executor.shutdown();
             }
+            submitKnowledgeProfileSpaceTask(spaceId,userId);
             if(failed.get() > 0) {
                 finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,"Partial document indexing failed: " + failed.get() + "/" + documents.size(),started);
                 return;
@@ -648,7 +645,7 @@ public class SpaceRagService {
      * @param document 文档对象
      * @param userId 用户 ID
      */
-    private void rebuildDocument(SpaceRagDocument document, Long userId) {
+    private void rebuildDocument(SpaceRagDocument document, Long userId, boolean submitDocumentProfile) {
         SpaceFile spaceFile = requireFile(document.getSpaceId(),document.getSpaceFileId());
         SpaceRagConfig config = requireConfig(document.getSpaceId());
         LocalDateTime now = LocalDateTime.now();
@@ -656,33 +653,68 @@ public class SpaceRagService {
         if(currentFile != null) {
             spaceRagDocumentMapper.updateFileMeta(document.getId(),spaceFile.getFileName(),currentFile.getHash(),currentFile.getType(),now);
         }
-        spaceRagDocumentMapper.updateIndexResult(document.getId(),SpaceConstant.RAG_INDEX_INDEXING,0,null,now);
-        spaceRagChunkRefMapper.disableByDocumentId(document.getId(),now);
-
-        List<FileRagChunk> fileChunks = ensureFileChunks(spaceFile,config);
-        int refCount = 0;
-        for(FileRagChunk fileChunk : fileChunks) {
-            if(spaceRagChunkRefMapper.countActiveRef(document.getSpaceId(),document.getId(),fileChunk.getId()) > 0) {
-                continue;
-            }
-            SpaceRagChunkRef ref = new SpaceRagChunkRef();
-            ref.setSpaceId(document.getSpaceId());
-            ref.setDocumentId(document.getId());
-            ref.setSpaceFileId(document.getSpaceFileId());
-            ref.setFileChunkId(fileChunk.getId());
-            ref.setStatus(StatusConstant.ENABLE);
-            ref.setCreatetime(LocalDateTime.now());
-            ref.setUpdatetime(LocalDateTime.now());
-            spaceRagChunkRefMapper.insert(ref);
-            refCount++;
+        SpaceRagDocument latest = spaceRagDocumentMapper.getAnyById(document.getId());
+        if(latest == null || !StatusConstant.ENABLE.equals(latest.getStatus())) {
+            throw new BaseException("RAG 文档不存在或已经删除");
         }
-        qdrantVectorStoreService.upsertSpaceChunks(document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
-        spaceRagDocumentMapper.updateIndexResult(document.getId(),SpaceConstant.RAG_INDEX_SUCCESS,refCount,null,LocalDateTime.now());
-        submitKnowledgeProfileTask(document.getSpaceId(),document.getId(),userId);
+        if("CLEANUP_PENDING".equals(latest.getVectorState()) && !ragIndexConsistencyService.cleanupDocumentIfPending(latest)) {
+            throw new ConflictException("RAG 文档仍在清理上一次不完整索引");
+        }
+        ragIndexTransactionService.beginIndex(document.getId());
+
+        try {
+            List<FileRagChunk> fileChunks = ensureFileChunks(spaceFile,config);
+            int vectorCount = qdrantVectorStoreService.upsertSpaceChunks(
+                    document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
+            if(vectorCount != fileChunks.size()) {
+                throw new BaseException("RAG 向量写入数量与有效切片数量不一致");
+            }
+            if(vectorCount == 0) {
+                throw new BaseException("RAG 索引完整性校验失败");
+            }
+            ragIndexTransactionService.commitIndex(
+                    document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
+        } catch (Throwable ex) {
+            try {
+                ragIndexTransactionService.failBuildingIndex(document.getId(),truncate(ex.getMessage(),1000));
+            } catch (Throwable databaseCleanupError) {
+                ex.addSuppressed(databaseCleanupError);
+                log.error("Failed to isolate incomplete RAG database state: documentId={}",
+                        document.getId(),databaseCleanupError);
+            }
+            SpaceRagDocument failed = spaceRagDocumentMapper.getAnyById(document.getId());
+            try {
+                qdrantVectorStoreService.deleteBySpaceFileStrict(document.getSpaceId(),document.getSpaceFileId());
+            } catch (Throwable vectorCleanupError) {
+                ex.addSuppressed(vectorCleanupError);
+                log.error("Failed to clean incomplete RAG vectors: spaceId={}, spaceFileId={}",
+                        document.getSpaceId(),document.getSpaceFileId(),vectorCleanupError);
+            }
+            if(failed != null && "CLEANUP_PENDING".equals(failed.getVectorState())) {
+                ragIndexConsistencyService.cleanupDocumentIfPending(failed);
+            }
+            if(ex instanceof RuntimeException) {
+                throw (RuntimeException) ex;
+            }
+            if(ex instanceof Error) {
+                throw (Error) ex;
+            }
+            throw new BaseException(ex.getMessage() == null ? "RAG 索引构建失败" : ex.getMessage());
+        }
+        if(submitDocumentProfile) {
+            submitKnowledgeProfileTask(document.getSpaceId(),document.getId(),userId);
+        }
     }
 
     private void submitKnowledgeProfileTask(Long spaceId, Long documentId, Long userId) {
         try {
+            SpaceRagConfig latestConfig = requireConfig(spaceId);
+            if(StatusConstant.DISABLE.equals(latestConfig.getKnowledgeProfileEnabled())) {
+                knowledgePipelineService.recordDocumentProfileSkipped(
+                        spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+                log.info("Knowledge profile skipped because the feature is disabled: spaceId={}, documentId={}",spaceId,documentId);
+                return;
+            }
             SpaceKnowledgePipelineTaskVO task = knowledgePipelineService.submitDocumentProfileTaskIfAbsent(spaceId,documentId,userId);
             if(task == null) {
                 log.info("Knowledge pipeline task skipped because an active task exists: spaceId={}, documentId={}",spaceId,documentId);
@@ -709,6 +741,7 @@ public class SpaceRagService {
         }
         List<FileRagChunk> exists = fileRagChunkMapper.listByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
         if(!exists.isEmpty() && areReusableChunks(exists,spaceFile)) {
+            validateIndexableChunks(exists);
             return exists;
         }
         if(!exists.isEmpty()) {
@@ -719,11 +752,23 @@ public class SpaceRagService {
             String message = parsed == null ? "文档解析失败" : parsed.getErrorMessage();
             throw new BaseException(message == null ? "文档解析失败" : message);
         }
+        if(parsed.isFallback()) {
+            throw new BaseException("文档未解析出正文，拒绝使用元数据回退结果建立 RAG 索引");
+        }
+        if(parsed.getFullText() == null || parsed.getFullText().isBlank()) {
+            throw new BaseException("文档解析正文为空，无法建立 RAG 索引");
+        }
         int chunkSize = safeChunkSize(config.getChunkSize());
         int chunkOverlap = safeChunkOverlap(config.getChunkOverlap(),config.getChunkSize());
         List<StructuredChunk> chunks = structuredChunker.chunk(parsed,chunkSize,chunkOverlap);
+        if(chunks == null || chunks.isEmpty()) {
+            throw new BaseException("文档未产生有效切片，无法建立 RAG 索引");
+        }
         List<FileRagChunk> result = new ArrayList<>();
         for(StructuredChunk structuredChunk : chunks) {
+            if(structuredChunk == null || structuredChunk.getContent() == null || structuredChunk.getContent().isBlank()) {
+                throw new BaseException("文档切片内容为空，无法建立 RAG 索引");
+            }
             FileRagChunk chunk = new FileRagChunk();
             chunk.setFileUuid(spaceFile.getFileUuid());
             chunk.setFileHash(file.getHash());
@@ -742,7 +787,40 @@ public class SpaceRagService {
             fileRagChunkMapper.insert(chunk);
             result.add(chunk);
         }
+        validateIndexableChunks(result);
         return result;
+    }
+
+    static void validateIndexableChunks(List<FileRagChunk> chunks) {
+        if(chunks == null || chunks.isEmpty()) {
+            throw new BaseException("文档未产生有效切片，无法建立 RAG 索引");
+        }
+        for(FileRagChunk chunk : chunks) {
+            if(chunk == null || chunk.getId() == null || chunk.getContent() == null || chunk.getContent().isBlank()) {
+                throw new BaseException("RAG 切片数据不完整，无法建立索引");
+            }
+        }
+    }
+
+    private void submitKnowledgeProfileSpaceTask(Long spaceId, Long userId) {
+        try {
+            SpaceRagConfig latestConfig = requireConfig(spaceId);
+            if(StatusConstant.DISABLE.equals(latestConfig.getKnowledgeProfileEnabled())) {
+                knowledgePipelineService.recordSpaceProfileSkipped(
+                        spaceId,userId,SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+                log.info("Knowledge profile batch skipped because the feature is disabled: spaceId={}",spaceId);
+                return;
+            }
+            SpaceKnowledgePipelineTaskVO task = knowledgePipelineService.submitSpaceProfileTaskIfAbsent(spaceId,userId);
+            if(task == null) {
+                log.info("Knowledge profile batch skipped because an active batch exists: spaceId={}",spaceId);
+                return;
+            }
+            knowledgePipelineExecutorService.runSpaceTask(task.getId());
+            log.info("Knowledge profile batch submitted: spaceId={}, taskId={}",spaceId,task.getId());
+        } catch (Exception ex) {
+            log.warn("Knowledge profile batch submit failed: spaceId={}",spaceId,ex);
+        }
     }
 
     /**
@@ -810,6 +888,7 @@ public class SpaceRagService {
         document.setFileHash(file == null ? null : file.getHash());
         document.setFileType(file == null ? null : file.getType());
         document.setIndexStatus(SpaceConstant.RAG_INDEX_PENDING);
+        document.setVectorState("CLEAN");
         document.setChunkCount(0);
         document.setCreatedBy(userId);
         document.setStatus(StatusConstant.ENABLE);
@@ -1145,7 +1224,7 @@ public class SpaceRagService {
                 continue;
             }
             if(task.getDocumentId() != null) {
-                spaceRagDocumentMapper.updateIndexResult(task.getDocumentId(),SpaceConstant.RAG_INDEX_FAILED,0,errorMessage,now);
+                ragIndexTransactionService.failBuildingIndex(task.getDocumentId(),errorMessage);
                 continue;
             }
             if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(task.getTaskType())) {
@@ -1322,6 +1401,7 @@ public class SpaceRagService {
         vo.setTemperature(safeTemperature(config.getTemperature()));
         vo.setScoreThreshold(config.getScoreThreshold());
         vo.setEnabled(config.getEnabled());
+        vo.setKnowledgeProfileEnabled(config.getKnowledgeProfileEnabled());
         vo.setStatus(config.getStatus());
         vo.setCreatetime(config.getCreatetime());
         vo.setUpdatetime(config.getUpdatetime());
@@ -1472,6 +1552,7 @@ public class SpaceRagService {
         addChanged(fields,"temperature",safeTemperature(before.getTemperature()),safeTemperature(after.getTemperature()));
         addChanged(fields,"scoreThreshold",before.getScoreThreshold(),after.getScoreThreshold());
         addChanged(fields,"enabled",before.getEnabled(),after.getEnabled());
+        addChanged(fields,"knowledgeProfileEnabled",before.getKnowledgeProfileEnabled(),after.getKnowledgeProfileEnabled());
         return String.join(",",fields);
     }
 
@@ -1492,7 +1573,8 @@ public class SpaceRagService {
                 + "\"topK\":" + config.getTopK() + ","
                 + "\"temperature\":" + safeTemperature(config.getTemperature()) + ","
                 + "\"scoreThreshold\":" + config.getScoreThreshold() + ","
-                + "\"enabled\":" + config.getEnabled() + "}";
+                + "\"enabled\":" + config.getEnabled() + ","
+                + "\"knowledgeProfileEnabled\":" + config.getKnowledgeProfileEnabled() + "}";
     }
 
     /**

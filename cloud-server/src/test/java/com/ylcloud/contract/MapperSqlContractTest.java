@@ -6,6 +6,10 @@ import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.MultifileMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
 import com.ylcloud.mapper.SpaceRagTaskMapper;
+import com.ylcloud.mapper.SpaceRagDocumentMapper;
+import com.ylcloud.mapper.SpaceRagChunkRefMapper;
+import com.ylcloud.mapper.SpaceKnowledgePipelineTaskMapper;
+import com.ylcloud.mapper.FileRagChunkMapper;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -17,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -28,7 +33,11 @@ class MapperSqlContractTest {
             FileInfoMapper.class,
             MultifileMapper.class,
             SpaceFileMapper.class,
-            SpaceRagTaskMapper.class
+            SpaceRagTaskMapper.class,
+            SpaceRagDocumentMapper.class,
+            SpaceRagChunkRefMapper.class,
+            SpaceKnowledgePipelineTaskMapper.class,
+            FileRagChunkMapper.class
     );
 
     @Test
@@ -54,7 +63,9 @@ class MapperSqlContractTest {
                     String sql = annotationSql(annotation);
                     if(sql.isBlank()) continue;
                     SqlSource source = languageDriver.createSqlSource(configuration,sql,Map.class);
-                    String parsedSql = source.getBoundSql(Map.of()).getSql();
+                    Map<String,Object> parameters = new HashMap<>();
+                    parameters.put("documentIds",List.of(1L));
+                    String parsedSql = source.getBoundSql(parameters).getSql();
                     assertFalse(parsedSql.contains("&lt;") || parsedSql.contains("&gt;") || parsedSql.contains("CDATA"),
                             () -> mapper.getSimpleName() + "." + method.getName() + " leaks XML syntax: " + parsedSql);
                 }

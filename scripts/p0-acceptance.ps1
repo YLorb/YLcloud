@@ -73,7 +73,8 @@ function Invoke-Sql([string]$Query) {
 }
 
 function Get-MinIoVersionCount([string]$ObjectName) {
-    return @(& docker exec $MinioContainer mc ls --versions --recursive local/localbucket1 |
+    $script = 'MC_HOST_acceptance=http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9000 mc ls --versions --recursive acceptance/localbucket1'
+    return @(& docker exec $MinioContainer sh -c $script |
         Where-Object { $_ -match [regex]::Escape($ObjectName) }).Count
 }
 
@@ -193,7 +194,7 @@ try {
     $auditActions = Invoke-Sql "select group_concat(distinct action order by action separator ',') from space_knowledge_audit_log where space_id=$($space.id) and resource_id=$($classified.id)"
     $auditComplete = $auditActions -match 'PROFILE_APPROVE' -and $auditActions -match 'PROFILE_EDIT'
 
-    $ownerId = Invoke-Sql "select id from users where username='$username' limit 1"
+    $ownerId = Invoke-Sql "select user_id from users where username='$username' limit 1"
     $retryMarker = "acceptance-retry-$runId"
     Invoke-Sql "insert into space_knowledge_pipeline_task(space_id,document_id,task_type,task_status,stage,progress,total_count,success_count,failed_count,error_message,force_rebuild,incremental_detail,created_by,createtime,updatetime) values($($space.id),$($document.id),'PROFILE_DOCUMENT','FAILED','FAILED',0,1,0,1,'acceptance injected failure',0,'$retryMarker',$ownerId,now(),now())" | Out-Null
     $failedTaskId = Invoke-Sql "select id from space_knowledge_pipeline_task where incremental_detail='$retryMarker' order by id desc limit 1"
@@ -275,6 +276,9 @@ try {
     } | ConvertTo-Json -Depth 6
     if(-not $success) { throw "P0 acceptance assertions failed" }
 } finally {
+    if($token -and $space -and $docx) {
+        try { Invoke-Api DELETE "/api/space/$($space.id)/files/$($docx.id)" $null $token | Out-Null } catch { }
+    }
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Variable password,token -ErrorAction SilentlyContinue
 }
