@@ -71,7 +71,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(path, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("请求已取消");
+    }
+    throw new Error("无法连接服务器，请检查网络或服务状态");
+  }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     if (!response.ok) throw new Error(`请求失败：${response.status}`);
@@ -90,7 +98,12 @@ async function download(path: string, filename: string) {
   const token = getToken();
   if (token) headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
 
-  const response = await fetch(path, { headers });
+  let response: Response;
+  try {
+    response = await fetch(path, { headers });
+  } catch {
+    throw new Error("无法连接服务器，请检查网络或服务状态");
+  }
   if (!response.ok) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
@@ -119,6 +132,17 @@ function params(input: Record<string, string | number | boolean | null | undefin
   return search.toString();
 }
 
+function normalizeFileItems(items: FileItem[]) {
+  return (items || []).map((item) => {
+    const legacy = item as FileItem & { dir?: boolean };
+    const normalized = { ...item, isDir: item.isDir ?? legacy.dir ?? false };
+    if (normalized.isDir && (!Number.isFinite(normalized.fileId) || normalized.fileId <= 0)) {
+      throw new Error("目录数据不完整，请刷新页面或联系管理员");
+    }
+    return normalized;
+  });
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<User>("/api/login", {
@@ -142,15 +166,15 @@ export const api = {
   ),
   currentUser: () => request<number>("/api/user/current"),
   storageQuota: () => request<StorageQuota>("/api/storage/quota"),
-  listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`),
-  uploadFile: (file: File, parentId = 0) => {
+  listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`).then(normalizeFileItems),
+  uploadFile: (file: File, parentId = 0, idempotencyKey = crypto.randomUUID()) => {
     const body = new FormData();
     body.set("file", file);
     body.set("parentId", String(parentId));
     return request<FileItem>("/api/file/upload", {
       method: "POST",
       body,
-      headers: { "Idempotency-Key": crypto.randomUUID() }
+      headers: { "Idempotency-Key": idempotencyKey }
     });
   },
   createFile: (payload: { isDir: 0 | 1; parentId?: number; name: string; type?: string }) =>
@@ -160,7 +184,7 @@ export const api = {
         name: payload.name,
         type: payload.type ?? ""
       })}`,
-      { method: "POST" }
+      { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } }
     ),
   renameFile: (fileUuid: string, parentId: number, newName: string) =>
     request<FileItem>(`/api/file/rename/${fileUuid}?${params({ parentId, newName })}`, {
@@ -194,13 +218,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  uploadChunk: (payload: { file: Blob; uploadId: string; chunkIndex: number; chunkMd5?: string }) => {
+  uploadChunk: (payload: { file: Blob; uploadId: string; chunkIndex: number; chunkMd5?: string; signal?: AbortSignal }) => {
     const body = new FormData();
     body.set("file", payload.file);
     body.set("uploadId", payload.uploadId);
     body.set("chunkIndex", String(payload.chunkIndex));
     if (payload.chunkMd5) body.set("chunkMd5", payload.chunkMd5);
-    return request<boolean>("/api/file/multipart/chunk", { method: "POST", body });
+    return request<boolean>("/api/file/multipart/chunk", { method: "POST", body, signal: payload.signal });
   },
   multipartStatus: (uploadId: string) => request<ChunkStatus>(`/api/file/multipart/status/${uploadId}`),
   mergeMultipartUpload: (payload: { uploadId: string; fileUuid?: string; fileName?: string; partNames: string[] }) =>
@@ -208,7 +232,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  listRecycle: () => request<FileItem[]>("/api/file/recycle"),
+  listRecycle: () => request<FileItem[]>("/api/file/recycle").then(normalizeFileItems),
   restoreRecycle: (fileId: number) =>
     request<boolean>(`/api/file/recycle/${fileId}/restore`, { method: "PUT" }),
   deleteRecycle: (fileId: number) =>

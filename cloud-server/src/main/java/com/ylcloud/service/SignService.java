@@ -36,11 +36,13 @@ public class SignService {
         if(!Boolean.TRUE.equals(siteSettingService.getBoolean(SiteSettingService.SITE_ALLOW_REGISTER,true))) {
             throw new BaseException("当前站点未开放注册");
         }
+        signMapper.lockRegistrationGuard();
         if(signMapper.countByUsername(userRegisterDTO.getUsername()) > 0) {
             throw new BaseException("用户名已存在");
         }
 
-        createUser(userRegisterDTO,ROLE_USER);
+        String role = signMapper.countAll() == 0 ? ROLE_ADMIN : ROLE_USER;
+        createUser(userRegisterDTO,role);
     }
 
     /**
@@ -51,6 +53,7 @@ public class SignService {
      */
     @Transactional
     public boolean bootstrapAdmin(String username, String password, String nickname) {
+        signMapper.lockRegistrationGuard();
         if(signMapper.countAll() > 0) {
             return false;
         }

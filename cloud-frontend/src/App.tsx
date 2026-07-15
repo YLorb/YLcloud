@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, getStoredUser } from "./api";
 import { AuthPage } from "./features/auth/AuthPage";
 import { DriveApp } from "./features/files/DriveApp";
+import { PublicShareView } from "./features/share/PublicShareView";
 import type { PublicSiteSettings, User } from "./types";
 
 export function App() {
@@ -50,13 +51,19 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!user && path !== "/login" && path !== "/sign") {
+    const isPublicShare = /^\/share\/[^/]+$/.test(path);
+    if (!user && path !== "/login" && path !== "/sign" && !isPublicShare) {
       navigate("/login");
     }
     if (user && (path === "/login" || path === "/sign")) {
       navigate("/");
     }
   }, [path, user]);
+
+  const shareMatch = path.match(/^\/share\/([^/]+)$/);
+  if (shareMatch) {
+    return <PublicShareView shareCode={decodeURIComponent(shareMatch[1])} settings={publicSettings} />;
+  }
 
   if (user) {
     return (

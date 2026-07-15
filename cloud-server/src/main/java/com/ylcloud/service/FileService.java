@@ -1,6 +1,8 @@
 package com.ylcloud.service;
 
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ConflictException;
+import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.DTO.FileDTO;
 import com.ylcloud.DTO.UserFileDTO;
 import com.ylcloud.VO.FileVO;
@@ -178,7 +180,7 @@ public class FileService {
      */
     private void requirePermission(UserFileDTO userFileDTO, FilePermission permission) {
         if(userFileDTO == null || userFileDTO.getStatus() == StatusConstant.DISABLE) {
-            throw new BaseException("文件不存在或已失效");
+            throw new NotFoundException("文件不存在或已失效");
         }
         User user = currentUser();
         if(Admin(user) || user.getId().equals(userFileDTO.getUserId())) {
@@ -388,7 +390,7 @@ public class FileService {
         UserFileDTO userFileDTO = fileInfoMapper.getByFileUuid(fileUuid,userId);
         if(userFileDTO == null) {
             log.warn("getFileType 正在读取一个不属于用户的文件");
-            throw new RuntimeException("获取文件类型失败");
+            throw new NotFoundException("文件不存在或无权访问");
         }
         File file = fileInfoMapper.getFileByFileUuid(fileUuid,userId);
         return file.getType();
@@ -458,7 +460,7 @@ public class FileService {
                 continue;
             }
             if(fileName.equals(sibling.getFileName()) && sibling.getDir() == dir) {
-                throw new BaseException("目标目录已存在同名文件或目录");
+                throw new ConflictException("目标目录已存在同名文件或目录");
             }
         }
     }
@@ -475,7 +477,7 @@ public class FileService {
         UserFileDTO userFileDTO = fileInfoMapper.getByFileId(fileId,userId);
         if(userFileDTO == null) {
             log.warn("文件不存在，获取路径失败: {},{}",fileId,userId);
-            throw new RuntimeException("获取路径失败");
+            throw new NotFoundException("文件路径不存在");
         }
         if(userFileDTO.getParentId() == 0L || userFileDTO.getParentId() == fileId) {
             return "/";
@@ -520,7 +522,7 @@ public class FileService {
         boolean parentExists = Admin(user) ? fileInfoMapper.ParentIdExistAny(parentId) : fileInfoMapper.ParentIdExist(parentId,userId);
         if (!parentExists) {
             log.info("尝试访问一个不存在的目录");
-            throw new RuntimeException("目录不存在");
+            throw new BaseException("目录不存在");
         }
         return parentId;
     }
@@ -555,7 +557,7 @@ public class FileService {
         String originalFilename = requireSafeFileName(uploadFile.getOriginalFilename());
         if (uploadFile.isEmpty()) {
             log.warn("用户尝试上传空文件");
-            throw new RuntimeException("上传文件不能为空");
+            throw new BaseException("上传文件不能为空");
         }
         parentId = normalizeParentId(parentId, userId);
         UserFileDTO parent = requireFileById(parentId,FilePermission.WRITE);
@@ -644,7 +646,7 @@ public class FileService {
             UserFileDTO same = fileInfoMapper.getByFileUuidAndParent(existingFile.getFileUuid(),parentId, ownerId);
             if(same != null) {
                 log.warn("同目录下已有相同文件");
-                throw new RuntimeException("已存在相同文件");
+                throw new ConflictException("已存在相同文件");
             }
             // 复用已有真实文件，只新增用户文件树节点。
             File file = new File();
@@ -716,7 +718,7 @@ public class FileService {
         }
         if(!userFileAvailable(userFileDTO)) {
             log.warn("文件{}不可用",fileUuid);
-            throw new RuntimeException("文件不可用");
+            throw new NotFoundException("文件不可用或已被删除");
         }
 
         File files = fileInfoMapper.getFileByFileUuid(fileUuid,ownerId);
@@ -1206,12 +1208,9 @@ public class FileService {
         if(parent.getDir() != 1) {
             throw new BaseException("目标位置不是目录");
         }
-        final Long temp = parentId;
         List<UserFileDTO> list = listChildren(parentId,parent.getUserId());
         List<FileVO> files = new ArrayList<>();
-        list.forEach(fileiter -> {
-            files.add( toFileVO( File_Info(fileiter.getFileUuid(),temp,fileiter.getUserId()) ));
-        });
+        list.forEach(fileiter -> files.add(toFileVO(fileiter)));
         return files;
     }
 
@@ -1240,26 +1239,26 @@ public class FileService {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
         newName = requireSafeFileName(newName);
         if(newName == null || newName.trim().isEmpty()) {
-            throw new RuntimeException("文件名不能为空");
+            throw new BaseException("文件名不能为空");
         }
         if(!userFileAvailable(userFileDTO)) {
             log.warn("文件{}不可用",fileUuid);
-            throw new RuntimeException("重命名失败");
+            throw new BaseException("文件当前不可重命名");
         }
 
         List<UserFileDTO> files = fileInfoMapper.listFileByparentId(userFileDTO.getParentId(),userFileDTO.getUserId());
         for(UserFileDTO fileiter:files) {
             if(fileiter.getFileName().equals(newName) && fileiter.getDir() == userFileDTO.getDir() /*&& fileiter.getType.equals(file.getType())*/) {
                 log.warn("同目录下存在同名文件");
-                throw new RuntimeException("存在同名文件，重命名失败");
+                throw new ConflictException("存在同名文件，重命名失败");
             }
         }
 
         int rows = fileInfoMapper.updateNameById(userFileDTO.getId(),newName,LocalDateTime.now());
-        if(rows == 0) {throw new RuntimeException("重命名失败");}
-
-        return toFileVO(File_Info(fileUuid,parentId,userFileDTO.getUserId()));
-        //return toFileVO(userFileDTO);
+        if(rows == 0) {throw new BaseException("重命名失败");}
+        userFileDTO.setFileName(newName);
+        userFileDTO.setUpdatetime(LocalDateTime.now());
+        return toFileVO(userFileDTO);
     }
 
     /**
@@ -1485,13 +1484,13 @@ public class FileService {
      * @return 处理结果
      */
     @Transactional
-    public FileVO makefile(int isDir,Long parentId,String name,String type) {
+    public FileVO makefile(int isDir,Long parentId,String name,String type,String idempotencyKey) {
         Long userId = BaseContext.getCurrentId();
         String safeName = requireSafeFileName(name);
         name = safeName;
         if(name == null || name.length() == 0) {
             log.warn("文件名不合法:{}",name);
-            throw new RuntimeException("文件名不合法");
+            throw new BaseException("文件名不合法");
         }
         parentId = normalizeParentId(parentId, userId);
         UserFileDTO parent = requireFileById(parentId,FilePermission.WRITE);
@@ -1499,34 +1498,27 @@ public class FileService {
         fileInfoMapper.lockUserFileById(parent.getId());
         Long ownerId = parent.getUserId();
 
-        List<UserFileDTO> files = listChildren(parentId,ownerId);
-        files.forEach(fileiter -> {
-            if(fileiter.getFileName().equals(safeName) && fileiter.getDir() == isDir) {
-                log.warn("同目录下有重名文件");
-                throw new RuntimeException("存在同名文件,请重试");
-            }
-        });
-
-        File existsFile = fileInfoMapper.findFileByName(name,ownerId,parentId);
-        if(existsFile != null) {
-            log.warn("文件名已存在");
-            throw new RuntimeException("文件名已存在！");
-        }
-
         if(isDir == 0) {
-            String operationKey = CrossStoreOperationService.key("EMPTY_FILE",userId,UuidUtil.randomUuid());
+            String effectiveKey = idempotencyKey == null || idempotencyKey.isBlank() ? UuidUtil.randomUuid() : idempotencyKey;
+            requireValidIdempotencyKey(effectiveKey);
+            String operationKey = CrossStoreOperationService.key("EMPTY_FILE",userId,effectiveKey);
             AtomicReference<String> resultRef = new AtomicReference<>();
+            String resolvedType = getFileType(name);
             CrossStoreOperation operation = crossStoreOperationService.claim(
                     operationKey,"EMPTY_FILE",
-                    CrossStoreOperationService.payloadHash(ownerId,parentId,name,type),UuidUtil.randomUuid());
+                    CrossStoreOperationService.payloadHash(ownerId,parentId,name,resolvedType),UuidUtil.randomUuid());
+            if(CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
+                return replayCreatedFile(operation,ownerId,parentId);
+            }
             crossStoreOperationService.completeAfterCommit(operationKey,resultRef::get);
+            requireNoNameConflict(safeName,0,parentId,ownerId,null);
             File file = File.builder()
                     .fileUuid(operation.getResourceId())
                     .parentId(parentId)
                     .userId(ownerId)
                     .size(0L)
                     .name(name)
-                    .type(type)
+                    .type(resolvedType)
                     .status(StatusConstant.ENABLE)
                     .count(1)
                     .createTime(LocalDateTime.now())
@@ -1550,22 +1542,24 @@ public class FileService {
                 crossStoreFileWriteService.putNewEmptyObject(file.getFileUuid());
             } catch (Exception e) {
                 log.warn("创建空文件对象失败：{}",file.getFileUuid(),e);
-                throw new RuntimeException("新建文件失败");
+                throw new BaseException("新建文件失败");
             }
             int rows = fileInfoMapper.insertFileInfo(file);
             if(rows == 0) {
                 log.warn("新建文件失败");
-                throw new RuntimeException("新建文件失败！");
+                throw new BaseException("新建文件失败");
             }
             rows = fileInfoMapper.insertFile_User(userFileDTO);
             if(rows == 0) {
                 log.warn("新建文件失败");
-                throw new RuntimeException("新建文件失败！");
+                throw new BaseException("新建文件失败");
             }
             resultRef.set(String.valueOf(userFileDTO.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
             return toFileVO(userFileDTO);
         }
+
+        requireNoNameConflict(safeName,1,parentId,ownerId,null);
 
         String uuid = UuidUtil.randomUuid();
         File file = File.builder()
@@ -1593,7 +1587,18 @@ public class FileService {
                 .build();
         fileInfoMapper.insertFile_User(userFileDTO);
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),getPath(userFileDTO.getId(),ownerId),ownerId);
-        return toFileVO(file);
+        return toFileVO(userFileDTO);
+    }
+
+    private FileVO replayCreatedFile(CrossStoreOperation operation, Long ownerId, Long parentId) {
+        if(operation.getResultRef() == null || !operation.getResultRef().matches("\\d+")) {
+            throw new BaseException("新建文件已完成，但结果引用不可用");
+        }
+        UserFileDTO node = fileInfoMapper.getByFileIdAny(Long.valueOf(operation.getResultRef()));
+        if(node == null || !ownerId.equals(node.getUserId()) || !parentId.equals(node.getParentId())) {
+            throw new ConflictException("幂等新建结果已不在原目录，请使用新的 Idempotency-Key");
+        }
+        return toFileVO(node);
     }
 
     /**
@@ -1609,11 +1614,11 @@ public class FileService {
         UserFileDTO filet = requireFileById(targetplace,FilePermission.WRITE);
         if(files.getStatus() == 0 || filet.getStatus() == 0) {
             log.warn("文件状态错误");
-            throw new RuntimeException("移动失败");
+            throw new BaseException("文件状态不可移动");
         }
         if(filet.getDir() == 0) {
             log.warn("目标位置不是目录");
-            throw new RuntimeException("移动失败");
+            throw new BaseException("目标位置不是目录");
         }
         if(!files.getUserId().equals(filet.getUserId())) {
             throw new BaseException("不能跨用户移动文件");
@@ -1630,7 +1635,7 @@ public class FileService {
             int rows = fileInfoMapper.updateParent(files.getId(),filet.getId(),LocalDateTime.now());
             if(rows == 0) {
                 log.warn("移动父目录更新失败");
-                throw new RuntimeException("移动失败");
+                throw new BaseException("移动失败");
             }
             log.info("文件移动成功");
             files.setPath(getPath(files.getId(),files.getUserId()));
@@ -1673,11 +1678,11 @@ public class FileService {
         UserFileDTO filet = requireFileById(targetplace,FilePermission.WRITE);
         if(files.getStatus() == 0 || filet.getStatus() == 0) {
             log.warn("文件状态错误");
-            throw new RuntimeException("复制失败");
+            throw new BaseException("文件状态不可复制");
         }
         if(filet.getDir() == 0) {
             log.warn("目标位置不是目录");
-            throw new RuntimeException("复制失败");
+            throw new BaseException("目标位置不是目录");
         }
         if(!files.getUserId().equals(filet.getUserId())) {
             throw new BaseException("不能跨用户复制文件");
@@ -1686,7 +1691,7 @@ public class FileService {
         checkCopyName(files,filet.getId(),files.getUserId());
         if(files.getDir() == 1 && isChildDir(files.getId(),filet.getId(),files.getUserId())) {
             log.warn("不能复制目录到自身或子目录");
-            throw new RuntimeException("复制失败");
+            throw new BaseException("不能复制目录到自身或子目录");
         }
 
         copyFileTree(files,filet.getId(),files.getUserId());
@@ -1705,7 +1710,7 @@ public class FileService {
         files.forEach(fileiter -> {
             if(fileiter.getFileName().equals(source.getFileName()) && fileiter.getDir() == source.getDir()) {
                 log.warn("目标目录存在同名文件或目录");
-                throw new RuntimeException("澶嶅埗澶辫触!");
+                throw new ConflictException("目标目录存在同名文件或目录");
             }
         });
     }
@@ -1758,7 +1763,7 @@ public class FileService {
         int rows = fileInfoMapper.insertFile_User(copied);
         if(rows == 0) {
             log.warn("复制文件节点失败");
-            throw new RuntimeException("复制失败");
+            throw new BaseException("复制失败");
         }
         copied.setPath(getPath(copied.getId(),userId));
         fileInfoMapper.updatePath(copied.getId(),copied.getFileUuid(),copied.getPath(),userId);

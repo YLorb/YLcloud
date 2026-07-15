@@ -75,7 +75,7 @@ public interface ChunkUploadMapper {
 
     @Update("update upload_chunk set upload_token = #{uploadToken}, lease_until = #{leaseUntil}, updatetime = #{now} " +
             "where upload_id = #{uploadId} and chunk_index = #{chunkIndex} and status = 0 " +
-            "and (upload_token is null or lease_until is null or lease_until &lt; #{now})")
+            "and (upload_token is null or lease_until is null or lease_until < #{now})")
     int claim(@Param("uploadId") String uploadId,
               @Param("chunkIndex") Integer chunkIndex,
               @Param("uploadToken") String uploadToken,

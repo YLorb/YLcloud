@@ -7,6 +7,7 @@ import com.ylcloud.VO.SiteSettingVO;
 import com.ylcloud.entity.SiteSetting;
 import com.ylcloud.mapper.SiteSettingMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +44,9 @@ public class SiteSettingService {
 
     private final SiteSettingMapper siteSettingMapper;
 
+    @Value("${ylcloud.upload.multipart-threshold-bytes:20971520}")
+    private Long multipartUploadThresholdBytes;
+
     public List<SiteSettingVO> listForAdmin() {
         return siteSettingMapper.listAll().stream()
                 .filter(setting -> !LEGACY_LLM_API_KEY.equals(setting.getSettingKey()))
@@ -57,6 +61,7 @@ public class SiteSettingService {
                 .logoUrl(getString(SITE_LOGO_URL,""))
                 .publicUrl(getString(SITE_PUBLIC_URL,""))
                 .allowRegister(getBoolean(SITE_ALLOW_REGISTER,true))
+                .multipartUploadThresholdBytes(multipartUploadThresholdBytes)
                 .build();
     }
 

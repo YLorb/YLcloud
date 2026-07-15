@@ -211,7 +211,7 @@ public interface FileInfoMapper {
      * 查询 listFileByUserId 相关逻辑。
      * @return 列表结果
      */
-    @Select("select fi.file_id as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
+    @Select("select uf.ID as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
             "uf.user_id as userId, uf.parent_id as parentId, uf.file_name as name, " +
             "fi.type, fi.size, uf.path, fi.md5, fi.hash, fi.status, " +
             "fi.createtime as createTime, uf.updatetime as updateTime " +
@@ -375,7 +375,7 @@ public interface FileInfoMapper {
                                @Param("updateTime") LocalDateTime updateTime);
 
     @Select("select count(1) from user_file where user_id = #{userId} and parent_id = #{parentId} " +
-            "and file_name = #{fileName} and is_dir = #{dir} and status = 1 and ID &lt;&gt; #{excludeId}")
+            "and file_name = #{fileName} and is_dir = #{dir} and status = 1 and ID <> #{excludeId}")
     int countActiveNameExcluding(@Param("userId") Long userId,
                                  @Param("parentId") Long parentId,
                                  @Param("fileName") String fileName,

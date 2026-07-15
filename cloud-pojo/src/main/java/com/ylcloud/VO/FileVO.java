@@ -1,5 +1,6 @@
 package com.ylcloud.VO;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -10,7 +11,17 @@ public class FileVO {
 
     private String fileUuid;
 
-    private boolean isDir;
+    private boolean dir;
+
+    @JsonProperty("isDir")
+    public boolean isDir() {
+        return dir;
+    }
+
+    @JsonProperty("isDir")
+    public void setDir(boolean dir) {
+        this.dir = dir;
+    }
 
     private Long userId;
 

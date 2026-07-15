@@ -53,6 +53,7 @@ cloud-frontend/*.tsbuildinfo
 cloud-frontend/qa-*.png
 cloud-frontend/edge-profile*/
 cloud-frontend/.playwright-cli/
+/.playwright-cli/
 .tmp_frontend_reference/
 
 ### Local test artifacts ###

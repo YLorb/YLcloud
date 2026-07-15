@@ -32,6 +32,7 @@ export type PublicSiteSettings = {
   logoUrl?: string;
   publicUrl?: string;
   allowRegister: boolean;
+  multipartUploadThresholdBytes?: number;
 };
 
 export type FileItem = {
