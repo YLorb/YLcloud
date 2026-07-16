@@ -275,6 +275,49 @@ for item in items:
 全部完成后进入 next
 ```
 
+## Level 3A：根据 Goal 生成 Workflow 并执行
+
+状态：已完成
+
+目标：
+
+```text
+用户只输入自然语言 goal，系统调用 LLM 生成 workflow，
+经过 WorkflowValidator 校验后，把 workflow 流程、保存路径和 YAML 展示给用户。
+用户确认后，系统保存 YAML 并使用 SequentialWorkflowExecutor 执行。
+```
+
+方案：
+
+```text
+1. 新增 CLI 命令：mini-agent-flow make-and-run --goal "..."
+2. 复用 WorkflowGenerator.generate() 完成生成与校验（含 self-repair）。
+3. 在对话中展示：
+   - workflow 名称
+   - 节点流程（例如 start -> plan -> search -> summarize -> end）
+   - 保存路径
+   - YAML 内容
+   - repair_attempts
+4. 提示用户确认 (y/N)。
+5. 确认后保存 YAML 到 --output 或默认路径，并执行。
+6. 拒绝后不保存、不执行。
+```
+
+验收标准：
+
+```text
+- [x] make-and-run --goal "..." --yes 能生成、保存并执行 workflow。
+- [x] 用户未确认时不保存、不执行。
+- [x] 新增 CLI 测试通过。
+```
+
+注意：
+
+```text
+- MockLLM 默认返回非 JSON，命令在 mock provider 下无法直接工作；真实 LLM 或测试用固定 LLM 可验证。
+- 测试需要 monkeypatch create_llm。
+```
+
 ## 后续：类 Codex CLI 对话交互
 
 状态：待设计

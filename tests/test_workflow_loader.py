@@ -145,7 +145,7 @@ def test_workflow_loader_unknown_extension_fails(tmp_path: Path) -> None:
     workflow_path = tmp_path / "workflow.txt"
     workflow_path.write_text("{}", encoding="utf-8")
 
-    with pytest.raises(WorkflowLoadError, match=".json, .yaml or .yml"):
+    with pytest.raises(WorkflowLoadError, match=".json, .yaml, .yml or .md"):
         WorkflowLoader().load(workflow_path)
 
 

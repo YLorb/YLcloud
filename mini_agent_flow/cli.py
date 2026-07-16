@@ -201,6 +201,75 @@ def make_workflow(
         console.print(f"Saved workflow to {output}")
 
 
+@app.command("make-and-run")
+def make_and_run_workflow(
+    goal: str = typer.Option(..., "--goal", help="Goal used to generate and run a workflow."),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Optional path to save the generated workflow YAML.",
+    ),
+    provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
+    model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+) -> None:
+    """Generate a workflow from a goal, then save and run it after user confirmation."""
+
+    try:
+        registry = create_default_tool_registry()
+        tool_specs = _tool_specs_from_registry(registry)
+        validator = WorkflowValidator(
+            allowed_tools=registry.names(),
+            tool_specs=tool_specs,
+        )
+        llm = create_llm(provider, model=model)
+        generator = WorkflowGenerator(llm=llm, validator=validator)
+        result = generator.generate(goal, allowed_tools=registry.names())
+    except (
+        LLMClientError,
+        WorkflowValidationError,
+        WorkflowLoadError,
+    ) as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+
+    save_path = output or Path(f"examples/generated_{result.workflow.name}.yaml")
+
+    console.print(Panel(result.workflow.name, title="Generated Workflow", expand=False))
+    console.print(Panel(_build_flow_preview(result.workflow), title="Flow", expand=False))
+    console.print(Panel(str(save_path), title="Save Path", expand=False))
+    console.print(Panel(result.generated_yaml, title="YAML", expand=False))
+    console.print(Panel(f"repair attempts: {result.repair_attempts}", title="Validation", expand=False))
+
+    if not yes:
+        confirmed = typer.confirm("是否保存并执行该 workflow？", default=False)
+        if not confirmed:
+            console.print("已取消，workflow 未保存或执行。")
+            return
+
+    try:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(result.generated_yaml, encoding="utf-8")
+        console.print(f"Saved workflow to {save_path}")
+        executor = SequentialWorkflowExecutor(
+            llm=create_llm(provider, model=model),
+            tool_registry=registry,
+            allowed_permissions={"public"},
+            max_risk_level=5,
+        )
+        run_result = executor.run(result.workflow)
+    except (
+        LLMClientError,
+        WorkflowValidationError,
+        WorkflowExecutionError,
+    ) as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+
+    _print_result(run_result)
+
+
 @app.command("correct")
 def correct_workflow(
     workflow_path: Path = typer.Argument(..., help="Path to a workflow file to correct."),
@@ -306,6 +375,12 @@ def _format_value(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
+def _build_flow_preview(workflow: Any) -> str:
+    """Build a simple flow preview from the workflow nodes."""
+
+    return " -> ".join(node.id for node in workflow.nodes)
 
 
 def _configure_standard_streams() -> None:
