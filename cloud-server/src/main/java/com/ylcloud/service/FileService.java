@@ -38,15 +38,22 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 @Slf4j
 public class FileService {
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
+    private static final Set<String> IMAGE_TYPES = Set.of("jpg","jpeg","png","gif","webp","bmp","svg","heic");
+    private static final Set<String> VIDEO_TYPES = Set.of("mp4","mov","mkv","webm","avi","flv","m4v");
+    private static final Set<String> AUDIO_TYPES = Set.of("mp3","wav","flac","aac","ogg","m4a");
+    private static final Set<String> DOCUMENT_TYPES = Set.of("doc","docx","xls","xlsx","ppt","pptx","pdf","txt","md","csv","json");
 
     @Autowired
     private FileInfoMapper fileInfoMapper;
@@ -58,6 +65,8 @@ public class FileService {
     private MinioclientUtil minioclientUtil;
     @Autowired
     private SiteSettingService siteSettingService;
+    @Autowired
+    private StorageService storageService;
     @Autowired
     private PhysicalFileCleanupService physicalFileCleanupService;
     @Autowired
@@ -438,7 +447,7 @@ public class FileService {
         if(uploadFile == null || uploadFile.isEmpty()) {
             throw new BaseException("上传文件不能为空");
         }
-        if(uploadFile.getSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
+        if(siteSettingService.exceedsUploadLimit(uploadFile.getSize(),maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         requireSafeFileName(uploadFile.getOriginalFilename());
@@ -596,6 +605,8 @@ public class FileService {
 
         // 查询是否已有相同 hash 的真实文件。
         File existingFile = fileInfoMapper.getFileByHash(hash);
+        storageService.requireAvailable(ownerId,storageService.additionalBytes(
+                ownerId,existingFile == null ? null : existingFile.getFileUuid(),uploadFile.getSize()));
         // 不存在同 hash 文件，需要上传 MinIO 并写入 file_info。
         if(existingFile == null) {
             String fileUuid = operation.getResourceId();
@@ -1214,6 +1225,35 @@ public class FileService {
         return files;
     }
 
+    public List<FileVO> listFilesByCategory(String category, String keyword, Long userId) {
+        String normalizedCategory = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
+        if(!Set.of("images","videos","music","documents").contains(normalizedCategory)) {
+            throw new BaseException("不支持的文件分类");
+        }
+        String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+        return fileInfoMapper.listFileByUserId(userId).stream()
+                .filter(file -> !file.isDir())
+                .filter(file -> normalizedKeyword.isEmpty() || file.getName().toLowerCase(Locale.ROOT).contains(normalizedKeyword))
+                .filter(file -> matchesCategory(file,normalizedCategory))
+                .toList();
+    }
+
+    private boolean matchesCategory(FileVO file, String category) {
+        String type = file.getType();
+        if(type == null || type.isBlank()) {
+            int dot = file.getName() == null ? -1 : file.getName().lastIndexOf('.');
+            type = dot < 0 ? "" : file.getName().substring(dot + 1);
+        }
+        String extension = type.toLowerCase(Locale.ROOT).replaceFirst("^\\.","");
+        return switch(category) {
+            case "images" -> IMAGE_TYPES.contains(extension);
+            case "videos" -> VIDEO_TYPES.contains(extension);
+            case "music" -> AUDIO_TYPES.contains(extension);
+            case "documents" -> DOCUMENT_TYPES.contains(extension);
+            default -> false;
+        };
+    }
+
     /**
      * 执行 bucketExists 函数的业务处理。
      * @return 处理结果
@@ -1336,9 +1376,7 @@ public class FileService {
      */
     public List<FileVO> listRecycleFiles() {
         User user = currentUser();
-        List<UserFileDTO> recycleFiles = Admin(user) ?
-                fileInfoMapper.listRecycleRootAny() :
-                fileInfoMapper.listRecycleRootByUserId(user.getId());
+        List<UserFileDTO> recycleFiles = fileInfoMapper.listRecycleRootByUserId(user.getId());
         List<FileVO> files = new ArrayList<>();
         recycleFiles.forEach(file -> files.add(toFileVO(file)));
         return files;
@@ -1366,6 +1404,7 @@ public class FileService {
         if(parent != null) {
             fileInfoMapper.lockUserFileById(parent.getId());
         }
+        storageService.requireAvailable(userFileDTO.getUserId(),restoreAdditionalBytes(userFileDTO));
         String restoredName = resolveRestoreName(userFileDTO);
         if(!restoredName.equals(userFileDTO.getFileName())) {
             if(fileInfoMapper.updateRecycledNameById(userFileDTO.getId(),restoredName,LocalDateTime.now()) == 0) {
@@ -1376,6 +1415,32 @@ public class FileService {
         restoreTree(userFileDTO);
         refreshRestoredPaths(userFileDTO);
         return StatusConstant.SUCCESS;
+    }
+
+    private long restoreAdditionalBytes(UserFileDTO root) {
+        long additional = 0L;
+        Set<String> counted = new HashSet<>();
+        Queue<UserFileDTO> queue = new LinkedList<>();
+        queue.offer(root);
+        while(!queue.isEmpty()) {
+            UserFileDTO current = queue.poll();
+            if(current.getDir() == 0 && current.getStatus() == StatusConstant.RECYCLE
+                    && counted.add(current.getFileUuid())) {
+                Integer active = fileInfoMapper.countUserActiveByFileUuid(current.getUserId(),current.getFileUuid());
+                if(active == null || active == 0) {
+                    File physical = fileInfoMapper.getFileByFileUuid(current.getFileUuid(),current.getUserId());
+                    if(physical != null && physical.getSize() != null) {
+                        additional = Math.addExact(additional,Math.max(0L,physical.getSize()));
+                    }
+                }
+            }
+            if(current.getDir() == 1) {
+                listChildrenActiveOrRecycle(current.getId(),current.getUserId()).stream()
+                        .filter(child -> child.getStatus() == StatusConstant.RECYCLE)
+                        .forEach(queue::offer);
+            }
+        }
+        return additional;
     }
 
     /**
@@ -1696,6 +1761,57 @@ public class FileService {
 
         copyFileTree(files,filet.getId(),files.getUserId());
         return true;
+    }
+
+    @Transactional
+    public Boolean batchDeleteFiles(List<Long> fileIds) {
+        List<Long> ids = normalizeBatchIds(fileIds);
+        ids.forEach(id -> requireFileById(id,FilePermission.DELETE));
+        ids.forEach(id -> softDeleteTree(requireFileById(id,FilePermission.DELETE)));
+        return true;
+    }
+
+    @Transactional
+    public Boolean batchMoveFiles(List<Long> fileIds, Long targetParentId) {
+        List<Long> ids = normalizeBatchIds(fileIds);
+        Long userId = BaseContext.getCurrentId();
+        Long targetId = normalizeParentId(targetParentId,userId);
+        UserFileDTO target = requireFileById(targetId,FilePermission.WRITE);
+        if(target.getDir() != 1) {
+            throw new BaseException("目标位置不是目录");
+        }
+        ids.forEach(id -> requireFileById(id,FilePermission.MODIFY));
+        for(Long id : ids) {
+            movefiles(id,targetId);
+        }
+        return true;
+    }
+
+    @Transactional
+    public Boolean batchCopyFiles(List<Long> fileIds, Long targetParentId) {
+        List<Long> ids = normalizeBatchIds(fileIds);
+        Long userId = BaseContext.getCurrentId();
+        Long targetId = normalizeParentId(targetParentId,userId);
+        UserFileDTO target = requireFileById(targetId,FilePermission.WRITE);
+        if(target.getDir() != 1) {
+            throw new BaseException("目标位置不是目录");
+        }
+        ids.forEach(id -> requireFileById(id,FilePermission.READ));
+        for(Long id : ids) {
+            copyfiles(id,targetId);
+        }
+        return true;
+    }
+
+    private List<Long> normalizeBatchIds(List<Long> fileIds) {
+        if(fileIds == null || fileIds.isEmpty()) {
+            throw new BaseException("请至少选择一个文件");
+        }
+        List<Long> ids = fileIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+        if(ids.isEmpty() || ids.size() > 100) {
+            throw new BaseException("一次只能处理 1 到 100 个文件");
+        }
+        return ids;
     }
 
     /**

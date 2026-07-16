@@ -777,7 +777,7 @@ public class SpaceFileService {
         if(content == null || content.length == 0) {
             throw new BaseException("文件内容不能为空");
         }
-        if(content.length > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
+        if(siteSettingService.exceedsUploadLimit(content.length,maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
 
@@ -850,7 +850,7 @@ public class SpaceFileService {
         if(uploadFile == null || uploadFile.isEmpty()) {
             throw new BaseException("上传文件不能为空");
         }
-        if(uploadFile.getSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
+        if(siteSettingService.exceedsUploadLimit(uploadFile.getSize(),maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         requireSafeFileName(uploadFile.getOriginalFilename());

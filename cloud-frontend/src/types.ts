@@ -26,6 +26,38 @@ export type SiteSetting = {
   updateTime?: string;
 };
 
+export type AdminUser = {
+  id: number;
+  username: string;
+  nickname?: string;
+  email?: string;
+  role: "ADMIN" | "USER";
+  status: number;
+  groupId?: number | null;
+  groupName?: string | null;
+  permissionOverrides: Record<string, boolean>;
+  effectivePermissions: Record<string, boolean>;
+  createTime?: string;
+  updateTime?: string;
+};
+
+export type PermissionDefinition = {
+  key: string;
+  label: string;
+  description: string;
+};
+
+export type PermissionGroup = {
+  id: number;
+  name: string;
+  description?: string;
+  systemGroup: boolean;
+  userCount: number;
+  permissions: Record<string, boolean>;
+  createTime?: string;
+  updateTime?: string;
+};
+
 export type PublicSiteSettings = {
   siteName: string;
   siteDescription: string;
@@ -45,6 +77,7 @@ export type FileItem = {
   type?: string;
   size?: number;
   hash?: string;
+  path?: string;
   createTime?: string;
   updateTime?: string;
 };
@@ -453,7 +486,22 @@ export type KnowledgeChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   citationsJson?: string;
+  taskStatus?: "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED";
+  errorMessage?: string;
+  retryCount?: number;
   createtime?: string;
+  updatetime?: string;
+};
+
+export type AsyncTaskDetail = AsyncTask & {
+  successCount?: number;
+  failedCount?: number;
+  startedTime?: string;
+  finishedTime?: string;
+  durationMs?: number;
+  terminalStage?: string;
+  terminalReason?: string;
+  completionSummary?: string;
 };
 
 export type KnowledgeChatSession = {

@@ -1,6 +1,7 @@
 package com.ylcloud.controller;
 
 import com.ylcloud.Result;
+import com.ylcloud.DTO.BatchFileOperationDTO;
 import com.ylcloud.VO.FileVO;
 import com.ylcloud.VO.FilePreviewVO;
 import com.ylcloud.context.BaseContext;
@@ -184,6 +185,27 @@ public class FileController {
         Long userId = BaseContext.getCurrentId();
         List<FileVO> files = fileService.listFiles(parentId,userId);
         return Result.success(files);
+    }
+
+    @GetMapping("/category")
+    public Result<List<FileVO>> listFilesByCategory(@RequestParam String category,
+                                                    @RequestParam(required = false) String keyword) {
+        return Result.success(fileService.listFilesByCategory(category,keyword,BaseContext.getCurrentId()));
+    }
+
+    @DeleteMapping("/batch")
+    public Result<Boolean> batchDelete(@RequestBody @jakarta.validation.Valid BatchFileOperationDTO dto) {
+        return Result.success(fileService.batchDeleteFiles(dto.getFileIds()));
+    }
+
+    @PutMapping("/batch/move")
+    public Result<Boolean> batchMove(@RequestBody @jakarta.validation.Valid BatchFileOperationDTO dto) {
+        return Result.success(fileService.batchMoveFiles(dto.getFileIds(),dto.getTargetParentId()));
+    }
+
+    @PutMapping("/batch/copy")
+    public Result<Boolean> batchCopy(@RequestBody @jakarta.validation.Valid BatchFileOperationDTO dto) {
+        return Result.success(fileService.batchCopyFiles(dto.getFileIds(),dto.getTargetParentId()));
     }
 
     /**

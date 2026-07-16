@@ -1,5 +1,7 @@
 package com.ylcloud.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.DTO.SpaceDocumentSearchDTO;
 import com.ylcloud.DTO.SpaceRagConfigUpdateDTO;
 import com.ylcloud.DTO.SpaceRagQueryDTO;
@@ -81,6 +83,7 @@ public class SpaceRagService {
     private static final int DEFAULT_CHUNK_OVERLAP = 100;
     private static final int DEFAULT_TOP_K = 5;
     private static final int MAX_TOP_K = 20;
+    private static final ObjectMapper METADATA_MAPPER = new ObjectMapper();
 
     private final SpaceRagMapper spaceRagMapper;
     private final SpaceRagDocumentMapper spaceRagDocumentMapper;
@@ -940,7 +943,7 @@ public class SpaceRagService {
         }
         for(FileRagChunk chunk : chunks) {
             String metadata = chunk.getMetadata();
-            if(metadata == null || !metadata.contains("\"parser\":\"metadata\"") || !metadata.contains("\"fallback\":true")) {
+            if(!"metadata".equals(metadataString(metadata,"parser")) || !"true".equalsIgnoreCase(metadataString(metadata,"fallback"))) {
                 return false;
             }
         }
@@ -953,7 +956,7 @@ public class SpaceRagService {
         }
         String currentVersion = ragProperties.getExtraction() == null ||
                 ragProperties.getExtraction().getParserVersion() == null
-                ? "structured-v2"
+                  ? "structured-v3"
                 : ragProperties.getExtraction().getParserVersion();
         boolean docx = spaceFile != null && spaceFile.getFileName() != null &&
                 spaceFile.getFileName().toLowerCase().endsWith(".docx");
@@ -1104,27 +1107,15 @@ public class SpaceRagService {
         if(metadata == null || metadata.isBlank() || key == null || key.isBlank()) {
             return null;
         }
-        String marker = "\"" + key + "\":";
-        int start = metadata.indexOf(marker);
-        if(start < 0) {
+        try {
+            JsonNode value = METADATA_MAPPER.readTree(metadata).get(key);
+            if(value == null || value.isNull()) {
+                return null;
+            }
+            return value.isTextual() ? value.textValue() : value.asText();
+        } catch (Exception ignored) {
             return null;
         }
-        int valueStart = start + marker.length();
-        while(valueStart < metadata.length() && Character.isWhitespace(metadata.charAt(valueStart))) {
-            valueStart++;
-        }
-        if(valueStart >= metadata.length()) {
-            return null;
-        }
-        if(metadata.charAt(valueStart) == '\"') {
-            int valueEnd = metadata.indexOf('\"',valueStart + 1);
-            return valueEnd < 0 ? null : metadata.substring(valueStart + 1,valueEnd);
-        }
-        int valueEnd = valueStart;
-        while(valueEnd < metadata.length() && metadata.charAt(valueEnd) != ',' && metadata.charAt(valueEnd) != '}') {
-            valueEnd++;
-        }
-        return metadata.substring(valueStart,valueEnd).trim();
     }
 
     private int rerankCandidateTopK() {

@@ -1,6 +1,7 @@
 package com.ylcloud.config;
 
 import com.ylcloud.interceptor.JwtTokenInterceptor;
+import com.ylcloud.interceptor.UserPermissionInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -11,6 +12,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
     @Autowired //自动注入
     private JwtTokenInterceptor jwtTokenInterceptor;
+    @Autowired
+    private UserPermissionInterceptor userPermissionInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -20,5 +23,8 @@ public class WebConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/login")
                 .excludePathPatterns("/api/site/public-settings")
                 .excludePathPatterns("/api/share/**");
+        registry.addInterceptor(userPermissionInterceptor)
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/sign", "/api/login", "/api/site/public-settings", "/api/share/**");
     }
 }

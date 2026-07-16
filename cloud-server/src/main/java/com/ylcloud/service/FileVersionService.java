@@ -698,7 +698,7 @@ public class FileVersionService {
     }
 
     private void validateVersionUploadFile(MultipartFile uploadFile, String fileName) {
-        if(uploadFile.getSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
+        if(siteSettingService.exceedsUploadLimit(uploadFile.getSize(),maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         if(fileName.isEmpty() || fileName.length() > 255) {

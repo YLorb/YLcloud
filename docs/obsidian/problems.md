@@ -2,7 +2,7 @@
 title: Problems 收集箱
 type: issue-inbox
 status: maintained
-updated: 2026-07-16
+updated: 2026-07-17
 tags:
   - ylcloud
   - problems
@@ -35,7 +35,7 @@ tags:
 
 ## 未分类问题
 
-当前没有尚未分类的问题。
+当前没有尚未分析、尚未分类的问题。2026-07-17 前已完成分析的条目均已迁移到对应功能文档；仍需真实环境证据的事项登记在“待验收任务”。
 
 ## 问题模板
 

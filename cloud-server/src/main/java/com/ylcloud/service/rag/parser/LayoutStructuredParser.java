@@ -22,7 +22,7 @@ public class LayoutStructuredParser {
 
     public ParsedDocument parse(SpaceFile spaceFile, File file) {
         RagProperties.Extraction extraction = ragProperties.getExtraction();
-        String parserVersion = extraction == null || extraction.getParserVersion() == null ? "structured-v2" : extraction.getParserVersion();
+        String parserVersion = extraction == null || extraction.getParserVersion() == null ? "structured-v3" : extraction.getParserVersion();
         if(extraction == null || !Boolean.TRUE.equals(extraction.getLayoutEnabled())) {
             return ParsedDocument.failed(fileUuid(spaceFile,file),fileHash(file),"pdf-layout",parserVersion,"Layout parser is disabled");
         }

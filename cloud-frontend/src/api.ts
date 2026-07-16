@@ -1,6 +1,10 @@
 import type {
+  AdminUser,
+  PermissionDefinition,
+  PermissionGroup,
   ApiResult,
   AsyncTask,
+  AsyncTaskDetail,
   ChunkStatus,
   ChunkUploadInit,
   FileItem,
@@ -161,12 +165,29 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ settings })
     }),
+  adminUsers: () => request<AdminUser[]>("/api/admin/users"),
+  createAdminUser: (payload: { username: string; password: string; nickname: string; email?: string; role: "ADMIN" | "USER"; groupId?: number }) =>
+    request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
+  updateAdminUser: (userId: number, payload: { role?: "ADMIN" | "USER"; status?: number }) =>
+    request<AdminUser>(`/api/admin/users/${userId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  updateAdminUserAccess: (userId: number, payload: { groupId?: number; clearGroup?: boolean; overrides: Record<string, boolean> }) =>
+    request<AdminUser>(`/api/admin/users/${userId}/access`, { method: "PUT", body: JSON.stringify(payload) }),
+  permissionDefinitions: () => request<PermissionDefinition[]>("/api/admin/permission-groups/definitions"),
+  permissionGroups: () => request<PermissionGroup[]>("/api/admin/permission-groups"),
+  createPermissionGroup: (payload: { name: string; description?: string; permissions: Record<string, boolean> }) =>
+    request<PermissionGroup>("/api/admin/permission-groups", { method: "POST", body: JSON.stringify(payload) }),
+  updatePermissionGroup: (groupId: number, payload: { name: string; description?: string; permissions: Record<string, boolean> }) =>
+    request<PermissionGroup>(`/api/admin/permission-groups/${groupId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deletePermissionGroup: (groupId: number) => request<boolean>(`/api/admin/permission-groups/${groupId}`, { method: "DELETE" }),
   listAsyncTasks: (spaceId?: number) => request<AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }>(
     `/api/async${spaceId ? `?spaceId=${spaceId}` : ""}`
   ),
+  getAsyncTask: (source: "rag" | "knowledge", taskId: number) => request<AsyncTaskDetail>(`/api/async/${source}/${taskId}`),
   currentUser: () => request<number>("/api/user/current"),
   storageQuota: () => request<StorageQuota>("/api/storage/quota"),
   listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`).then(normalizeFileItems),
+  listFilesByCategory: (category: string, keyword?: string) =>
+    request<FileItem[]>(`/api/file/category?${params({ category, keyword })}`).then(normalizeFileItems),
   uploadFile: (file: File, parentId = 0, idempotencyKey = crypto.randomUUID()) => {
     const body = new FormData();
     body.set("file", file);
@@ -203,6 +224,12 @@ export const api = {
     request<boolean>(`/api/file/move?${params({ sourceplace, targetplace })}`, { method: "PUT" }),
   copyFiles: (sourceplace: number, targetplace: number) =>
     request<boolean>(`/api/file/copy?${params({ sourceplace, targetplace })}`, { method: "PUT" }),
+  batchDeleteFiles: (fileIds: number[]) =>
+    request<boolean>("/api/file/batch", { method: "DELETE", body: JSON.stringify({ fileIds }) }),
+  batchMoveFiles: (fileIds: number[], targetParentId: number) =>
+    request<boolean>("/api/file/batch/move", { method: "PUT", body: JSON.stringify({ fileIds, targetParentId }) }),
+  batchCopyFiles: (fileIds: number[], targetParentId: number) =>
+    request<boolean>("/api/file/batch/copy", { method: "PUT", body: JSON.stringify({ fileIds, targetParentId }) }),
   initMultipartUpload: (payload: {
     uploadId?: string;
     fileName: string;
@@ -368,6 +395,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  submitKnowledgeChatQuery: (
+    sessionId: number,
+    payload: { spaceIds: number[]; question: string; retrievalMode?: "precise" | "balanced" | "broad"; history?: RagChatMessage[] },
+    idempotencyKey = crypto.randomUUID()
+  ) => request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/queries`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(payload)
+  }),
+  retryKnowledgeChatQuery: (sessionId: number, messageId: number) =>
+    request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/queries/${messageId}/retry`, { method: "POST" }),
   ragAnalyticsSummary: (spaceId: number) =>
     request<RagAnalyticsSummary>(`/api/space/${spaceId}/rag/analytics/summary`),
   ragAnalyticsQueries: (spaceId: number, limit = 50) =>

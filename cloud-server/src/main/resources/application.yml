@@ -127,7 +127,7 @@ ylcloud:
       layout-enabled: true
       ocr-enabled: true
       vlm-enabled: true
-      parser-version: structured-v2
+      parser-version: structured-v3
       parser-service-base-url: ${YLCLOUD_RAG_PARSER_SERVICE_BASE_URL:http://127.0.0.1:8002}
       min-text-chars-before-ocr: 300
       min-ocr-confidence-before-vlm: 0.75
@@ -171,6 +171,8 @@ ylcloud:
         - pdf
         - doc
         - docx
+        - ppt
+        - pptx
   llm:
     enabled: ${YLCLOUD_LLM_ENABLED:true}
     provider: ${YLCLOUD_LLM_PROVIDER:deepseek}

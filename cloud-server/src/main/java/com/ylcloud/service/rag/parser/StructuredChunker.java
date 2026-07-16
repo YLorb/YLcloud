@@ -92,6 +92,11 @@ public class StructuredChunker {
         int parentSize = Math.max(chunkSize,FALLBACK_CHUNK_SIZE) * 3;
         for(java.util.Map.Entry<String, List<StructuredChunk>> entry : groups.entrySet()) {
             StructuredChunk parent = parentChunk(index++,entry.getKey(),entry.getValue(),document,parentSize);
+            if(entry.getValue().size() == 1 && parent.getContentHash().equals(entry.getValue().get(0).getContentHash())) {
+                index--;
+                parents.put(entry.getKey(),null);
+                continue;
+            }
             parents.put(entry.getKey(),parent);
             result.add(parent);
         }
@@ -460,7 +465,7 @@ public class StructuredChunker {
         try {
             return objectMapper.writeValueAsString(new Metadata(
                     document == null ? "unknown" : document.getParser(),
-                    document == null ? "structured-v2" : document.getParserVersion(),
+                    document == null ? "structured-v3" : document.getParserVersion(),
                     document != null && document.isFallback(),
                     vlmEnabled(),
                     containsSource(children,"vlm") || containsSource(children,"vlm-page"),
@@ -489,7 +494,7 @@ public class StructuredChunker {
         try {
             return objectMapper.writeValueAsString(new Metadata(
                     document == null ? "unknown" : document.getParser(),
-                    document == null ? "structured-v2" : document.getParserVersion(),
+                    document == null ? "structured-v3" : document.getParserVersion(),
                     document != null && document.isFallback(),
                     vlmEnabled(),
                     false,

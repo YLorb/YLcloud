@@ -134,7 +134,7 @@ public class RagProperties {
         private Boolean layoutEnabled = true;
         private Boolean ocrEnabled = true;
         private Boolean vlmEnabled = false;
-        private String parserVersion = "structured-v2";
+        private String parserVersion = "structured-v3";
         private String parserServiceBaseUrl = "http://127.0.0.1:8002";
         private Integer minTextCharsBeforeOcr = 300;
         private Double minOcrConfidenceBeforeVlm = 0.75;
@@ -148,7 +148,7 @@ public class RagProperties {
         private List<String> supportedExtensions = new ArrayList<>(Arrays.asList(
                 "txt","md","markdown","log","csv","json","xml","yaml","yml","properties",
                 "java","js","ts","jsx","tsx","py","go","rs","c","h","cpp","hpp","cs","php","rb","sh","sql","html","css",
-                "pdf","doc","docx"
+                "pdf","doc","docx","ppt","pptx"
         ));
     }
 }

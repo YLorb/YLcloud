@@ -51,11 +51,29 @@ class SiteSettingServiceTest {
     }
 
     @Test
-    void rejectsZeroUploadLimit() {
+    void acceptsZeroUploadLimitAsUnlimited() {
         SiteSetting setting = editableSetting(SiteSettingService.UPLOAD_MAX_FILE_SIZE,"number");
         when(mapper.getByKey(SiteSettingService.UPLOAD_MAX_FILE_SIZE)).thenReturn(setting);
+        when(mapper.updateValue(SiteSettingService.UPLOAD_MAX_FILE_SIZE,"0")).thenReturn(1);
 
-        assertThrows(BaseException.class,() -> service.updateBatch(update(SiteSettingService.UPLOAD_MAX_FILE_SIZE,"0")));
+        service.updateBatch(update(SiteSettingService.UPLOAD_MAX_FILE_SIZE,"0"));
+
+        verify(mapper).updateValue(SiteSettingService.UPLOAD_MAX_FILE_SIZE,"0");
+    }
+
+    @Test
+    void zeroUploadLimitDoesNotRejectLargeFile() {
+        when(mapper.getByKey(SiteSettingService.UPLOAD_MAX_FILE_SIZE)).thenReturn(setting("0"));
+
+        assertFalse(service.exceedsUploadLimit(Long.MAX_VALUE,2048L));
+    }
+
+    @Test
+    void rejectsZeroStorageQuota() {
+        SiteSetting setting = editableSetting(SiteSettingService.STORAGE_USER_QUOTA_BYTES,"number");
+        when(mapper.getByKey(SiteSettingService.STORAGE_USER_QUOTA_BYTES)).thenReturn(setting);
+
+        assertThrows(BaseException.class,() -> service.updateBatch(update(SiteSettingService.STORAGE_USER_QUOTA_BYTES,"0")));
     }
 
     @Test

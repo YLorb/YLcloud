@@ -114,8 +114,10 @@ public class KnowledgeChatSessionService {
         message.setRole(dto.getRole() == null || dto.getRole().isBlank() ? "user" : dto.getRole());
         message.setContent(dto.getContent());
         message.setCitationsJson(dto.getCitationsJson());
+        message.setRetryCount(0);
         message.setStatus(StatusConstant.ENABLE);
         message.setCreatetime(LocalDateTime.now());
+        message.setUpdatetime(message.getCreatetime());
         messageMapper.insert(message);
         sessionMapper.touch(sessionId,userId,LocalDateTime.now());
         return toMessageVO(message);
@@ -162,7 +164,11 @@ public class KnowledgeChatSessionService {
         vo.setRole(message.getRole());
         vo.setContent(message.getContent());
         vo.setCitationsJson(message.getCitationsJson());
+        vo.setTaskStatus(message.getTaskStatus());
+        vo.setErrorMessage(message.getErrorMessage());
+        vo.setRetryCount(message.getRetryCount());
         vo.setCreatetime(message.getCreatetime());
+        vo.setUpdatetime(message.getUpdatetime());
         return vo;
     }
 

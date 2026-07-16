@@ -61,6 +61,9 @@ class StructuredChunkerTest {
         assertFalse(chunks.isEmpty());
         assertTrue(child.getMetadataJson().contains("\"vlmEnabled\":true"));
         assertTrue(child.getMetadataJson().contains("\"vlmUsed\":true"));
+        assertEquals(1,chunks.size());
+        assertEquals(0,child.getChunkIndex());
+        assertEquals(null,child.getParentChunkIndex());
     }
 
     @Test

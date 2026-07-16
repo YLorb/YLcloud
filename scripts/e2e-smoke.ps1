@@ -3,10 +3,15 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$PdfPath,
     [string]$AdminUsername,
-    [string]$AdminPassword
+    [string]$AdminPassword,
+    [string]$TestUsername = "e2e_smoke",
+    [string]$TestPassword = $env:YLCLOUD_E2E_PASSWORD
 )
 
 $ErrorActionPreference = "Stop"
+if([string]::IsNullOrWhiteSpace($TestUsername) -or [string]::IsNullOrWhiteSpace($TestPassword)) {
+    throw "A controlled E2E account is required. Provide -TestPassword or YLCLOUD_E2E_PASSWORD; random users are no longer created."
+}
 
 function Invoke-ApiJson {
     param(
@@ -105,8 +110,8 @@ function Get-Sha256 {
 }
 
 $runId = "e2e_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())_$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-$username = $runId
-$password = "Tmp-$([guid]::NewGuid().ToString('N'))"
+$username = $TestUsername
+$password = $TestPassword
 $tempDir = Join-Path $env:TEMP $runId
 $token = $null
 $testSpaceId = $null
@@ -128,15 +133,16 @@ try {
 
     $unauthorizedStatus = & curl.exe --silent --output NUL --write-out "%{http_code}" "$BaseUrl/api/space/list"
 
-    Invoke-ApiJson -Method "POST" -Path "/api/sign" -Body @{
-        username = $username
-        password = $password
-        nickname = "E2E Smoke User"
-    } | Out-Null
-
-    $login = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{
-        username = $username
-        password = $password
+    $login = $null
+    try {
+        $login = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{ username = $username; password = $password }
+    } catch {
+        Invoke-ApiJson -Method "POST" -Path "/api/sign" -Body @{
+            username = $username
+            password = $password
+            nickname = "Controlled E2E Smoke User"
+        } | Out-Null
+        $login = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{ username = $username; password = $password }
     }
     $token = $login.token
     if (-not $token) {
@@ -145,6 +151,13 @@ try {
 
     $currentUserId = Invoke-ApiJson -Method "GET" -Path "/api/user/current" -Token $token
     $spaces = @(Invoke-ApiJson -Method "GET" -Path "/api/space/list" -Token $token)
+    foreach($staleSpace in @($spaces | Where-Object { $_.type -ne "PERSONAL" -and $_.name -like "E2E smoke *" })) {
+        try {
+            Invoke-ApiJson -Method "DELETE" -Path "/api/space/$($staleSpace.id)" -Token $token | Out-Null
+        } catch {
+            Write-Warning "Stale E2E Space cleanup failed for spaceId=$($staleSpace.id): $($_.Exception.Message)"
+        }
+    }
     $personalSpace = $spaces | Where-Object { $_.type -eq "PERSONAL" -and $_.role -eq "OWNER" } | Select-Object -First 1
     if (-not $personalSpace) {
         throw "Default personal space was not created"
@@ -265,5 +278,5 @@ try {
         }
     }
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Variable password,token,AdminPassword -ErrorAction SilentlyContinue
+    Remove-Variable password,token,AdminPassword,TestPassword -ErrorAction SilentlyContinue
 }

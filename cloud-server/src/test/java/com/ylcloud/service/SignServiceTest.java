@@ -39,7 +39,7 @@ class SignServiceTest {
             return 1;
         });
         when(fileService.getRootId(100L)).thenReturn(200L);
-        when(signMapper.updateAll(200L,100L)).thenReturn(1);
+        when(signMapper.updateAll(200L,100L,null)).thenReturn(1);
     }
 
     @Test
