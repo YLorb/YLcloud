@@ -253,7 +253,7 @@ public class SpaceRagService {
         List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
         RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config);
         String answer = chatResult.getAnswer();
-        boolean noAnswer = answer == null || answer.isBlank() || answer.contains("无法从当前知识库回答");
+        boolean noAnswer = chatResult.isNoAnswer() || answer == null || answer.isBlank();
         List<Long> hitChunkIds = new ArrayList<>();
         List<String> contexts = new ArrayList<>();
         StringJoiner idJoiner = new StringJoiner(",");

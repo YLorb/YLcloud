@@ -4,26 +4,15 @@ YLcloud 是一个包含文件存储、空间协作和 RAG 知识库的全栈项�
 
 ## 快速启动
 
-1. 创建本地环境文件。
+Docker Desktop 启动后，在仓库根目录执行：
 
-   ```powershell
-   Copy-Item .env.example .env
-   .\scripts\migrate-secrets.ps1
-   ```
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\self-deploy.ps1
+```
 
-2. 至少替换 `.env` 中的 MySQL、MinIO 开发默认值。JWT 会在首次迁移时安全生成；平台 API Key 写入 `.secrets/` 对应文件，不再保存在 `.env`。
+该入口会在缺少 `.env` 时从 `.env.example` 创建；已有 `.env` 缺少基础设施配置时只补缺失项，不覆盖现有值。随后自动迁移 secrets、检查配置、构建镜像、启动全部服务、等待容器与 HTTP 健康，并确认 Flyway V22 已应用。报告和失败诊断写入 `outputs/self-deploy/`。
 
-3. 构建并启动。
-
-   ```powershell
-   docker compose up -d --build
-   ```
-
-4. 查看状态。
-
-   ```powershell
-   docker compose ps
-   ```
+如需在启动前运行后端测试和前端生产构建，追加 `-RunTests`；已有镜像可用 `-SkipBuild`；需要带 PDF 的完整冒烟时使用 `-RunSmoke -SmokePdfPath <文件>`。
 
 前端地址为 `http://127.0.0.1:5173`，后端地址为 `http://127.0.0.1:8080`，MinIO 控制台为 `http://127.0.0.1:9001`。
 
@@ -31,19 +20,15 @@ YLcloud 是一个包含文件存储、空间协作和 RAG 知识库的全栈项�
 
 ## 服务器部署
 
-服务器部署使用独立环境文件，部署检查会拒绝模板密码、无效或重复端口：
+服务器部署使用 `docker-compose.hub.yml` 拉取已发布镜像。首次执行会生成 `.env.server` 后主动停止，避免使用模板值启动：
 
 ```powershell
-Copy-Item .env.server.example .env.server
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\self-deploy.ps1 -Mode Server
 # 编辑 .env.server，替换全部 replace-* 值
-# 从 *.example 创建 Secret 文件，或迁移已有 .env
-.\scripts\migrate-secrets.ps1 -EnvFile .env.server
-.\scripts\deploy-check.ps1
-docker compose --env-file .env.server up -d --build
-docker compose --env-file .env.server ps
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\self-deploy.ps1 -Mode Server
 ```
 
-若服务器已有服务占用默认端口，只需修改对应 `YLCLOUD_*_HOST_PORT`，无需修改 Compose 文件。
+生产检查会拒绝模板密码、无效或重复端口、缺失的 ACR 配置、非 `prod` Profile，以及默认的离线模型降级。只有明确接受降级部署时才传 `-AllowOfflineFallback`。若服务器已有服务占用默认端口，只需修改对应 `YLCLOUD_*_HOST_PORT`。
 
 JWT、DeepSeek、Ark、RAG Query 和 VLM Key 通过 Compose Secret 以只读文件挂载。Java、model-service 和 parser-service 均优先读取 `*_FILE`，并保留普通环境变量回退以兼容非 Compose 部署。真实 Secret 文件不会被 Git 跟踪；`.secrets/README.md` 与 `*.example` 会正常提交。
 

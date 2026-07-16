@@ -3,6 +3,7 @@ param(
     [string]$MysqlContainer = "ylcloud-mysql",
     [string]$MinioContainer = "ylcloud-minio",
     [string]$AppContainer = "ylcloud-app",
+    [string]$MinioBucket,
     [string]$OutputDirectory = "outputs/multipart-fault-injection",
     [int]$ConcurrentMergeRequests = 8,
     [switch]$ConfirmDisposableEnvironment
@@ -14,6 +15,15 @@ if(-not $ConfirmDisposableEnvironment) {
 }
 if($ConcurrentMergeRequests -lt 2) {
     throw "ConcurrentMergeRequests must be at least 2"
+}
+if([string]::IsNullOrWhiteSpace($MinioBucket)) {
+    $MinioBucket = (& docker exec $AppContainer printenv YLCLOUD_MINIO_BUCKET 2>$null | Out-String).Trim()
+    if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($MinioBucket)) {
+        $MinioBucket = "localbucket1"
+    }
+}
+if($MinioBucket -notmatch "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$") {
+    throw "Invalid MinIO bucket: $MinioBucket"
 }
 
 Add-Type -AssemblyName System.Net.Http
@@ -215,7 +225,7 @@ function Invoke-Sql([string]$Query) {
 }
 
 function Get-MinIoVersionCount([string]$ObjectName) {
-    $script = 'MC_HOST_acceptance=http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9000 mc ls --versions --recursive acceptance/localbucket1'
+    $script = 'MC_HOST_acceptance=http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9000 mc ls --versions --recursive acceptance/' + $MinioBucket
     return @(& docker exec $MinioContainer sh -c $script |
         Where-Object { $_ -match ("\s" + [regex]::Escape($ObjectName) + "$") }).Count
 }
@@ -223,8 +233,8 @@ function Get-MinIoVersionCount([string]$ObjectName) {
 function Remove-MinIoFixture([string]$FileUuid) {
     if($FileUuid -notmatch '^[0-9a-fA-F-]{36}$') { return }
     $script = "export MC_HOST_acceptance=http://`$MINIO_ROOT_USER:`$MINIO_ROOT_PASSWORD@127.0.0.1:9000; " +
-        "mc rm --recursive --force --versions acceptance/localbucket1/chunks/$FileUuid/ >/dev/null 2>&1; " +
-        "mc rm --force --versions acceptance/localbucket1/$FileUuid >/dev/null 2>&1 || true"
+        "mc rm --recursive --force --versions acceptance/$MinioBucket/chunks/$FileUuid/ >/dev/null 2>&1; " +
+        "mc rm --force --versions acceptance/$MinioBucket/$FileUuid >/dev/null 2>&1 || true"
     & docker exec $MinioContainer sh -c $script | Out-Null
 }
 

@@ -6,6 +6,7 @@ import lombok.Data;
 public class RagChatResult {
     private String answer;
     private boolean success;
+    private boolean noAnswer;
     private String errorMessage;
     private String modelName;
 
@@ -34,6 +35,18 @@ public class RagChatResult {
         result.setAnswer(answer);
         result.setSuccess(false);
         result.setErrorMessage(errorMessage);
+        return result;
+    }
+
+    public static RagChatResult noAnswer(String answer) {
+        RagChatResult result = success(answer);
+        result.setNoAnswer(true);
+        return result;
+    }
+
+    public static RagChatResult noAnswer(String answer, String errorMessage) {
+        RagChatResult result = failed(answer,errorMessage);
+        result.setNoAnswer(true);
         return result;
     }
 }

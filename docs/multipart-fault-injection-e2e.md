@@ -41,6 +41,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/multipart-fault-
 Optional parameters:
 
 - `-ConcurrentMergeRequests 8` controls the merge race width and must be at least 2.
+- `-MinioBucket <name>` overrides the bucket; when omitted the script reads `YLCLOUD_MINIO_BUCKET` from the app container.
 - `-OutputDirectory outputs/multipart-fault-injection` changes the JSON report directory.
 
 ## Pass criteria

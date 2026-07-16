@@ -44,7 +44,9 @@ flowchart LR
 
 ## no-answer
 
-当知识库不能支持答案时应返回明确无答案语义。当前待完成项是：no-answer 时清空 citations，或按 scoreThreshold 严格过滤低相关 chunk；否则用户会看到“无法回答”同时附带无关引用。
+当知识库不能支持答案时，RagChatResult 使用显式 noAnswer 标志，不再由 SpaceRagService 匹配单一中文文案。无召回、模型空答案、配置的 no-answer 文案和受控语义变体都会进入 no-answer；响应同步清空 citations、contexts、hitChunkIds，查询日志也不记录命中 chunk。
+
+模型服务不可用与 no-answer 是不同状态：如果已经检索到资料但生成暂不可用，仍保留 citations，便于用户人工查看依据。
 
 ## 查询日志
 

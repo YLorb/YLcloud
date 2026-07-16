@@ -3,10 +3,33 @@ param(
     [string]$MysqlContainer = "ylcloud-mysql",
     [string]$MinioContainer = "ylcloud-minio",
     [string]$AppContainer = "ylcloud-app",
-    [string]$QdrantBaseUrl = "http://127.0.0.1:6333"
+    [string]$QdrantBaseUrl = "http://127.0.0.1:6333",
+    [string]$MinioBucket,
+    [string]$QdrantCollection
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-AppEnvironment([string]$Name, [string]$Fallback) {
+    $value = (& docker exec $AppContainer printenv $Name 2>$null | Out-String).Trim()
+    if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($value)) {
+        return $Fallback
+    }
+    return $value
+}
+
+if([string]::IsNullOrWhiteSpace($MinioBucket)) {
+    $MinioBucket = Get-AppEnvironment "YLCLOUD_MINIO_BUCKET" "localbucket1"
+}
+if([string]::IsNullOrWhiteSpace($QdrantCollection)) {
+    $QdrantCollection = Get-AppEnvironment "YLCLOUD_RAG_QDRANT_COLLECTION_NAME" "ylcloud_rag_bge_small_zh_v15"
+}
+if($MinioBucket -notmatch "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$") {
+    throw "Invalid MinIO bucket: $MinioBucket"
+}
+if($QdrantCollection -notmatch "^[A-Za-z0-9_-]+$") {
+    throw "Invalid Qdrant collection: $QdrantCollection"
+}
 
 function Invoke-Api {
     param([string]$Method,[string]$Path,[object]$Body,[string]$Token)
@@ -34,11 +57,11 @@ function Send-File {
 }
 
 function Wait-RagTask {
-    param([long]$SpaceId,[long]$SpaceFileId,[string]$Token,[long]$TaskId = 0)
+    param([long]$SpaceId,[long]$SpaceFileId,[string]$Token,[long]$AfterTaskId = 0)
     $deadline = (Get-Date).AddMinutes(5)
     do {
         $task = @(Invoke-Api GET "/api/space/$SpaceId/rag/tasks" $null $Token) |
-            Where-Object { $_.spaceFileId -eq $SpaceFileId -and ($TaskId -eq 0 -or $_.id -eq $TaskId) } |
+            Where-Object { $_.spaceFileId -eq $SpaceFileId -and $_.id -gt $AfterTaskId } |
             Sort-Object id -Descending | Select-Object -First 1
         if($task -and $task.taskStatus -in @("SUCCESS","FAILED")) { return $task }
         Start-Sleep -Seconds 2
@@ -73,15 +96,24 @@ function Invoke-Sql([string]$Query) {
 }
 
 function Get-MinIoVersionCount([string]$ObjectName) {
-    $script = 'MC_HOST_acceptance=http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9000 mc ls --versions --recursive acceptance/localbucket1'
+    $script = 'MC_HOST_acceptance=http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9000 mc ls --versions --recursive acceptance/' + $MinioBucket
     return @(& docker exec $MinioContainer sh -c $script |
         Where-Object { $_ -match [regex]::Escape($ObjectName) }).Count
+}
+
+function Get-LatestRagTaskId([long]$SpaceId,[long]$SpaceFileId,[string]$Token) {
+    $task = @(Invoke-Api GET "/api/space/$SpaceId/rag/tasks" $null $Token) |
+        Where-Object { $_.spaceFileId -eq $SpaceFileId } |
+        Sort-Object id -Descending |
+        Select-Object -First 1
+    if($task) { return [long]$task.id }
+    return [long]0
 }
 
 function Get-QdrantCount([long]$SpaceFileId) {
     $body = @{ filter = @{ must = @(@{ key = "spaceFileId"; match = @{ value = $SpaceFileId } }) }; exact = $true } |
         ConvertTo-Json -Depth 8 -Compress
-    $response = Invoke-RestMethod -Method Post -Uri "$QdrantBaseUrl/collections/ylcloud_rag_bge_small_zh_v15/points/count" -ContentType "application/json" -Body $body
+    $response = Invoke-RestMethod -Method Post -Uri "$QdrantBaseUrl/collections/$QdrantCollection/points/count" -ContentType "application/json" -Body $body
     return [int]$response.result.count
 }
 
@@ -116,6 +148,8 @@ try {
     $login = Invoke-Api POST "/api/login" @{ username=$username; password=$password } $null
     $token = $login.token
     $space = @(Invoke-Api GET "/api/space/list" $null $token) | Where-Object { $_.role -eq "OWNER" } | Select-Object -First 1
+    $defaultRagConfig = Invoke-Api GET "/api/space/$($space.id)/rag/config" $null $token
+    $knowledgeProfileDefaultEnabled = [int]$defaultRagConfig.knowledgeProfileEnabled -eq 1
 
     $docx = Send-File "/api/space/$($space.id)/files/upload" $docxPath $token @{ name="$runId.docx" }
     $ragTask = Wait-RagTask $space.id $docx.id $token
@@ -123,6 +157,8 @@ try {
     $document = @(Invoke-Api GET "/api/space/$($space.id)/rag/documents" $null $token) |
         Where-Object { $_.spaceFileId -eq $docx.id } | Select-Object -First 1
     if(-not $document -or $document.chunkCount -lt 1) { throw "DOCX produced no chunks" }
+    $initialVectorState = Invoke-Sql "select concat(index_status,',',vector_state,',',chunk_count) from space_rag_document where id=$($document.id)"
+    $vectorStateActive = $initialVectorState -match '^SUCCESS,ACTIVE,[1-9][0-9]*$'
     $docxParser = Invoke-Sql "select parser from file_rag_parse_result where file_uuid='$($docx.fileUuid)' and status=1 order by id desc limit 1"
     if($docxParser -ne "docx-structured") { throw "Unexpected DOCX parser: $docxParser" }
     $query = Invoke-Api POST "/api/space/$($space.id)/rag/query" @{ question="Return this exact token from the document: $tokenPhrase"; retrievalMode="precise"; history=@() } $token
@@ -137,15 +173,30 @@ try {
         Start-Sleep -Seconds 2
     } while((Get-Date) -lt $deadline)
     if(-not $initialKnowledge -or $initialKnowledge.taskStatus -ne "SUCCESS") { throw "Initial knowledge task failed" }
+    $initialKnowledgeCountsValid = [int]$initialKnowledge.totalCount -eq 1 -and
+        [int]$initialKnowledge.successCount -eq 1 -and [int]$initialKnowledge.failedCount -eq 0
     $initialProfile = Invoke-Api GET "/api/space/$($space.id)/knowledge/documents/$($document.id)/profile" $null $token
     $initialEvents = @(Invoke-Api GET "/api/space/$($space.id)/knowledge/pipeline/tasks/$($initialKnowledge.id)/events" $null $token)
     $initialEventStages = @($initialEvents.stage | Sort-Object -Unique)
     $requiredEventStages = @("LOAD_CHUNKS","CHECK_INCREMENTAL","GENERATE_PROFILE","SAVE_PROFILE")
     $eventStagesComplete = @($requiredEventStages | Where-Object { $initialEventStages -notcontains $_ }).Count -eq 0
 
+    Invoke-Api PUT "/api/space/$($space.id)/rag/config" @{ knowledgeProfileEnabled=0 } $token | Out-Null
+    $disabledKnowledgeBaseline = [long]$initialKnowledge.id
+    $disabledRagBaseline = Get-LatestRagTaskId $space.id $docx.id $token
+    Invoke-Api POST "/api/space/$($space.id)/rag/files/$($docx.id)/rebuild" $null $token | Out-Null
+    $disabledRagTask = Wait-RagTask $space.id $docx.id $token $disabledRagBaseline
+    Start-Sleep -Seconds 2
+    $disabledKnowledgeTask = @(Invoke-Api GET "/api/space/$($space.id)/knowledge/pipeline/tasks" $null $token) |
+        Where-Object { $_.documentId -eq $document.id -and $_.id -gt $disabledKnowledgeBaseline } |
+        Select-Object -First 1
+    $profileDisabledSkipped = $disabledRagTask.taskStatus -eq "SUCCESS" -and -not $disabledKnowledgeTask
+    Invoke-Api PUT "/api/space/$($space.id)/rag/config" @{ knowledgeProfileEnabled=1 } $token | Out-Null
+
     Invoke-Sql "update space_knowledge_document_profile set source_chunk_count=999, source_snapshot_signature=null, source_snapshot_revision=0 where space_id=$($space.id) and document_id=$($document.id)" | Out-Null
-    $rebuildRequest = Invoke-Api POST "/api/space/$($space.id)/rag/files/$($docx.id)/rebuild" $null $token
-    $rebuiltRagTask = Wait-RagTask $space.id $docx.id $token $rebuildRequest.id
+    $rebuildBaseline = Get-LatestRagTaskId $space.id $docx.id $token
+    Invoke-Api POST "/api/space/$($space.id)/rag/files/$($docx.id)/rebuild" $null $token | Out-Null
+    $rebuiltRagTask = Wait-RagTask $space.id $docx.id $token $rebuildBaseline
     if($rebuiltRagTask.taskStatus -ne "SUCCESS") { throw "DOCX rebuild failed" }
     $deadline = (Get-Date).AddMinutes(5)
     do {
@@ -161,8 +212,9 @@ try {
         $profile.summary -eq $initialProfile.summary -and $profile.profileVersion -eq $initialProfile.profileVersion
 
     $revisionAfterSync = [long]$profile.sourceSnapshotRevision
-    $secondRebuildRequest = Invoke-Api POST "/api/space/$($space.id)/rag/files/$($docx.id)/rebuild" $null $token
-    $secondRagTask = Wait-RagTask $space.id $docx.id $token $secondRebuildRequest.id
+    $secondRebuildBaseline = Get-LatestRagTaskId $space.id $docx.id $token
+    Invoke-Api POST "/api/space/$($space.id)/rag/files/$($docx.id)/rebuild" $null $token | Out-Null
+    $secondRagTask = Wait-RagTask $space.id $docx.id $token $secondRebuildBaseline
     if($secondRagTask.taskStatus -ne "SUCCESS") { throw "Second DOCX rebuild failed" }
     $deadline = (Get-Date).AddMinutes(5)
     do {
@@ -245,6 +297,7 @@ try {
 
     $passwordLeaked = [bool](& docker logs $AppContainer 2>&1 | Select-String -SimpleMatch $password)
     $success = $ragTask.taskStatus -eq "SUCCESS" -and $docxParser -eq "docx-structured" -and $docxQueryHit -and
+        $knowledgeProfileDefaultEnabled -and $initialKnowledgeCountsValid -and $profileDisabledSkipped -and $vectorStateActive -and
         $refreshTask.taskStatus -eq "SUCCESS" -and $refreshTask.incrementalAction -eq "SYNC_RETRIEVAL_SOURCE" -and
         $refreshTask.terminalReason -eq "SOURCE_SNAPSHOT_SYNCED" -and $profile.sourceChunkCount -eq $document.chunkCount -and
         -not [string]::IsNullOrWhiteSpace($profile.sourceSnapshotSignature) -and
@@ -262,6 +315,8 @@ try {
 
     [ordered]@{
         runId=$runId; docxRagStatus=$ragTask.taskStatus; docxParser=$docxParser; docxChunkCount=$document.chunkCount; docxQueryHit=$docxQueryHit
+        knowledgeProfile=@{ defaultEnabled=$knowledgeProfileDefaultEnabled; initialCountsValid=$initialKnowledgeCountsValid; disabledSkipped=$profileDisabledSkipped }
+        vectorState=@{ databaseState=$initialVectorState; active=$vectorStateActive }
         sourceSyncAction=$refreshTask.incrementalAction; sourceChunkCount=$profile.sourceChunkCount
         sourceSnapshotRevision=$profile.sourceSnapshotRevision; sourceSnapshotSignature=$profile.sourceSnapshotSignature
         sourceSyncPreservedProfile=$sourceSyncPreservedProfile

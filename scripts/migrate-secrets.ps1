@@ -5,7 +5,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-$secretsPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $SecretsDirectory))
+
+function Resolve-InputPath([string]$Path) {
+    if([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Path))
+}
+
+$secretsPath = Resolve-InputPath $SecretsDirectory
 [System.IO.Directory]::CreateDirectory($secretsPath) | Out-Null
 
 $mapping = [ordered]@{
@@ -16,7 +24,7 @@ $mapping = [ordered]@{
     YLCLOUD_VLM_API_KEY = "vlm_api_key"
 }
 
-$envPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $EnvFile))
+$envPath = Resolve-InputPath $EnvFile
 $lines = if ([System.IO.File]::Exists($envPath)) {
     [System.IO.File]::ReadAllLines($envPath,[System.Text.Encoding]::UTF8)
 } else {

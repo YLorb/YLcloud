@@ -93,11 +93,10 @@
 - [x] 知识画像活动任务增加数据库唯一约束、`PENDING -> RUNNING` CAS 和超时回收；画像数据事务仍与基础 RAG 成功状态解耦。
 - [x] 修复存量数据：无效 active ref `66 -> 0`、孤儿向量 `4 -> 0`、缺失向量的假成功文档自动隔离。
 - [x] 最终全库对账：数据库有效引用 `617`、Qdrant point `617`、逐文档不一致 `0`、未完成向量状态 `0`、活动 RAG/画像任务 `0`。
-- [x] 后端 90 项测试全部通过；P0 真实端到端验收通过，空间文件删除前后 Qdrant `2 -> 0`，数据库 `file_info/active ref/active chunk = 0/0/0`。
+- [x] 后端 100 项测试全部通过；P0 真实端到端验收通过，空间文件删除前后 Qdrant `2 -> 0`，数据库 `file_info/active ref/active chunk = 0/0/0`。
 
   - embed/rerank 当前返回 offline-fallback:*，所以连通性通过，但按文档定义不算真实 embedding/rerank 质量验证。
-  - 无关问题返回了正确 no-answer：无法从当前知识库回答。，但响应里仍带了 5 个 citations。
-    这不完全符合 checklist 的“no unrelated recent chunks are used”。建议后续增加相似度/相关性阈值过滤：当最终判断 no-answer 时，不返回 citations，或在检索阶段过滤低相关 chunk。
+  - [x] 无关问题的 no-answer 结果改用显式语义标志；响应清空 citations、contexts、hitChunkIds 和查询日志命中 ID，并由自动化测试覆盖。模型不可用但已有检索依据时仍保留引用。
   - RAG 检索 ”第一节 + 顺变电磁法.pdf“ 时，无法提取有效信息（所提问题：什么是顺变电磁法？）。推测问题在：1、LLM被设定为“严格回答”；2、Chuck切分逻辑存在严重问题。
 
 # 后端

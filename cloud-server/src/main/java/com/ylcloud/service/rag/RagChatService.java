@@ -39,7 +39,7 @@ public class RagChatService {
      */
     public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config) {
         if(chunks == null || chunks.isEmpty()) {
-            return RagChatResult.success(properties.getChat().getNoAnswerText());
+            return RagChatResult.noAnswer(properties.getChat().getNoAnswerText());
         }
         if(!Boolean.TRUE.equals(properties.getChat().getEnabled())) {
             return RagChatResult.failed(fallbackAnswer(),"RAG chat is disabled");
@@ -55,11 +55,13 @@ public class RagChatService {
             request.setTemperature(resolveTemperature(config));
             RagChatResponse response = ragModelClient.chat(request);
             if(response.getAnswer() == null || response.getAnswer().isBlank()) {
-                RagChatResult result = RagChatResult.failed(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
+                RagChatResult result = RagChatResult.noAnswer(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
                 result.setModelName(model);
                 return result;
             }
-            RagChatResult result = RagChatResult.success(response.getAnswer());
+            RagChatResult result = isNoAnswerResponse(response.getAnswer())
+                    ? RagChatResult.noAnswer(response.getAnswer())
+                    : RagChatResult.success(response.getAnswer());
             result.setModelName(model);
             return result;
         } catch (Exception ex) {
@@ -122,6 +124,20 @@ public class RagChatService {
      */
     private String fallbackAnswer() {
         return properties.getChat().getUnavailableText();
+    }
+
+    private boolean isNoAnswerResponse(String answer) {
+        if(answer == null || answer.isBlank()) {
+            return true;
+        }
+        String normalized = answer.replaceAll("\\s+","").trim();
+        String configured = properties.getChat().getNoAnswerText();
+        if(configured != null && normalized.equals(configured.replaceAll("\\s+","").trim())) {
+            return true;
+        }
+        return normalized.contains("无法从当前知识库回答")
+                || normalized.contains("当前知识库中没有检索到足够的依据")
+                || (normalized.contains("没有检索到足够") && normalized.contains("无法回答"));
     }
 
     /**

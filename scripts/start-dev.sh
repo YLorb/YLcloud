@@ -3,8 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${YLCLOUD_DEV_RUN_DIR:-/tmp/ylcloud-dev}"
-BACKEND_PORT="${SERVER_PORT:-8080}"
-FRONTEND_PORT="${YLCLOUD_FRONTEND_PORT:-5173}"
 JAVA_BIN="${JAVA_BIN:-$(command -v java || true)}"
 MAVEN_BIN="${MAVEN_BIN:-$(command -v mvn || true)}"
 BACKEND_JAR="${ROOT_DIR}/cloud-server/target/cloud-server-1.0-SNAPSHOT.jar"
@@ -18,6 +16,15 @@ if [[ -f "${ENV_FILE}" ]]; then
   source "${ENV_FILE}"
   set +a
 fi
+
+BACKEND_PORT="${SERVER_PORT:-${YLCLOUD_BACKEND_HOST_PORT:-8080}}"
+FRONTEND_PORT="${YLCLOUD_FRONTEND_PORT:-${YLCLOUD_FRONTEND_HOST_PORT:-5173}}"
+MYSQL_PORT="${YLCLOUD_MYSQL_HOST_PORT:-3306}"
+MINIO_PORT="${YLCLOUD_MINIO_API_HOST_PORT:-9000}"
+QDRANT_REST_PORT="${YLCLOUD_QDRANT_REST_HOST_PORT:-6333}"
+QDRANT_GRPC_PORT="${YLCLOUD_QDRANT_GRPC_HOST_PORT:-6334}"
+MODEL_PORT="${YLCLOUD_MODEL_HOST_PORT:-8001}"
+PARSER_PORT="${YLCLOUD_PARSER_HOST_PORT:-8002}"
 
 log() {
   printf '[YLcloud] %s\n' "$*"
@@ -82,13 +89,24 @@ start_backend() {
     cd "${ROOT_DIR}"
     setsid env \
       SERVER_PORT="${BACKEND_PORT}" \
-      YLCLOUD_DATASOURCE_URL="${YLCLOUD_DATASOURCE_URL:-jdbc:mysql://127.0.0.1:3306/${YLCLOUD_MYSQL_DATABASE:-ylcloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}" \
+      SPRING_PROFILES_ACTIVE="${YLCLOUD_SPRING_PROFILE:-dev}" \
+      YLCLOUD_JWT_SECRET_FILE="${YLCLOUD_JWT_SECRET_FILE:-${ROOT_DIR}/.secrets/jwt_secret}" \
+      YLCLOUD_LLM_API_KEY_FILE="${YLCLOUD_LLM_API_KEY_FILE:-${ROOT_DIR}/.secrets/llm_api_key}" \
+      YLCLOUD_ARK_API_KEY_FILE="${YLCLOUD_ARK_API_KEY_FILE:-${ROOT_DIR}/.secrets/ark_api_key}" \
+      YLCLOUD_RAG_QUERY_API_KEY_FILE="${YLCLOUD_RAG_QUERY_API_KEY_FILE:-${ROOT_DIR}/.secrets/rag_query_api_key}" \
+      YLCLOUD_VLM_API_KEY_FILE="${YLCLOUD_VLM_API_KEY_FILE:-${ROOT_DIR}/.secrets/vlm_api_key}" \
+      YLCLOUD_DATASOURCE_URL="${YLCLOUD_DATASOURCE_URL:-jdbc:mysql://127.0.0.1:${MYSQL_PORT}/${YLCLOUD_MYSQL_DATABASE:-ylcloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}" \
       YLCLOUD_DATASOURCE_USERNAME="${YLCLOUD_DATASOURCE_USERNAME:-${YLCLOUD_MYSQL_USER:-ylcloud}}" \
       YLCLOUD_DATASOURCE_PASSWORD="${YLCLOUD_DATASOURCE_PASSWORD:-${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}}" \
       YLCLOUD_MINIO_ACCESS_KEY="${YLCLOUD_MINIO_ACCESS_KEY:-ylcloud_minio}" \
       YLCLOUD_MINIO_SECRET_KEY="${YLCLOUD_MINIO_SECRET_KEY:-ylcloud_minio_pwd}" \
-      YLCLOUD_MINIO_ENDPOINT="${YLCLOUD_MINIO_ENDPOINT:-http://172.18.0.1:9000}" \
+      YLCLOUD_MINIO_ENDPOINT="${YLCLOUD_MINIO_ENDPOINT:-http://127.0.0.1:${MINIO_PORT}}" \
       YLCLOUD_MINIO_BUCKET="${YLCLOUD_MINIO_BUCKET:-localbucket1}" \
+      YLCLOUD_RAG_MODEL_SERVICE_BASE_URL="${YLCLOUD_RAG_MODEL_SERVICE_BASE_URL:-http://127.0.0.1:${MODEL_PORT}}" \
+      YLCLOUD_RAG_PARSER_SERVICE_BASE_URL="${YLCLOUD_RAG_PARSER_SERVICE_BASE_URL:-http://127.0.0.1:${PARSER_PORT}}" \
+      YLCLOUD_RAG_QDRANT_HOST="${YLCLOUD_RAG_QDRANT_HOST:-127.0.0.1}" \
+      YLCLOUD_RAG_QDRANT_REST_PORT="${YLCLOUD_RAG_QDRANT_REST_PORT:-${QDRANT_REST_PORT}}" \
+      YLCLOUD_RAG_QDRANT_PORT="${YLCLOUD_RAG_QDRANT_PORT:-${QDRANT_GRPC_PORT}}" \
       YLCLOUD_RAG_INDEX_CONCURRENCY="${YLCLOUD_RAG_INDEX_CONCURRENCY:-5}" \
       YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES="${YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES:-10}" \
       "${JAVA_BIN}" -jar "${BACKEND_JAR}" \
@@ -156,7 +174,7 @@ main() {
   fi
 
   log "starting docker dependencies"
-  (cd "${ROOT_DIR}" && docker compose up -d mysql minio qdrant model-service document-parser-service)
+  (cd "${ROOT_DIR}" && docker compose --env-file "${ENV_FILE}" -f docker-compose.yml up -d --build mysql minio qdrant model-service document-parser-service)
 
   for _ in $(seq 1 60); do
     if [[ "$(docker inspect --format '{{.State.Health.Status}}' ylcloud-mysql 2>/dev/null || true)" == "healthy" ]]; then
@@ -168,10 +186,10 @@ main() {
   [[ "$(docker inspect --format '{{.State.Health.Status}}' ylcloud-mysql 2>/dev/null || true)" == "healthy" ]] \
     || fail "MySQL did not become healthy"
 
-  wait_http "MinIO" "http://127.0.0.1:9000/minio/health/live" 60 2
-  wait_http "Qdrant" "http://127.0.0.1:6333/collections" 60 2
-  wait_http "model-service" "http://127.0.0.1:8001/health" 60 2
-  wait_http "document-parser-service" "http://127.0.0.1:8002/health" 60 2
+  wait_http "MinIO" "http://127.0.0.1:${MINIO_PORT}/minio/health/live" 60 2
+  wait_http "Qdrant" "http://127.0.0.1:${QDRANT_REST_PORT}/collections" 60 2
+  wait_http "model-service" "http://127.0.0.1:${MODEL_PORT}/ready" 60 2
+  wait_http "document-parser-service" "http://127.0.0.1:${PARSER_PORT}/health" 60 2
 
   start_backend
   start_frontend

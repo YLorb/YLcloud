@@ -13,6 +13,8 @@ $v1Path = Join-Path $tempDir "p1-version.txt"
 $v2Path = Join-Path $tempDir "p1-version-v2.txt"
 [System.IO.File]::WriteAllText($v1Path,"P1 initial version $suffix",[System.Text.Encoding]::UTF8)
 [System.IO.File]::WriteAllText($v2Path,"P1 second version $suffix",[System.Text.Encoding]::UTF8)
+$ownerToken = $null
+$spaceId = $null
 
 function Invoke-JsonApi {
     param([string]$Method,[string]$Path,[object]$Body,[string]$Token)
@@ -134,6 +136,13 @@ try {
     }
     $result | ConvertTo-Json -Compress
 } finally {
+    if($ownerToken -and $spaceId) {
+        try {
+            Invoke-JsonApi -Method DELETE -Path "/api/space/$spaceId" -Body $null -Token $ownerToken | Out-Null
+        } catch {
+            Write-Warning "P1 space cleanup failed: $($_.Exception.Message)"
+        }
+    }
     if ($tempDir.StartsWith([System.IO.Path]::GetTempPath(),[System.StringComparison]::OrdinalIgnoreCase)) {
         Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     }
