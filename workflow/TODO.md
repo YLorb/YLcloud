@@ -81,7 +81,7 @@ Level 2A 不负责根据 goal 选择 workflow，而是让各种 workflow 来源�
 3. 增加 templates/python_error_analyzer.yaml。
 4. 实现 TemplateSelector。
 5. 先用规则匹配实现稳定选择，再预留 LLM selector。
-6. CLI 增加 goal 入口，例如 mini-agent-flow select --goal "..."。
+6. CLI 增加 goal 入口，例如 mini-agent-flow select --goal "..."
 7. 输出 selected_workflow、selection_reason、final_output 和 trace。
 ```
 
@@ -273,4 +273,48 @@ for item in items:
   执行 body 节点链
   ↓
 全部完成后进入 next
+```
+
+## 后续：类 Codex CLI 对话交互
+
+状态：待设计
+
+目标：
+
+```text
+为 mini-agent-flow 提供类似 OpenAI Codex CLI 的交互式对话能力，
+让用户可以在命令行中与 Agent 连续对话，逐步澄清目标、选择 workflow、
+补充输入参数、确认执行计划，而不是每次只执行一条一次性命令。
+```
+
+需要支持：
+
+```text
+1. 启动交互式会话：mini-agent-flow chat / mini-agent-flow interactive。
+2. 会话中保持上下文（用户目标、已选 workflow、已填充 inputs、历史 trace）。
+3. 用户可以用自然语言描述 goal，系统尝试选择或生成 workflow。
+4. 系统主动向用户确认关键决策：选择哪个 workflow、是否继续执行、是否修复。
+5. 支持命令式快捷指令，例如 /run、/select、/make、/trace、/reset。
+6. 支持多轮追问和参数补全。
+7. 可插拔 LLM provider，复用现有 create_llm 工厂。
+8. 可选保存/恢复会话状态。
+```
+
+设计待明确：
+
+```text
+1. 交互会话的状态机（State：idle / selecting / filling / confirming / running）。
+2. 使用 prompt-toolkit、rich.console 还是 typer 自带输入实现.readline 风格交互。
+3. 如何与现有 CLI 命令复用代码（拆分为 service / controller / ui 三层）。
+4. 是否需要持久化会话历史，还是仅内存保留。
+5. 多轮对话中的错误处理和退出策略。
+6. 是否支持文件拖入、粘贴 workflow 等输入方式。
+```
+
+建议实现位置：
+
+```text
+mini_agent_flow/cli.py          # 新增 chat 命令入口
+mini_agent_flow/interactive.py  # 交互式会话控制器和渲染
+mini_agent_flow/chat_session.py # 会话状态管理
 ```

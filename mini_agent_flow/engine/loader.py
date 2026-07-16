@@ -45,7 +45,7 @@ class WorkflowLoader:
             return MarkdownWorkflowLoader(validator=self.validator).load(workflow_path)
 
         raise WorkflowLoadError(
-            f"workflow file must use .json, .yaml or .yml extension: {workflow_path}"
+            f"workflow file must use .json, .yaml, .yml or .md extension: {workflow_path}"
         )
 
     def load_data(self, data: Any) -> Workflow:

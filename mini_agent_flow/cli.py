@@ -44,7 +44,7 @@ def main() -> None:
 
 @app.command("run")
 def run_workflow(
-    workflow_path: Path = typer.Argument(..., help="Path to a workflow .json/.yaml/.yml file."),
+    workflow_path: Path = typer.Argument(..., help="Path to a workflow .json/.yaml/.yml/.md file."),
     provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
     model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
 ) -> None:
