@@ -577,4 +577,8 @@ public interface FileInfoMapper {
             "join file_info fi on fi.file_uuid = uf.file_uuid and fi.status = 1 " +
             "where uf.user_id = #{userId} and uf.is_dir = 0 and uf.status = 1")
     Integer countUserStorageFiles(@Param("userId") Long userId);
+
+    @Select("select count(1) from user_file where user_id = #{userId} and file_uuid = #{fileUuid} " +
+            "and is_dir = 0 and status = 1")
+    Integer countUserActiveByFileUuid(@Param("userId") Long userId, @Param("fileUuid") String fileUuid);
 }

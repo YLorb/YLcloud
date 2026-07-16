@@ -29,7 +29,7 @@ function ProtectedRoute() {
 
 function AdminRoute() {
   const { user } = useSession();
-  return user?.role?.toUpperCase() === "ADMIN" ? <Outlet /> : <Navigate to="/files" replace />;
+  return user?.role?.toUpperCase() === "ADMIN" ? <Outlet /> : <main className="route-error"><span className="route-error__code">403</span><h1>需要管理员权限</h1><p>当前账号不能访问 Admin Settings。请使用管理员账号登录或联系现有管理员授权。</p><Button asChild><a href="/files">返回我的文件</a></Button></main>;
 }
 
 function PublicShareRoute() {

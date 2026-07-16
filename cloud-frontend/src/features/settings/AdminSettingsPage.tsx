@@ -1,6 +1,6 @@
 import * as Tabs from "@radix-ui/react-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Eye, EyeOff, Save, ShieldCheck } from "lucide-react";
+import { Bot, Check, Eye, EyeOff, FileCog, Globe2, Save, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useBlocker } from "react-router-dom";
 import { toast } from "sonner";
@@ -10,6 +10,15 @@ import { Dialog } from "../../components/ui/Dialog";
 import { ErrorState, LoadingState } from "../../components/ui/PageState";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import type { SiteSetting } from "../../types";
+import { AccessManagementPanel } from "./AccessManagementPanel";
+
+type SectionKey = "site" | "permissions" | "files" | "ai";
+const sections: Array<{ key: SectionKey; label: string; description: string; icon: typeof Globe2 }> = [
+  { key: "site", label: "站点信息", description: "品牌、公开地址和站点说明", icon: Globe2 },
+  { key: "permissions", label: "权限系统", description: "注册策略、用户角色和账号状态", icon: ShieldCheck },
+  { key: "files", label: "文件与存储", description: "上传限制、分享地址和用户配额", icon: FileCog },
+  { key: "ai", label: "AI 与 RAG", description: "模型、解析、向量库和问答开关", icon: Bot }
+];
 
 export function AdminSettingsPage() {
   const client = useQueryClient();
@@ -17,19 +26,52 @@ export function AdminSettingsPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   useEffect(() => { if (settings.data) setValues(Object.fromEntries(settings.data.map((setting) => [setting.key, setting.value ?? ""]))); }, [settings.data]);
-  const groups = useMemo(() => groupSettings(settings.data || []), [settings.data]);
+  const grouped = useMemo(() => groupSettings(settings.data || []), [settings.data]);
   const changed = useMemo(() => (settings.data || []).filter((setting) => values[setting.key] !== (setting.value ?? "")), [settings.data, values]);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => changed.length > 0 && currentLocation.pathname !== nextLocation.pathname);
-  const save = useMutation({ mutationFn: () => api.updateAdminSettings(changed.map((setting) => ({ key: setting.key, value: values[setting.key] ?? "" }))), onSuccess: () => { client.invalidateQueries({ queryKey: ["admin-settings"] }); client.invalidateQueries({ queryKey: ["public-settings"] }); toast.success(`已保存 ${changed.length} 项系统配置`); }, onError: (error) => toast.error(error instanceof Error ? error.message : "系统配置保存失败") });
-  if (settings.isLoading) return <LoadingState label="正在加载系统配置" />;
-  if (settings.isError) return <ErrorState message={settings.error instanceof Error ? settings.error.message : "无法加载系统配置"} onRetry={() => settings.refetch()} />;
-  const firstGroup = Object.keys(groups)[0];
-  return <div className="admin-settings-page"><section className="admin-security-note"><ShieldCheck size={22} /><div><strong>管理员配置</strong><p>敏感值默认隐藏。保存操作会立即影响后续请求，请在生产环境谨慎修改服务地址和密钥。</p></div><StatusBadge tone="success">权限已验证</StatusBadge></section>{firstGroup ? <Tabs.Root defaultValue={firstGroup} orientation="vertical" className="settings-tabs"><Tabs.List className="settings-tabs__list" aria-label="配置分组">{Object.keys(groups).map((group) => <Tabs.Trigger key={group} value={group}>{friendlyGroup(group)}<small>{groups[group].length} 项</small></Tabs.Trigger>)}</Tabs.List><div className="settings-tabs__content">{Object.entries(groups).map(([group, items]) => <Tabs.Content key={group} value={group}><header className="panel-header"><div><span className="section-eyebrow">系统配置</span><h2>{friendlyGroup(group)}</h2><p>修改后点击页面底部的保存按钮使配置生效。</p></div></header><div className="settings-field-list">{items.map((setting) => <SettingField key={setting.key} setting={setting} value={values[setting.key] ?? ""} revealed={revealed.has(setting.key)} onReveal={() => setRevealed((current) => { const next = new Set(current); next.has(setting.key) ? next.delete(setting.key) : next.add(setting.key); return next; })} onChange={(value) => setValues((current) => ({ ...current, [setting.key]: value }))} />)}</div></Tabs.Content>)}</div></Tabs.Root> : <div className="page-state">暂无可编辑配置</div>}<div className="sticky-save"><span>{changed.length ? `有 ${changed.length} 项未保存修改` : "所有修改均已保存"}</span><Button variant="confirm" disabled={!changed.length} loading={save.isPending} onClick={() => save.mutate()}>{changed.length ? <Save size={16} /> : <Check size={16} />}保存修改</Button></div><Dialog open={blocker.state === "blocked"} onOpenChange={(open) => !open && blocker.reset?.()} title="放弃未保存的修改？" description="离开此页面后，尚未保存的系统配置将丢失。" footer={<><Button onClick={() => blocker.reset?.()}>继续编辑</Button><Button variant="danger" onClick={() => blocker.proceed?.()}>放弃并离开</Button></>}><div className="danger-callout">共有 <strong>{changed.length}</strong> 项修改尚未保存。</div></Dialog></div>;
+  const save = useMutation({
+    mutationFn: () => api.updateAdminSettings(changed.map((setting) => ({ key: setting.key, value: values[setting.key] ?? "" }))),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["admin-settings"] });
+      client.invalidateQueries({ queryKey: ["public-settings"] });
+      client.invalidateQueries({ queryKey: ["storage-quota"] });
+      toast.success(`已保存 ${changed.length} 项系统配置`);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "系统配置保存失败")
+  });
+
+  if (settings.isLoading) return <LoadingState label="正在加载管理员设置" />;
+  if (settings.isError) return <ErrorState message={settings.error instanceof Error ? settings.error.message : "无法加载管理员设置"} onRetry={() => settings.refetch()} />;
+  return <div className="admin-settings-page">
+    <section className="admin-security-note"><ShieldCheck size={22} /><div><strong>Admin Settings</strong><p>更改会影响所有后续请求。角色调整和账号停用立即生效，敏感配置不会明文回显。</p></div><StatusBadge tone="success">ADMIN 权限已验证</StatusBadge></section>
+    <Tabs.Root defaultValue="site" orientation="vertical" className="settings-tabs">
+      <Tabs.List className="settings-tabs__list" aria-label="管理员设置分组">
+        {sections.map(({ key, label, description, icon: Icon }) => <Tabs.Trigger key={key} value={key}><Icon size={17} /><span>{label}<small>{description}</small></span></Tabs.Trigger>)}
+      </Tabs.List>
+      <div className="settings-tabs__content">
+        {sections.map((section) => <Tabs.Content key={section.key} value={section.key}>
+          <header className="panel-header"><div><span className="section-eyebrow">Admin Settings</span><h2>{section.label}</h2><p>{section.description}。</p></div></header>
+          {grouped[section.key].length > 0 && <div className="settings-field-list">{grouped[section.key].map((setting) => <SettingField key={setting.key} setting={setting} value={values[setting.key] ?? ""} revealed={revealed.has(setting.key)} onReveal={() => setRevealed((current) => { const next = new Set(current); next.has(setting.key) ? next.delete(setting.key) : next.add(setting.key); return next; })} onChange={(value) => setValues((current) => ({ ...current, [setting.key]: value }))} />)}</div>}
+          {section.key === "permissions" && <AccessManagementPanel />}
+        </Tabs.Content>)}
+      </div>
+    </Tabs.Root>
+    <div className="sticky-save"><span aria-live="polite">{changed.length ? `有 ${changed.length} 项未保存修改` : "所有站点配置均已保存"}</span><Button variant="confirm" disabled={!changed.length} loading={save.isPending} onClick={() => save.mutate()}>{changed.length ? <Save size={16} /> : <Check size={16} />}保存站点配置</Button></div>
+    <Dialog open={blocker.state === "blocked"} onOpenChange={(open) => !open && blocker.reset?.()} title="放弃未保存的修改？" description="离开后，尚未保存的站点配置将丢失。" footer={<><Button onClick={() => blocker.reset?.()}>继续编辑</Button><Button variant="danger" onClick={() => blocker.proceed?.()}>放弃并离开</Button></>}><div className="danger-callout">共有 <strong>{changed.length}</strong> 项修改尚未保存。</div></Dialog>
+  </div>;
 }
 
 function SettingField({ setting, value, revealed, onReveal, onChange }: { setting: SiteSetting; value: string; revealed: boolean; onReveal: () => void; onChange: (value: string) => void }) {
-  const boolean = setting.valueType?.toLowerCase() === "boolean" || ["true", "false"].includes(value.toLowerCase());
-  return <div className="setting-field"><div><label htmlFor={`setting-${setting.key}`}>{setting.label || setting.key}</label><p>{setting.description || setting.key}</p><code>{setting.key}</code></div><div className="setting-control">{boolean ? <select id={`setting-${setting.key}`} value={value} disabled={!setting.editable} onChange={(event) => onChange(event.target.value)}><option value="true">开启</option><option value="false">关闭</option></select> : <div className="secret-input"><input id={`setting-${setting.key}`} type={setting.secret && !revealed ? "password" : "text"} value={value} disabled={!setting.editable} onChange={(event) => onChange(event.target.value)} autoComplete="off" />{setting.secret && <button type="button" onClick={onReveal} aria-label={revealed ? "隐藏敏感值" : "显示敏感值"}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}</button>}</div>}</div></div>;
+  const boolean = setting.valueType?.toLowerCase() === "boolean";
+  const quota = ["storage.userQuotaBytes", "storage.adminQuotaBytes"].includes(setting.key);
+  const uploadLimit = setting.key === "upload.maxFileSize";
+  const inputId = `setting-${setting.key}`;
+  return <div className="setting-field"><div><label htmlFor={inputId}>{setting.label || setting.key}</label><p>{setting.description || setting.key}</p><code>{setting.key}</code></div><div className="setting-control">
+    {boolean ? <select id={inputId} value={value} disabled={!setting.editable} onChange={(event) => onChange(event.target.value)}><option value="true">开启</option><option value="false">关闭</option></select> : quota ? <label className="unit-input"><input id={inputId} type="number" min="0.1" step="0.1" value={bytesToGiB(value)} disabled={!setting.editable} onChange={(event) => onChange(String(Math.round(Number(event.target.value || 0) * 1024 ** 3)))} /><span>GB</span></label> : uploadLimit ? <label className="unit-input"><input id={inputId} type="number" min="0" step="1" value={bytesToMiB(value)} disabled={!setting.editable} onChange={(event) => onChange(String(Math.round(Number(event.target.value || 0) * 1024 ** 2)))} /><span>MB</span></label> : <div className="secret-input"><input id={inputId} type={setting.secret && !revealed ? "password" : setting.valueType === "number" ? "number" : "text"} value={value} disabled={!setting.editable} onChange={(event) => onChange(event.target.value)} autoComplete="off" />{setting.secret && <button type="button" onClick={onReveal} aria-label={revealed ? "隐藏敏感值" : "显示敏感值"}>{revealed ? <EyeOff size={16} /> : <Eye size={16} />}</button>}</div>}
+  </div></div>;
 }
-function groupSettings(settings: SiteSetting[]) { return settings.reduce<Record<string, SiteSetting[]>>((groups, setting) => { const key = setting.groupName || "general"; (groups[key] ||= []).push(setting); return groups; }, {}); }
-function friendlyGroup(group: string) { const labels: Record<string, string> = { general: "站点与通用", site: "站点信息", storage: "对象存储", minio: "对象存储", model: "模型服务", rag: "RAG 与检索", security: "安全", upload: "文件上传" }; return labels[group.toLowerCase()] || group; }
+
+function groupSettings(settings: SiteSetting[]) { const groups: Record<SectionKey, SiteSetting[]> = { site: [], permissions: [], files: [], ai: [] }; settings.forEach((setting) => groups[sectionFor(setting)].push(setting)); return groups; }
+function sectionFor(setting: SiteSetting): SectionKey { if (setting.key === "site.allowRegister") return "permissions"; if (/^(upload|share|storage)\./.test(setting.key) || setting.groupName === "file") return "files"; if (/^(llm|rag)\./.test(setting.key) || setting.groupName === "ai") return "ai"; return "site"; }
+function bytesToGiB(value: string) { const bytes = Number(value); return Number.isFinite(bytes) ? String(Math.round(bytes / 1024 ** 3 * 10) / 10) : "1"; }
+function bytesToMiB(value: string) { const bytes = Number(value); return Number.isFinite(bytes) ? String(Math.round(bytes / 1024 ** 2)) : "0"; }

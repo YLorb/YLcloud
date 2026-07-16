@@ -11,5 +11,9 @@ public class KnowledgeChatMessageVO {
     private String role;
     private String content;
     private String citationsJson;
+    private String taskStatus;
+    private String errorMessage;
+    private Integer retryCount;
     private LocalDateTime createtime;
+    private LocalDateTime updatetime;
 }

@@ -29,6 +29,9 @@ public interface LoginMapper {
             "from users where user_id = #{userId}")
     User getById(@Param("userId") Long userId);
 
+    @Select("select user_id from users where user_id = #{userId} for update")
+    Long lockUserId(@Param("userId") Long userId);
+
     @Update("update users set password = #{password}, update_time = now() where user_id = #{userId}")
     int updatePassword(@Param("userId") Long userId, @Param("password") String password);
 }

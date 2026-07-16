@@ -29,6 +29,7 @@ class MultifileServiceDigestTest {
         MinioclientUtil minio = mock(MinioclientUtil.class);
         FileService fileService = mock(FileService.class);
         MultipartUploadCleanupService cleanupService = mock(MultipartUploadCleanupService.class);
+        StorageService storageService = mock(StorageService.class);
         MultifileService service = new MultifileService();
         ReflectionTestUtils.setField(service,"multifileMapper",taskMapper);
         ReflectionTestUtils.setField(service,"chunkUploadMapper",chunkMapper);
@@ -36,6 +37,7 @@ class MultifileServiceDigestTest {
         ReflectionTestUtils.setField(service,"minioclientUtil",minio);
         ReflectionTestUtils.setField(service,"fileService",fileService);
         ReflectionTestUtils.setField(service,"multipartUploadCleanupService",cleanupService);
+        ReflectionTestUtils.setField(service,"storageService",storageService);
 
         UploadTask task = task();
         when(taskMapper.getByUploadId("upload-1",7L)).thenReturn(task);

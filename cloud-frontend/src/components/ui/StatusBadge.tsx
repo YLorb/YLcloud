@@ -13,7 +13,7 @@ const icons = {
   running: LoaderCircle
 };
 
-export function StatusBadge({ tone, children, className }: { tone: StatusTone; children: ReactNode; className?: string }) {
+export function StatusBadge({ tone = "neutral", children, className }: { tone?: StatusTone; children: ReactNode; className?: string }) {
   const Icon = icons[tone];
   return (
     <span className={cn("status-badge", `status-badge--${tone}`, className)}>

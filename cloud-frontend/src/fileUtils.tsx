@@ -19,7 +19,7 @@ export const audioTypes = new Set(["mp3", "wav", "flac", "aac", "ogg", "m4a"]);
 
 export function extOf(item: FileItem) {
   if (item.isDir) return "folder";
-  return (item.type || item.name.split(".").pop() || "file").toLowerCase();
+  return (item.type || item.name.split(".").pop() || "file").toLowerCase().replace(/^\./, "");
 }
 
 export function matchesCategory(item: FileItem, category: Category) {

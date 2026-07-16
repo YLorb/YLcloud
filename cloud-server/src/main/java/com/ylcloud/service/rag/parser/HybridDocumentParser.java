@@ -18,6 +18,7 @@ import java.util.List;
 public class HybridDocumentParser implements DocumentParser {
     private final RagProperties ragProperties;
     private final DocxStructuredParser docxStructuredParser;
+    private final PptxStructuredParser pptxStructuredParser;
     private final TikaStructuredParser tikaStructuredParser;
     private final LayoutStructuredParser layoutStructuredParser;
     private final OcrStructuredParser ocrStructuredParser;
@@ -28,6 +29,7 @@ public class HybridDocumentParser implements DocumentParser {
 
     public HybridDocumentParser(RagProperties ragProperties,
                                 DocxStructuredParser docxStructuredParser,
+                                PptxStructuredParser pptxStructuredParser,
                                 TikaStructuredParser tikaStructuredParser,
                                 LayoutStructuredParser layoutStructuredParser,
                                 OcrStructuredParser ocrStructuredParser,
@@ -37,6 +39,7 @@ public class HybridDocumentParser implements DocumentParser {
                                 ObjectMapper objectMapper) {
         this.ragProperties = ragProperties;
         this.docxStructuredParser = docxStructuredParser;
+        this.pptxStructuredParser = pptxStructuredParser;
         this.tikaStructuredParser = tikaStructuredParser;
         this.layoutStructuredParser = layoutStructuredParser;
         this.ocrStructuredParser = ocrStructuredParser;
@@ -58,9 +61,11 @@ public class HybridDocumentParser implements DocumentParser {
         boolean layoutDocument = shouldUseLayout(spaceFile,file);
         ParsedDocument parsed = layoutDocument
                 ? layoutStructuredParser.parse(spaceFile,file)
-                : isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
+                : isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file)
+                : isPptx(spaceFile,file) ? pptxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
         if((!parsed.isSuccess() || qualityAssessor.isLowQuality(parsed)) && layoutDocument) {
-            ParsedDocument tikaParsed = isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
+            ParsedDocument tikaParsed = isDocx(spaceFile,file) ? docxStructuredParser.parse(spaceFile,file)
+                    : isPptx(spaceFile,file) ? pptxStructuredParser.parse(spaceFile,file) : tikaStructuredParser.parse(spaceFile,file);
             if(tikaParsed.isSuccess() && !qualityAssessor.isLowQuality(tikaParsed)) {
                 parsed = tikaParsed;
             }
@@ -129,7 +134,9 @@ public class HybridDocumentParser implements DocumentParser {
             result.setFileHash(document.getFileHash());
             result.setParser(document.getParser());
             result.setParserVersion(document.getParserVersion());
-            result.setParseStatus(document.isSuccess() ? SpaceConstant.RAG_TASK_SUCCESS : SpaceConstant.RAG_TASK_FAILED);
+            result.setParseStatus(document.isSuccess() && !document.isFallback()
+                    ? SpaceConstant.RAG_TASK_SUCCESS
+                    : SpaceConstant.RAG_TASK_FAILED);
             result.setFullText(document.getFullText());
             result.setBlocksJson(objectMapper.writeValueAsString(document.getBlocks()));
             result.setErrorMessage(document.getErrorMessage());
@@ -160,7 +167,7 @@ public class HybridDocumentParser implements DocumentParser {
 
     private String parserVersion() {
         RagProperties.Extraction extraction = ragProperties.getExtraction();
-        return extraction == null || extraction.getParserVersion() == null ? "structured-v2" : extraction.getParserVersion();
+        return extraction == null || extraction.getParserVersion() == null ? "structured-v3" : extraction.getParserVersion();
     }
 
     private String fileUuid(SpaceFile spaceFile, File file) {
@@ -180,5 +187,11 @@ public class HybridDocumentParser implements DocumentParser {
             return true;
         }
         return file != null && file.getType() != null && file.getType().toLowerCase().contains("docx");
+    }
+
+    private boolean isPptx(SpaceFile spaceFile, File file) {
+        String name = spaceFile != null && spaceFile.getFileName() != null ? spaceFile.getFileName() : file == null ? null : file.getName();
+        if(name != null && name.toLowerCase().endsWith(".pptx")) return true;
+        return file != null && file.getType() != null && file.getType().toLowerCase().contains("pptx");
     }
 }

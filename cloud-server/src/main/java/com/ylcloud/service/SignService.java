@@ -42,7 +42,7 @@ public class SignService {
         }
 
         String role = signMapper.countAll() == 0 ? ROLE_ADMIN : ROLE_USER;
-        createUser(userRegisterDTO,role);
+        createUser(userRegisterDTO,role,null);
     }
 
     /**
@@ -61,11 +61,23 @@ public class SignService {
         dto.setUsername(username);
         dto.setPassword(password);
         dto.setNickname(nickname);
-        createUser(dto,ROLE_ADMIN);
+        createUser(dto,ROLE_ADMIN,null);
         return true;
     }
 
-    private void createUser(UserRegisterDTO userRegisterDTO, String role) {
+    @Transactional
+    public Long createByAdmin(UserRegisterDTO userRegisterDTO, String role, String email) {
+        signMapper.lockRegistrationGuard();
+        if(signMapper.countByUsername(userRegisterDTO.getUsername()) > 0) {
+            throw new BaseException("用户名已存在");
+        }
+        if(!ROLE_ADMIN.equals(role) && !ROLE_USER.equals(role)) {
+            throw new BaseException("用户角色仅支持 ADMIN 或 USER");
+        }
+        return createUser(userRegisterDTO,role,email);
+    }
+
+    private Long createUser(UserRegisterDTO userRegisterDTO, String role, String email) {
         User user = new User();
         BeanUtils.copyProperties(userRegisterDTO,user);
         user.setPassword(passwordEncoder.encode(userRegisterDTO.getPassword()));
@@ -78,10 +90,11 @@ public class SignService {
             throw new RuntimeException("用户注册失败");
         }
         user.setRootID(fileService.getRootId(user.getId()));
-        rows = signMapper.updateAll(user.getRootID(),user.getId());
+        rows = signMapper.updateAll(user.getRootID(),user.getId(),email == null || email.isBlank() ? null : email.trim());
         if(rows == 0) {
             throw new RuntimeException("用户根目录绑定失败");
         }
         spaceService.createDefaultPersonalSpace(user.getId(),user.getUsername());
+        return user.getId();
     }
 }

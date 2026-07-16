@@ -67,6 +67,9 @@ public class MultifileService {
     private SiteSettingService siteSettingService;
 
     @Autowired
+    private StorageService storageService;
+
+    @Autowired
     private ChunkUploadLeaseService chunkUploadLeaseService;
 
     @Autowired
@@ -103,6 +106,8 @@ public class MultifileService {
                 multifileDTO.getFileMd5(),
                 multifileDTO.getFileSha1(),
                 multifileDTO.getFileSize());
+        storageService.requireAvailable(userId,storageService.additionalBytes(
+                userId,existingFile == null ? null : existingFile.getFileUuid(),multifileDTO.getFileSize()));
         if(existingFile != null) {
             log.info("文件已存在，执行秒传: {}", multifileDTO.getFileName());
             FileVO fileVO = reuseExistingFile(existingFile,multifileDTO.getFileName(),parentId,userId);
@@ -238,6 +243,7 @@ public class MultifileService {
         }
         Long parentId = normalizeParentId(task.getParentId(),userId);
         requireNoSameName(task.getFileName(),parentId,userId);
+        storageService.requireAvailable(userId,storageService.additionalBytes(userId,task.getFileUuid(),task.getFileSize()));
 
         if(multifileMapper.claimMerge(uploadId,userId) == 0) {
             UploadTask latest = multifileMapper.getByUploadId(uploadId,userId);
@@ -319,7 +325,7 @@ public class MultifileService {
         if(multifileDTO.getFileSize() == null || multifileDTO.getFileSize() <= 0) {
             throw new BaseException("文件大小不合法");
         }
-        if(multifileDTO.getFileSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
+        if(siteSettingService.exceedsUploadLimit(multifileDTO.getFileSize(),maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         if(multifileDTO.getFileMd5() == null || multifileDTO.getFileMd5().isBlank()) {

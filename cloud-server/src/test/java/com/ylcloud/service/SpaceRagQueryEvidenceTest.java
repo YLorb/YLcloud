@@ -29,6 +29,7 @@ import com.ylcloud.service.rag.retriever.RagMultiRouteRetriever;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -155,5 +156,13 @@ class SpaceRagQueryEvidenceTest {
         assertEquals(List.of("候选上下文"),result.getContexts());
         assertEquals(1,result.getCitations().size());
         assertEquals(11L,result.getCitations().get(0).getChunkId());
+    }
+
+    @Test
+    void chunkMetadataUsesJsonParsingInsteadOfWhitespaceSensitiveStringMatching() {
+        String metadata = "{ \"parser\" : \"metadata\", \"fallback\" : true }";
+
+        assertEquals("metadata",ReflectionTestUtils.invokeMethod(service,"metadataString",metadata,"parser"));
+        assertEquals("true",ReflectionTestUtils.invokeMethod(service,"metadataString",metadata,"fallback"));
     }
 }

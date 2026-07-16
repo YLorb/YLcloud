@@ -18,7 +18,7 @@ public class KnowledgePipelineIncrementalService {
 
     public String parserVersion() {
         return ragProperties == null || ragProperties.getExtraction() == null
-                ? "structured-v2"
+                ? "structured-v3"
                 : ragProperties.getExtraction().getParserVersion();
     }
 

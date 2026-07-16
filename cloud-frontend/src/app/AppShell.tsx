@@ -8,12 +8,13 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { Button } from "../components/ui/Button";
 import { useSession } from "./session";
+import { formatSize } from "../fileUtils";
 
 const navItems = [
   { to: "/files", label: "我的文件", icon: Files },
   { to: "/spaces", label: "团队空间", icon: Users },
   { to: "/knowledge", label: "知识库", icon: Database },
-  { to: "/assistant", label: "AI 助手", icon: Bot },
+  { to: "/assistant", label: "AI Assistant", icon: Bot },
   { to: "/tasks", label: "后台任务", icon: ListTodo }
 ];
 
@@ -21,9 +22,9 @@ const routeMeta = [
   { test: (path: string) => path.startsWith("/files"), title: "我的文件", description: "浏览、上传和管理你的云端文件。" },
   { test: (path: string) => path.startsWith("/spaces"), title: "团队空间", description: "协作管理文档、成员与版本。" },
   { test: (path: string) => path.startsWith("/knowledge"), title: "知识库", description: "管理 RAG 索引、知识画像和检索质量。" },
-  { test: (path: string) => path.startsWith("/assistant"), title: "AI 助手", description: "基于一个或多个知识库进行可信问答。" },
+  { test: (path: string) => path.startsWith("/assistant"), title: "AI Assistant", description: "基于一个或多个知识库进行可信、可恢复的问答。" },
   { test: (path: string) => path.startsWith("/tasks"), title: "后台任务", description: "查看执行阶段、结果并恢复失败任务。" },
-  { test: (path: string) => path.startsWith("/admin"), title: "系统设置", description: "管理站点、存储和模型服务配置。" }
+  { test: (path: string) => path.startsWith("/admin"), title: "Admin Settings", description: "管理站点信息、权限、存储配额和 AI/RAG 配置。" }
 ];
 
 export function AppShell() {
@@ -41,7 +42,9 @@ export function AppShell() {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     localStorage.setItem("ylcloud_theme", dark ? "dark" : "light");
   }, [dark]);
-  useEffect(() => setMobileOpen(false), [location.pathname]);
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -76,8 +79,8 @@ export function AppShell() {
           {isAdmin && (
             <>
               <span className="nav-eyebrow nav-eyebrow--spaced">管理</span>
-              <NavLink to="/admin/settings" aria-label="系统设置" title={collapsed ? "系统设置" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
-                <Settings size={19} aria-hidden="true" /><span>系统设置</span>
+              <NavLink to="/admin/settings" aria-label="Admin Settings" title={collapsed ? "Admin Settings" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
+                <Settings size={19} aria-hidden="true" /><span>Admin Settings</span>
               </NavLink>
             </>
           )}
@@ -86,6 +89,7 @@ export function AppShell() {
           <div className="quota-card">
             <div><span>存储空间</span><strong>{Math.round(quota.data?.usagePercent || 0)}%</strong></div>
             <progress max={100} value={quota.data?.usagePercent || 0}>存储已使用 {quota.data?.usagePercent || 0}%</progress>
+            <small>{formatSize(quota.data?.usedBytes)} / {formatSize(quota.data?.totalBytes)}</small>
           </div>
           <button className="collapse-button" onClick={toggleCollapsed} aria-expanded={!collapsed} aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}>
             {collapsed ? <ChevronRight size={18} /> : <><ChevronLeft size={18} /><span>收起导航</span></>}

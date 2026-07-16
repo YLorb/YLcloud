@@ -39,7 +39,7 @@ public interface SignMapper {
      * @return 影响行数
      */
     @Update("update users " +
-            "set root_id = #{rootId} " +
+            "set root_id = #{rootId}, email = #{email} " +
             "where user_id = #{userId}")
-    int updateAll(@Param("rootId") Long rootId,@Param("userId") Long userId);
+    int updateAll(@Param("rootId") Long rootId, @Param("userId") Long userId, @Param("email") String email);
 }

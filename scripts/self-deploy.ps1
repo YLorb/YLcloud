@@ -11,6 +11,8 @@ param(
     [switch]$RunTests,
     [switch]$RunSmoke,
     [string]$SmokePdfPath,
+    [string]$SmokeTestUsername = "e2e_smoke",
+    [string]$SmokeTestPassword = $env:YLCLOUD_E2E_PASSWORD,
     [switch]$AllowOfflineFallback
 )
 
@@ -270,7 +272,10 @@ try {
         if ([string]::IsNullOrWhiteSpace($SmokePdfPath) -or -not (Test-Path -LiteralPath $SmokePdfPath -PathType Leaf)) {
             throw "-RunSmoke requires an existing -SmokePdfPath"
         }
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "e2e-smoke.ps1") -BaseUrl "http://127.0.0.1:$frontendPort" -PdfPath $SmokePdfPath
+        if([string]::IsNullOrWhiteSpace($SmokeTestPassword)) {
+            throw "-RunSmoke requires -SmokeTestPassword or YLCLOUD_E2E_PASSWORD for the controlled smoke account"
+        }
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "e2e-smoke.ps1") -BaseUrl "http://127.0.0.1:$frontendPort" -PdfPath $SmokePdfPath -TestUsername $SmokeTestUsername -TestPassword $SmokeTestPassword
         if ($LASTEXITCODE -ne 0) {
             throw "E2E smoke test failed"
         }

@@ -37,6 +37,9 @@ public class SiteSettingService {
     public static final String SITE_PUBLIC_URL = "site.publicUrl";
     public static final String SITE_ALLOW_REGISTER = "site.allowRegister";
     public static final String UPLOAD_MAX_FILE_SIZE = "upload.maxFileSize";
+    public static final String STORAGE_DEFAULT_USER_QUOTA_BYTES = "storage.defaultUserQuotaBytes";
+    public static final String STORAGE_USER_QUOTA_BYTES = "storage.userQuotaBytes";
+    public static final String STORAGE_ADMIN_QUOTA_BYTES = "storage.adminQuotaBytes";
     public static final String LLM_ENABLED = "llm.enabled";
     public static final String LEGACY_LLM_API_KEY = "llm.apiKey";
     public static final String LLM_API_KEY_REF = "llm.apiKeyRef";
@@ -50,6 +53,7 @@ public class SiteSettingService {
     public List<SiteSettingVO> listForAdmin() {
         return siteSettingMapper.listAll().stream()
                 .filter(setting -> !LEGACY_LLM_API_KEY.equals(setting.getSettingKey()))
+                .filter(setting -> !STORAGE_DEFAULT_USER_QUOTA_BYTES.equals(setting.getSettingKey()))
                 .map(this::toVO)
                 .toList();
     }
@@ -115,6 +119,11 @@ public class SiteSettingService {
         }
     }
 
+    public boolean exceedsUploadLimit(long fileSize,Long fallback) {
+        long limit = getLong(UPLOAD_MAX_FILE_SIZE,fallback);
+        return limit > 0 && fileSize > limit;
+    }
+
     private String normalizeAndValidate(SiteSetting setting, String value) {
         String raw = value == null ? "" : value;
         String normalized = raw.trim();
@@ -145,8 +154,12 @@ public class SiteSettingService {
                 if(number.signum() < 0) {
                     throw new BaseException("数字配置不能小于 0：" + key);
                 }
-                if(UPLOAD_MAX_FILE_SIZE.equals(key) && (number.scale() > 0 || number.longValueExact() <= 0)) {
-                    throw new BaseException("单文件大小上限必须是正整数");
+                if(UPLOAD_MAX_FILE_SIZE.equals(key) && number.scale() > 0) {
+                    throw new BaseException("单文件大小上限必须是整数，0 表示无上限");
+                }
+                if(Set.of(STORAGE_DEFAULT_USER_QUOTA_BYTES,STORAGE_USER_QUOTA_BYTES,STORAGE_ADMIN_QUOTA_BYTES).contains(key)
+                        && (number.scale() > 0 || number.longValueExact() <= 0)) {
+                    throw new BaseException("存储配额必须是正整数");
                 }
             } catch(ArithmeticException | NumberFormatException exception) {
                 throw new BaseException("数字配置值不合法：" + key);
