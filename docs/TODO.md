@@ -2,7 +2,7 @@
 
 ## Level 2A：统一输入格式 + 执行安全增强 + 示例库
 
-状态：待实现
+状态：进行中
 
 目标：
 
@@ -13,42 +13,36 @@ Level 2A 不负责根据 goal 选择 workflow，而是让各种 workflow 来源�
 
 需要支持：
 
-```text
-1. 支持 JSON、YAML 和 Markdown 内嵌 Workflow。
-2. 所有输入格式统一转换为 JSON IR。
-3. 支持顺序执行和简单条件分支。
-4. 支持节点重试、超时和全局限制。
-5. 支持本地 Tool 和 MCP Tool。
-6. 工具调用前进行 Schema、权限和风险检查。
-7. 可以查看每一步输入、输出、状态、耗时和异常。
-8. 使用 Mock Provider 完成稳定自动化测试。
-9. 至少提供两个可运行的示例 Workflow。
-```
+- [ ] 支持 JSON、YAML 和 Markdown 内嵌 Workflow。（部分完成：JSON、YAML 已支持；Markdown 尚未可用。）
+- [ ] 所有输入格式统一转换为 JSON IR。（部分完成：JSON、YAML 已统一进入 `dict -> WorkflowValidator -> Workflow`；Markdown 尚未接通。）
+- [x] 支持顺序执行和简单条件分支。
+- [ ] 支持节点重试、超时和全局限制。（部分完成：Retry 和 `max_steps` 已支持；节点超时尚未正确实现，缺少全局时长限制。）
+- [x] 支持本地 Tool 和 Fake MCP Tool Provider。（当前 Level 2A 使用 Fake Provider 验证 MCP 工具导入边界，真实 MCP Client 留待后续。）
+- [ ] 工具调用前进行 Schema、权限和风险检查。
+- [x] 可以查看每一步输入、输出、状态、耗时和异常。
+- [x] 使用 Mock Provider 完成稳定自动化测试。（现有测试基础已完成；当前 Modified 代码仍需修复后重新执行全量测试。）
+- [ ] 至少提供两个可运行的示例 Workflow。（当前 JSON、YAML 文件描述的是同一个 Level 1 Workflow，不能算两个独立示例。）
 
 建议拆分任务：
 
-```text
-1. 明确 JSON IR 概念：JSON / YAML / Markdown -> dict -> Workflow。
-2. 实现 MarkdownWorkflowLoader，先支持 fenced code block 中的 yaml/json workflow。
-3. 让 WorkflowLoader 支持 .md。
-4. 增加第二个可运行示例 workflow，覆盖 condition 分支。
-5. 增加 CLI 对 .md workflow 的运行测试。
-6. 设计节点 timeout_seconds 和全局 max_duration_seconds。
-7. 为 ToolRegistry 引入 ToolSpec，描述 input_schema、permission 和 risk_level。
-8. 在 Tool 调用前做 schema、权限和风险检查。
-9. 用 FakeMCPToolProvider 覆盖 MCP Tool 自动化测试。
-```
+- [ ] 明确 JSON IR 概念：JSON / YAML / Markdown -> dict -> Workflow。（部分完成：JSON、YAML 链路已实现。）
+- [ ] 实现 MarkdownWorkflowLoader，先支持 fenced code block 中的 YAML/JSON Workflow。（已有初始代码，但当前无法运行且格式契约不一致。）
+- [ ] 让 WorkflowLoader 支持 `.md`。（已增加后缀分发，但 Markdown Loader 尚未可用。）
+- [ ] 增加第二个可运行示例 Workflow，覆盖 Condition 分支。
+- [ ] 增加 CLI 对 `.md` Workflow 的运行测试。
+- [ ] 设计节点 `timeout_seconds` 和全局 `max_duration_seconds`。（节点字段已加入模型，但执行逻辑尚未正确实现。）
+- [ ] 为 ToolRegistry 引入 ToolSpec，描述 `input_schema`、`permission` 和 `risk_level`。
+- [ ] 在 Tool 调用前做 Schema、权限和风险检查。
+- [x] 用 FakeMCPToolProvider 覆盖 MCP Tool 自动化测试。
 
 完成标准：
 
-```text
-1. python -m mini_agent_flow run examples/level1_manual_workflow.yaml 可以运行。
-2. python -m mini_agent_flow run examples/conditional_tool_workflow.yaml 可以运行。
-3. python -m mini_agent_flow run examples/markdown_embedded_workflow.md 可以运行。
-4. 全量测试通过。
-5. Trace 能展示每一步输入、输出、状态、耗时和异常。
-6. 未授权、schema 不匹配或高风险 tool 调用会在执行前被拒绝。
-```
+- [ ] `python -m mini_agent_flow run examples/level1_manual_workflow.yaml` 可以运行。（原有能力已实现，但当前 Executor 的 P0 语法错误会阻断运行。）
+- [ ] `python -m mini_agent_flow run examples/conditional_tool_workflow.yaml` 可以运行。（示例文件尚未创建。）
+- [ ] `python -m mini_agent_flow run examples/markdown_embedded_workflow.md` 可以运行。（示例文件和可用 Loader 均未完成。）
+- [ ] 全量测试通过。（当前 Modified 代码无法通过语法编译。）
+- [x] Trace 能展示每一步输入、输出、状态、耗时和异常。
+- [ ] 未授权、Schema 不匹配或高风险 Tool 调用会在执行前被拒绝。
 
 ## Level 2B：AI / 规则从模板库选择 Workflow
 

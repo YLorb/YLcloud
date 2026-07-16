@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,8 @@ class WorkflowLoader:
             return JsonWorkflowLoader(validator=self.validator).load(workflow_path)
         if suffix in {".yaml", ".yml"}:
             return YamlWorkflowLoader(validator=self.validator).load(workflow_path)
+        if suffix == ".md":
+            return MarkdownWorkflowLoader(validator=self.validator).load(workflow_path)
 
         raise WorkflowLoadError(
             f"workflow file must use .json, .yaml or .yml extension: {workflow_path}"
@@ -178,5 +181,72 @@ class YamlWorkflowLoader:
 
         if not isinstance(data, dict):
             raise WorkflowLoadError("workflow YAML root must be an object")
+
+        return data
+
+class MarkdownWorkflowLoader:
+    """Markdown Workflow Loader。
+
+    Markdown Loader 与 JSON Loader 的输出保持一致：只负责把 .md 文件解析成
+    dict，再交给 WorkflowValidator 校验，最后返回标准 Workflow 对象。
+    """
+
+    def __init__(self, validator: WorkflowValidator | None = None) -> None:
+        """创建 Markdown Loader。"""
+
+        self.validator = validator or WorkflowValidator()
+
+    def load(self, path: str | Path) -> Workflow:
+        """从 .md 文件加载并校验 workflow。"""
+
+        workflow_path = Path(path)
+        self._validate_path(workflow_path)
+        data = self._read_markdown(workflow_path)
+        return self.load_data(data)
+
+    def load_data(self, data: Any) -> Workflow:
+        """加载已解析的 YAML 数据。"""
+
+        if not isinstance(data, dict):
+            raise WorkflowLoadError("workflow Markdown root must be an object")
+
+        return self.validator.validate_data(data)
+
+    def _validate_path(self, path: Path) -> None:
+        """校验输入路径是一个存在的 Markdown 文件。"""
+
+        if not path.exists():
+            raise WorkflowLoadError(f"workflow file does not exist: {path}")
+        if not path.is_file():
+            raise WorkflowLoadError(f"workflow path is not a file: {path}")
+        if path.suffix.lower() not in {".md"}:
+            raise WorkflowLoadError(f"workflow file must use .md extension: {path}")
+
+    # (self, path: Path) -> dict[str, Any]:
+    def _read_markdown(self, path: Path) -> dict[str, Any]:
+        text = path.read_text(encoding="utf-8")
+        # 1. 提取 frontmatter → workflow 级元数据
+        fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
+        data = yaml.safe_load(fm_match.group(1))
+
+        # 2. 按 ## 切分，每段解析为节点 dict
+        body = text[fm_match.end():]
+        matches = list(re.finditer(r"^## (\S+)\s*\n", body, re.MULTILINE))
+
+        nodes = []
+        for i, m in enumerate(matches):
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
+            node_data = yaml.safe_load(body[m.end():end].strip()) or {}
+            node_data["id"] = m.group(1)
+            nodes.append(node_data)
+
+        data["nodes"] = nodes
+        return data
+    
+    def _ensure_md_object(self, data: Any) -> dict[str, Any]:
+        """确保 markdown 顶层是 object/mapping，并返回可交给 Validator 的 dict。"""
+
+        if not isinstance(data, dict):
+            raise WorkflowLoadError("workflow Markdown root must be an object")
 
         return data

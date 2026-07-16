@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from time import sleep
 from typing import Any
@@ -32,6 +33,9 @@ class WorkflowExecutionError(RuntimeError):
 
         super().__init__(message)
         self.trace = trace or []
+
+class NodeTimeoutError(Exception):
+    """节点执行超时。"""     
 
 
 @dataclass(frozen=True)
@@ -298,7 +302,8 @@ class SequentialWorkflowExecutor:
         context: WorkflowContext,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """执行 LLM 节点：渲染 prompt、调用 llm、写入 output。"""
-
+        
+        start = time.monotonic()
         try:
             prompt = self.resolver.resolve_template(node.prompt, context)
             result = self.llm.generate(prompt)
@@ -306,6 +311,9 @@ class SequentialWorkflowExecutor:
         except Exception as exc:
             raise WorkflowExecutionError(f"failed to execute llm node: {node.id}") from exc
 
+        elapsed = time.monotonic() - start
+        if node.timeout_seconds and elapsed > node.timeout_seconds:
+            raise NodeTimeoutError(f"timeout to execute llm node: {node.id}")
         return node.next, {"prompt": prompt}, {node.output: result}
 
     def _execute_tool_node(

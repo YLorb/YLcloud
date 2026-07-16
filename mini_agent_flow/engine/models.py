@@ -34,6 +34,7 @@ class BaseNode(BaseModel):
     description: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     retry: RetryPolicy | None = None
+    timeout_seconds: float | None = Field(default=None, gt=0)
 
 
 class StartNode(BaseNode):
