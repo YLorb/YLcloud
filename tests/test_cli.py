@@ -65,6 +65,25 @@ def test_cli_deepseek_provider_requires_key(monkeypatch) -> None:
     assert "DEEPSEEK_API_KEY is not configured" in result.output
 
 
+def test_cli_select_with_rule_selector_succeeds() -> None:
+    """CLI select 支持 --selector rule 参数。"""
+
+    result = runner.invoke(
+        app,
+        [
+            "select",
+            "--goal",
+            "分析 Python 报错",
+            "--selector",
+            "rule",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "python_error_analyzer" in result.output
+    assert "Selected Workflow" in result.output
+
+
 def test_cli_configures_supported_streams_as_utf8(monkeypatch) -> None:
     """CLI 应将可配置的标准流切换到 UTF-8，支持模型返回完整 Unicode。"""
 

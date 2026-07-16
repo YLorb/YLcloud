@@ -17,11 +17,14 @@ from mini_agent_flow.llm.base import LLMClientError
 from mini_agent_flow.llm.deepseek import DEFAULT_DEEPSEEK_MODEL
 from mini_agent_flow.llm.factory import LLMProvider, create_llm
 from mini_agent_flow.planner.catalog import TemplateCatalogError, WorkflowTemplateCatalog
+from mini_agent_flow.planner.corrector import WorkflowCorrector
+from mini_agent_flow.planner.generator import GeneratedWorkflow, WorkflowGenerator
 from mini_agent_flow.planner.models import Level2RunResult
 from mini_agent_flow.planner.selector import (
     NoMatchingTemplateError,
     RuleBasedTemplateSelector,
     TemplateSelectionError,
+    create_selector,
 )
 from mini_agent_flow.planner.service import Level2ExecutionError, Level2WorkflowService
 from mini_agent_flow.tools.builtin import create_default_tool_registry
@@ -84,6 +87,11 @@ def select_workflow(
     ),
     provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
     model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
+    selector: str = typer.Option(
+        "rule",
+        "--selector",
+        help="Template selection strategy: rule, llm, or hybrid.",
+    ),
 ) -> None:
     """Select and run a Level 2 workflow template for a Goal."""
 
@@ -92,13 +100,14 @@ def select_workflow(
         validator = WorkflowValidator(allowed_tools=registry.names())
         loader = WorkflowLoader(validator=validator)
         catalog = WorkflowTemplateCatalog(templates_dir, loader=loader)
+        llm = create_llm(provider, model=model)
         executor = SequentialWorkflowExecutor(
-            llm=create_llm(provider, model=model),
+            llm=llm,
             tool_registry=registry,
         )
         service = Level2WorkflowService(
             catalog=catalog,
-            selector=RuleBasedTemplateSelector(),
+            selector=create_selector(selector, llm, use_llm=False),
             validator=validator,
             executor=executor,
         )
@@ -137,6 +146,96 @@ def _print_level2_result(result: Level2RunResult, show_trace: bool) -> None:
     console.print(Panel(" -> ".join(result.executed_nodes), title="Executed Nodes", expand=False))
     if show_trace:
         console.print(_build_trace_table(result.trace))
+
+
+@app.command("make")
+def make_workflow(
+    goal: str = typer.Option(..., "--goal", help="Goal used to generate a workflow."),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Optional path to save the generated workflow YAML.",
+    ),
+    provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
+    model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
+) -> None:
+    """Generate a workflow from a natural language goal using LLM."""
+
+    try:
+        registry = create_default_tool_registry()
+        validator = WorkflowValidator(allowed_tools=registry.names())
+        llm = create_llm(provider, model=model)
+        generator = WorkflowGenerator(llm=llm, validator=validator)
+        result = generator.generate(goal, allowed_tools=registry.names())
+    except (
+        LLMClientError,
+        WorkflowValidationError,
+        WorkflowLoadError,
+    ) as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+
+    console.print(Panel(result.workflow.name, title="Generated Workflow", expand=False))
+    console.print(Panel(result.generated_yaml, title="YAML", expand=False))
+    console.print(Panel(f"repair attempts: {result.repair_attempts}", title="Validation", expand=False))
+
+    if output:
+        output.write_text(result.generated_yaml, encoding="utf-8")
+        console.print(f"Saved workflow to {output}")
+
+
+@app.command("correct")
+def correct_workflow(
+    workflow_path: Path = typer.Argument(..., help="Path to a workflow file to correct."),
+    error_message: str = typer.Option(
+        ...,
+        "--error",
+        help="Validation error message used to guide the correction.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Optional path to save the corrected workflow YAML.",
+    ),
+    provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
+    model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
+) -> None:
+    """Correct an invalid workflow using LLM."""
+
+    try:
+        registry = create_default_tool_registry()
+        validator = WorkflowValidator(allowed_tools=registry.names())
+        llm = create_llm(provider, model=model)
+        corrector = WorkflowCorrector(llm=llm, validator=validator)
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        workflow = corrector.correct(workflow_text, error_message)
+    except (
+        LLMClientError,
+        WorkflowValidationError,
+        WorkflowLoadError,
+    ) as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+
+    console.print(Panel(workflow.name, title="Corrected Workflow", expand=False))
+
+    corrected_yaml = _workflow_to_yaml(workflow)
+    console.print(Panel(corrected_yaml, title="YAML", expand=False))
+
+    if output:
+        output.write_text(corrected_yaml, encoding="utf-8")
+        console.print(f"Saved corrected workflow to {output}")
+
+
+def _workflow_to_yaml(workflow: Any) -> str:
+    """将 Workflow 对象转成 YAML 字符串。"""
+
+    import yaml
+
+    data = workflow.model_dump(mode="python")
+    return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
 
 
 def _print_error(exc: Exception) -> None:
