@@ -1,0 +1,38 @@
+---
+title: YLcloud Obsidian 同步入口
+type: moc
+project: YLcloud
+updated: 2026-07-16
+tags: [ylcloud, navigation, documentation, obsidian]
+---
+
+# YLcloud 文档导航
+
+> [!info] 权威 Vault
+> 当前文档位于 `docs/obsidian/`。本文件只作为仓库根目录的同步入口，不重复维护项目状态。
+
+## 权威入口
+
+1. [[docs/obsidian/01-项目简介概览与目标/项目简介、概览与目标]]
+2. [[docs/obsidian/02-已完成任务]]
+3. [[docs/obsidian/03-进行中任务]]
+4. [[docs/obsidian/04-待完成任务]]
+5. [[docs/obsidian/05-待验收任务]]
+6. [[docs/obsidian/06-项目架构/项目架构总览]]
+7. [[docs/obsidian/07-状态机设计/状态机设计总览]]
+8. [[docs/obsidian/08-项目功能总览]]
+9. [[docs/obsidian/09-项目功能详解/功能详解导航]]
+10. [[docs/obsidian/problems]]
+
+## 本轮前端入口
+
+- [[docs/obsidian/09-项目功能详解/07-任务运维与前端/前端应用架构与页面功能]]
+- [[docs/obsidian/09-项目功能详解/07-任务运维与前端/统一异步任务视图]]
+- [[docs/obsidian/09-项目功能详解/07-任务运维与前端/容器化部署、健康检查与恢复]]
+
+## 同步规则
+
+- 项目状态只在 `02` 至 `05` 状态页维护。
+- 功能实现细节只在对应功能目录维护。
+- 总览只向下链接细分文档，细分文档不反向维护总览链接。
+- `archive/` 和 `outputs/` 仅用于历史证据，不作为当前状态来源。
