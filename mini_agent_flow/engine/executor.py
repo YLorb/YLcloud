@@ -63,6 +63,8 @@ class SequentialWorkflowExecutor:
         tool_registry: ToolRegistry,
         resolver: VariableResolver | None = None,
         max_steps: int = 100,
+        allowed_permissions: set[str] | None = None,
+        max_risk_level: int | None = None,
     ) -> None:
         """创建顺序执行器。"""
 
@@ -73,6 +75,8 @@ class SequentialWorkflowExecutor:
         self.tool_registry = tool_registry
         self.resolver = resolver or VariableResolver()
         self.max_steps = max_steps
+        self.allowed_permissions = allowed_permissions
+        self.max_risk_level = max_risk_level
 
     def run(self, workflow: Workflow) -> WorkflowRunResult:
         """执行 workflow，并返回最终 Context 快照。"""
@@ -321,13 +325,16 @@ class SequentialWorkflowExecutor:
         node: ToolNode,
         context: WorkflowContext,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        """执行 Tool 节点：解析 input、获取工具、调用工具、写入 output。"""
+        """执行 Tool 节点：解析 input、校验 spec、调用工具、写入 output。"""
 
         try:
             tool_input = self.resolver.resolve_value(node.input, context)
             tool = self.tool_registry.get(node.tool)
+            self._validate_tool_spec(node.tool, tool_input)
             result = tool(tool_input)
             context.set(node.output, result)
+        except WorkflowExecutionError:
+            raise
         except Exception as exc:
             raise WorkflowExecutionError(f"failed to execute tool node: {node.id}") from exc
 
@@ -336,6 +343,50 @@ class SequentialWorkflowExecutor:
             {"tool": node.tool, "tool_input": tool_input},
             {node.output: result},
         )
+
+    def _validate_tool_spec(self, tool_name: str, tool_input: Any) -> None:
+        """基于 ToolSpec 进行运行时权限、风险等级和输入 schema 校验。"""
+
+        spec = self.tool_registry.get_spec(tool_name)
+        if spec is None:
+            return
+
+        if self.allowed_permissions is not None and spec.permission not in self.allowed_permissions:
+            raise WorkflowExecutionError(
+                f"tool {tool_name!r} permission {spec.permission!r} is not allowed"
+            )
+        if self.max_risk_level is not None and spec.risk_level > self.max_risk_level:
+            raise WorkflowExecutionError(
+                f"tool {tool_name!r} risk level {spec.risk_level} exceeds max {self.max_risk_level}"
+            )
+
+        self._validate_tool_input(tool_name, tool_input, spec.input_schema)
+
+    def _validate_tool_input(
+        self,
+        tool_name: str,
+        tool_input: Any,
+        schema: dict[str, Any] | None,
+    ) -> None:
+        """校验工具输入是否符合简化的 JSON Schema 子集。
+
+        支持的校验项包括：type、anyOf、items。使用内置实现避免引入额外
+        编译依赖，同时覆盖当前内置工具所需的 schema 场景。
+        """
+
+        if schema is None:
+            return
+
+        if schema == {"type": "any"}:
+            return
+
+        errors = _validate_value_against_schema(tool_input, schema)
+        if errors:
+            message = "; ".join(errors)
+            raise WorkflowExecutionError(
+                f"tool {tool_name!r} input does not match schema: {message}"
+            )
+
 
     def _index_nodes(self, workflow: Workflow) -> dict[str, WorkflowNode]:
         """建立 node_id 到节点对象的映射。"""
@@ -427,3 +478,56 @@ class SequentialWorkflowExecutor:
                 return True
             return True
         return bool(value)
+
+
+def _validate_value_against_schema(value: Any, schema: dict[str, Any]) -> list[str]:
+    """递归校验值是否符合 schema，返回所有错误信息。"""
+
+    errors: list[str] = []
+
+    if "anyOf" in schema:
+        sub_schemas = schema["anyOf"]
+        if not isinstance(sub_schemas, list):
+            return ["anyOf must be a list"]
+        if not sub_schemas:
+            return []
+        sub_errors: list[str] = []
+        for sub_schema in sub_schemas:
+            local_errors = _validate_value_against_schema(value, sub_schema)
+            if not local_errors:
+                break
+            sub_errors.append(f"({local_errors[0]})")
+        else:
+            errors.append(f"value does not match anyOf: {', '.join(sub_errors)}")
+        return errors
+
+    schema_type = schema.get("type")
+    if schema_type is None:
+        return errors
+
+    if schema_type == "string" and not isinstance(value, str):
+        errors.append(f"expected string, got {type(value).__name__}")
+    elif schema_type == "integer" and not isinstance(value, int):
+        errors.append(f"expected integer, got {type(value).__name__}")
+    elif schema_type == "number" and not isinstance(value, (int, float)):
+        errors.append(f"expected number, got {type(value).__name__}")
+    elif schema_type == "boolean" and not isinstance(value, bool):
+        errors.append(f"expected boolean, got {type(value).__name__}")
+    elif schema_type == "array" and not isinstance(value, list):
+        errors.append(f"expected array, got {type(value).__name__}")
+    elif schema_type == "object" and not isinstance(value, dict):
+        errors.append(f"expected object, got {type(value).__name__}")
+    elif schema_type == "null" and value is not None:
+        errors.append(f"expected null, got {type(value).__name__}")
+    elif schema_type not in {"string", "integer", "number", "boolean", "array", "object", "null", "any"}:
+        errors.append(f"unsupported schema type: {schema_type}")
+
+    if schema_type == "array":
+        items_schema = schema.get("items")
+        if items_schema is not None and isinstance(value, list):
+            for index, item in enumerate(value):
+                item_errors = _validate_value_against_schema(item, items_schema)
+                for item_error in item_errors:
+                    errors.append(f"item {index}: {item_error}")
+
+    return errors

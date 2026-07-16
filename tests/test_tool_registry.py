@@ -4,6 +4,7 @@ import pytest
 
 from mini_agent_flow.tools.builtin import create_default_tool_registry, echo, mock_search
 from mini_agent_flow.tools.registry import ToolRegistry, ToolRegistryError
+from mini_agent_flow.tools.spec import ToolSpec
 
 
 def test_register_and_get_tool() -> None:
@@ -126,3 +127,48 @@ def test_mock_search_accepts_list_input() -> None:
         {"title": "Mock result for LangGraph", "source": "mock_search"},
         {"title": "Mock result for Dify", "source": "mock_search"},
     ]
+
+
+def test_register_with_spec() -> None:
+    """注册工具时可以附带 ToolSpec，后续可通过 get_spec 取回。"""
+
+    registry = ToolRegistry()
+    spec = ToolSpec(name="echo", description="echo spec", permission="public", risk_level=0)
+    registry.register("echo", echo, spec=spec)
+
+    assert registry.get_spec("echo") == spec
+
+
+def test_get_spec_returns_none_when_no_spec() -> None:
+    """未提供 ToolSpec 时，get_spec 返回 None 而不是报错。"""
+
+    registry = ToolRegistry()
+    registry.register("echo", echo)
+
+    assert registry.get_spec("echo") is None
+
+
+def test_unregister_removes_spec() -> None:
+    """unregister 工具时应同时移除对应的 ToolSpec。"""
+
+    registry = ToolRegistry()
+    registry.register("echo", echo, spec=ToolSpec(name="echo"))
+    registry.unregister("echo")
+
+    assert registry.has("echo") is False
+    assert registry.get_spec("echo") is None
+
+
+def test_register_many_with_specs() -> None:
+    """批量注册工具时可以同时批量注册 ToolSpec。"""
+
+    registry = ToolRegistry()
+    tools = {"echo": echo, "mock_search": mock_search}
+    specs = {
+        "echo": ToolSpec(name="echo", permission="public"),
+        "mock_search": ToolSpec(name="mock_search", permission="public"),
+    }
+    registry.register_many(tools, specs=specs)
+
+    assert registry.get_spec("echo") == specs["echo"]
+    assert registry.get_spec("mock_search") == specs["mock_search"]

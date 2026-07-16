@@ -4,6 +4,8 @@ import re
 from collections.abc import Mapping
 from typing import Any, Callable
 
+from mini_agent_flow.tools.spec import ToolSpec
+
 
 TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 ToolCallable = Callable[[Any], Any]
@@ -28,12 +30,16 @@ class ToolRegistry:
         """创建空工具注册表。"""
 
         self._tools: dict[str, ToolCallable] = {}
+        self._specs: dict[str, ToolSpec] = {}
 
-    def register(self, name: str, tool: ToolCallable) -> None:
-        """注册一个工具。
-
-        第一版不允许重复注册同名工具，避免误覆盖已存在的安全工具实现。
-        """
+    def register(
+        self,
+        name: str,
+        tool: ToolCallable,
+        *,
+        spec: ToolSpec | None = None,
+    ) -> None:
+        """注册一个工具，可选附带 ToolSpec 元数据。"""
 
         self._validate_name(name)
         if not callable(tool):
@@ -42,8 +48,15 @@ class ToolRegistry:
             raise ToolRegistryError(f"tool is already registered: {name}")
 
         self._tools[name] = tool
+        if spec is not None:
+            self._specs[name] = spec
 
-    def register_many(self, tools: Mapping[str, ToolCallable]) -> None:
+    def register_many(
+        self,
+        tools: Mapping[str, ToolCallable],
+        *,
+        specs: Mapping[str, ToolSpec] | None = None,
+    ) -> None:
         """批量注册工具。
 
         Provider 导入外部工具时会一次返回多个 callable。这里先完整校验所有工具，
@@ -53,7 +66,9 @@ class ToolRegistry:
         if not isinstance(tools, Mapping):
             raise ToolRegistryError("tools must be a mapping")
 
+        specs = specs or {}
         validated_tools: dict[str, ToolCallable] = {}
+        validated_specs: dict[str, ToolSpec] = {}
         for name, tool in tools.items():
             self._validate_name(name)
             if not callable(tool):
@@ -61,8 +76,11 @@ class ToolRegistry:
             if name in self._tools:
                 raise ToolRegistryError(f"tool is already registered: {name}")
             validated_tools[name] = tool
+            if name in specs:
+                validated_specs[name] = specs[name]
 
         self._tools.update(validated_tools)
+        self._specs.update(validated_specs)
 
     def get(self, name: str) -> ToolCallable:
         """按工具名获取 callable。"""
@@ -71,6 +89,12 @@ class ToolRegistry:
         if name not in self._tools:
             raise ToolRegistryError(f"tool is not registered: {name}")
         return self._tools[name]
+
+    def get_spec(self, name: str) -> ToolSpec | None:
+        """按工具名获取 ToolSpec，未注册工具或 spec 时返回 None。"""
+
+        self._validate_name(name)
+        return self._specs.get(name)
 
     def has(self, name: str) -> bool:
         """判断工具是否已注册。"""
@@ -94,6 +118,7 @@ class ToolRegistry:
         if name not in self._tools:
             raise ToolRegistryError(f"tool is not registered: {name}")
         del self._tools[name]
+        self._specs.pop(name, None)
 
     def _validate_name(self, name: str) -> None:
         """校验工具名与 workflow ToolNode.tool 字段规则一致。"""

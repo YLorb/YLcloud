@@ -7,8 +7,9 @@ from mini_agent_flow.engine.loader import JsonWorkflowLoader
 from mini_agent_flow.engine.models import Workflow
 from mini_agent_flow.engine.validator import WorkflowValidator
 from mini_agent_flow.llm.mock import MockLLM
-from mini_agent_flow.tools.builtin import create_default_tool_registry
+from mini_agent_flow.tools.builtin import create_default_tool_registry, echo, mock_search
 from mini_agent_flow.tools.registry import ToolRegistry
+from mini_agent_flow.tools.spec import ToolSpec
 
 
 def load_example_workflow() -> Workflow:
@@ -209,3 +210,86 @@ def test_executor_rejects_invalid_max_steps() -> None:
             tool_registry=create_default_tool_registry(),
             max_steps=0,
         )
+
+
+def _build_tool_workflow(input_value: object) -> Workflow:
+    return Workflow.model_validate(
+        {
+            "version": "1.0",
+            "name": "tool_spec_workflow",
+            "inputs": {"value": input_value},
+            "nodes": [
+                {"id": "start", "type": "start", "next": "call"},
+                {
+                    "id": "call",
+                    "type": "tool",
+                    "tool": "echo",
+                    "input": "{{ value }}",
+                    "output": "result",
+                    "next": "end",
+                },
+                {"id": "end", "type": "end"},
+            ],
+        }
+    )
+
+
+def test_executor_validates_tool_input_schema() -> None:
+    """工具输入符合 ToolSpec 的 JSON Schema 时可以正常执行。"""
+
+    registry = ToolRegistry()
+    registry.register("echo", echo, spec=ToolSpec(name="echo", input_schema={"type": "any"}))
+    workflow = _build_tool_workflow("hello")
+    executor = SequentialWorkflowExecutor(llm=MockLLM(), tool_registry=registry)
+
+    result = executor.run(workflow)
+
+    assert result.context["result"] == "hello"
+
+
+def test_executor_rejects_invalid_tool_input_schema() -> None:
+    """工具输入不符合 JSON Schema 时，执行应失败。"""
+
+    registry = ToolRegistry()
+    registry.register(
+        "echo",
+        echo,
+        spec=ToolSpec(name="echo", input_schema={"type": "string"}),
+    )
+    workflow = _build_tool_workflow(123)
+    executor = SequentialWorkflowExecutor(llm=MockLLM(), tool_registry=registry)
+
+    with pytest.raises(WorkflowExecutionError, match="schema"):
+        executor.run(workflow)
+
+
+def test_executor_rejects_tool_with_unallowed_permission() -> None:
+    """运行时工具权限不在允许集合内时应失败。"""
+
+    registry = ToolRegistry()
+    registry.register("echo", echo, spec=ToolSpec(name="echo", permission="private"))
+    workflow = _build_tool_workflow("hello")
+    executor = SequentialWorkflowExecutor(
+        llm=MockLLM(),
+        tool_registry=registry,
+        allowed_permissions={"public"},
+    )
+
+    with pytest.raises(WorkflowExecutionError, match="permission"):
+        executor.run(workflow)
+
+
+def test_executor_rejects_tool_with_excessive_risk() -> None:
+    """运行时工具风险等级超过上限时应失败。"""
+
+    registry = ToolRegistry()
+    registry.register("echo", echo, spec=ToolSpec(name="echo", risk_level=10))
+    workflow = _build_tool_workflow("hello")
+    executor = SequentialWorkflowExecutor(
+        llm=MockLLM(),
+        tool_registry=registry,
+        max_risk_level=5,
+    )
+
+    with pytest.raises(WorkflowExecutionError, match="risk level"):
+        executor.run(workflow)

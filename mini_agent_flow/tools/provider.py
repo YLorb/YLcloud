@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from mini_agent_flow.tools.registry import ToolCallable
+from mini_agent_flow.tools.spec import ToolSpec
 
 
 class ToolProvider(Protocol):
@@ -14,3 +15,10 @@ class ToolProvider(Protocol):
 
     def load_tools(self) -> dict[str, ToolCallable]:
         """加载当前 Provider 提供的工具。"""
+
+        ...
+
+    def load_specs(self) -> dict[str, ToolSpec]:
+        """加载当前 Provider 提供的工具元数据。"""
+
+        ...

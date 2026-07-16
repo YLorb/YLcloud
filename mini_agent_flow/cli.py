@@ -52,11 +52,17 @@ def run_workflow(
 
     try:
         registry = create_default_tool_registry()
-        validator = WorkflowValidator(allowed_tools=registry.names())
+        tool_specs = _tool_specs_from_registry(registry)
+        validator = WorkflowValidator(
+            allowed_tools=registry.names(),
+            tool_specs=tool_specs,
+        )
         loader = WorkflowLoader(validator=validator)
         executor = SequentialWorkflowExecutor(
             llm=create_llm(provider, model=model),
             tool_registry=registry,
+            allowed_permissions={"public"},
+            max_risk_level=5,
         )
         workflow = loader.load(workflow_path)
         result = executor.run(workflow)
@@ -97,13 +103,19 @@ def select_workflow(
 
     try:
         registry = create_default_tool_registry()
-        validator = WorkflowValidator(allowed_tools=registry.names())
+        tool_specs = _tool_specs_from_registry(registry)
+        validator = WorkflowValidator(
+            allowed_tools=registry.names(),
+            tool_specs=tool_specs,
+        )
         loader = WorkflowLoader(validator=validator)
         catalog = WorkflowTemplateCatalog(templates_dir, loader=loader)
         llm = create_llm(provider, model=model)
         executor = SequentialWorkflowExecutor(
             llm=llm,
             tool_registry=registry,
+            allowed_permissions={"public"},
+            max_risk_level=5,
         )
         service = Level2WorkflowService(
             catalog=catalog,
@@ -164,7 +176,11 @@ def make_workflow(
 
     try:
         registry = create_default_tool_registry()
-        validator = WorkflowValidator(allowed_tools=registry.names())
+        tool_specs = _tool_specs_from_registry(registry)
+        validator = WorkflowValidator(
+            allowed_tools=registry.names(),
+            tool_specs=tool_specs,
+        )
         llm = create_llm(provider, model=model)
         generator = WorkflowGenerator(llm=llm, validator=validator)
         result = generator.generate(goal, allowed_tools=registry.names())
@@ -206,7 +222,11 @@ def correct_workflow(
 
     try:
         registry = create_default_tool_registry()
-        validator = WorkflowValidator(allowed_tools=registry.names())
+        tool_specs = _tool_specs_from_registry(registry)
+        validator = WorkflowValidator(
+            allowed_tools=registry.names(),
+            tool_specs=tool_specs,
+        )
         llm = create_llm(provider, model=model)
         corrector = WorkflowCorrector(llm=llm, validator=validator)
         workflow_text = workflow_path.read_text(encoding="utf-8")
@@ -227,6 +247,17 @@ def correct_workflow(
     if output:
         output.write_text(corrected_yaml, encoding="utf-8")
         console.print(f"Saved corrected workflow to {output}")
+
+
+def _tool_specs_from_registry(registry: Any) -> dict[str, Any]:
+    """从 ToolRegistry 中提取所有已注册的 ToolSpec。"""
+
+    specs: dict[str, Any] = {}
+    for name in registry.names():
+        spec = registry.get_spec(name)
+        if spec is not None:
+            specs[name] = spec
+    return specs
 
 
 def _workflow_to_yaml(workflow: Any) -> str:

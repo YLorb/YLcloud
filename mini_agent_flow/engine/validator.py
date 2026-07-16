@@ -13,6 +13,7 @@ from mini_agent_flow.engine.models import (
     Workflow,
     WorkflowNode,
 )
+from mini_agent_flow.tools.spec import ToolSpec
 
 
 class WorkflowValidationError(ValueError):
@@ -30,14 +31,25 @@ class WorkflowValidator:
     所有节点是否可达、是否存在 start 到 end 的路径，以及 tool 是否在白名单中。
     """
 
-    def __init__(self, allowed_tools: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        allowed_tools: set[str] | None = None,
+        *,
+        allowed_permissions: set[str] | None = None,
+        max_risk_level: int | None = None,
+        tool_specs: dict[str, ToolSpec] | None = None,
+    ) -> None:
         """创建校验器。
 
         allowed_tools 为 None 表示暂不限制工具名；传入集合时，tool 节点只能引用
-        集合内的工具。这个限制是后续执行真实工具前的重要安全边界。
+        集合内的工具。allowed_permissions 和 max_risk_level 用于基于 ToolSpec
+        的权限与风险检查。tool_specs 提供工具的元数据。
         """
 
         self.allowed_tools = allowed_tools
+        self.allowed_permissions = allowed_permissions
+        self.max_risk_level = max_risk_level
+        self.tool_specs = tool_specs or {}
 
     def validate_file(self, path: str | Path) -> Workflow:
         """读取 workflow 文件并完成校验。
@@ -60,6 +72,7 @@ class WorkflowValidator:
 
         self._validate_edges(workflow)
         self._validate_allowed_tools(workflow)
+        self._validate_tool_specs(workflow)
         self._validate_declared_outputs(workflow)
         self._validate_reachability(workflow)
         self._validate_path_to_end(workflow)
@@ -94,6 +107,31 @@ class WorkflowValidator:
         if invalid_tools:
             joined_tools = ", ".join(sorted(set(invalid_tools)))
             raise WorkflowValidationError(f"workflow references unsupported tools: {joined_tools}")
+
+    def _validate_tool_specs(self, workflow: Workflow) -> None:
+        """基于 ToolSpec 校验 tool 节点的权限与风险等级。
+
+        只有同时提供 tool_specs 且节点引用的工具存在对应 spec 时才会执行检查。
+        allowed_permissions 为 None 时不限制权限；max_risk_level 为 None 时不限制风险。
+        """
+
+        if not self.tool_specs:
+            return
+
+        for node in workflow.nodes:
+            if not isinstance(node, ToolNode):
+                continue
+            spec = self.tool_specs.get(node.tool)
+            if spec is None:
+                continue
+            if self.allowed_permissions is not None and spec.permission not in self.allowed_permissions:
+                raise WorkflowValidationError(
+                    f"tool {node.tool!r} permission {spec.permission!r} is not allowed"
+                )
+            if self.max_risk_level is not None and spec.risk_level > self.max_risk_level:
+                raise WorkflowValidationError(
+                    f"tool {node.tool!r} risk level {spec.risk_level} exceeds max {self.max_risk_level}"
+                )
 
     def _validate_declared_outputs(self, workflow: Workflow) -> None:
         """校验 workflow.outputs 声明的字段有明确来源。"""

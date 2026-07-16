@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from mini_agent_flow.engine.validator import WorkflowValidationError, WorkflowValidator
+from mini_agent_flow.tools.spec import ToolSpec
 
 
 EXAMPLE_PATH = Path("examples/level1_manual_workflow.json")
@@ -135,3 +136,51 @@ def test_declared_outputs_must_be_unique(valid_workflow_data: dict) -> None:
 
     with pytest.raises(WorkflowValidationError, match="duplicate"):
         WorkflowValidator(allowed_tools={"mock_search"}).validate_data(data)
+
+
+def test_tool_permission_not_allowed_fails(valid_workflow_data: dict) -> None:
+    """ToolSpec 权限不在允许集合内时，校验应失败。"""
+
+    data = copy.deepcopy(valid_workflow_data)
+    tool_specs = {
+        "mock_search": ToolSpec(name="mock_search", permission="private", risk_level=0),
+    }
+
+    with pytest.raises(WorkflowValidationError, match="permission"):
+        WorkflowValidator(
+            allowed_tools={"mock_search"},
+            allowed_permissions={"public"},
+            tool_specs=tool_specs,
+        ).validate_data(data)
+
+
+def test_tool_risk_level_exceeds_max_fails(valid_workflow_data: dict) -> None:
+    """ToolSpec 风险等级超过上限时，校验应失败。"""
+
+    data = copy.deepcopy(valid_workflow_data)
+    tool_specs = {
+        "mock_search": ToolSpec(name="mock_search", permission="public", risk_level=10),
+    }
+
+    with pytest.raises(WorkflowValidationError, match="risk level"):
+        WorkflowValidator(
+            allowed_tools={"mock_search"},
+            max_risk_level=5,
+            tool_specs=tool_specs,
+        ).validate_data(data)
+
+
+def test_tool_spec_without_policy_passes(valid_workflow_data: dict) -> None:
+    """未设置权限/风险策略时，即使 ToolSpec 存在也不影响校验。"""
+
+    data = copy.deepcopy(valid_workflow_data)
+    tool_specs = {
+        "mock_search": ToolSpec(name="mock_search", permission="private", risk_level=10),
+    }
+
+    workflow = WorkflowValidator(
+        allowed_tools={"mock_search"},
+        tool_specs=tool_specs,
+    ).validate_data(data)
+
+    assert workflow.name == "research_summarizer"

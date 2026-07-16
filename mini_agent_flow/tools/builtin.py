@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from mini_agent_flow.tools.registry import ToolRegistry
+from mini_agent_flow.tools.spec import ToolSpec
 
 
 def echo(input_value: Any) -> Any:
@@ -32,12 +33,37 @@ def mock_search(query: Any) -> list[dict[str, str]]:
     ]
 
 
+def _echo_spec() -> ToolSpec:
+    return ToolSpec(
+        name="echo",
+        description="返回输入原值，无任何副作用。",
+        input_schema={"type": "any"},
+        permission="public",
+        risk_level=0,
+    )
+
+
+def _mock_search_spec() -> ToolSpec:
+    return ToolSpec(
+        name="mock_search",
+        description="根据查询返回本地 mock 搜索结果，不联网。",
+        input_schema={
+            "anyOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+            ]
+        },
+        permission="public",
+        risk_level=0,
+    )
+
+
 def create_default_tool_registry() -> ToolRegistry:
     """创建默认本地工具注册表。"""
 
     registry = ToolRegistry()
-    registry.register("mock_search", mock_search)
-    registry.register("echo", echo)
+    registry.register("mock_search", mock_search, spec=_mock_search_spec())
+    registry.register("echo", echo, spec=_echo_spec())
     return registry
 
 
