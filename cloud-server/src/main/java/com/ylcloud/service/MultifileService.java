@@ -258,15 +258,49 @@ public class MultifileService {
             if(!minioclientUtil.objectMatchesSize(fileUuid,task.getFileSize())) {
                 minioclientUtil.mergeFileParts(mergeReqVO);
             }
+            validateMergedObjectDigests(task,fileUuid);
             FileVO fileVO = saveMergedFile(task,fileUuid,parentId,userId);
             if(multifileMapper.markMerged(uploadId,fileUuid) == 0) {
                 throw new IllegalStateException("上传任务合并状态提交失败");
             }
             cleanupPartsAfterCommit(task.getId(),fileUuid);
             return fileVO;
+        } catch (MergedObjectDigestException e) {
+            try {
+                minioclientUtil.removeObjectAllVersions(fileUuid);
+            } catch (Exception cleanupError) {
+                e.addSuppressed(cleanupError);
+                log.error("合并摘要校验失败后的对象清理失败: uploadId={}, fileUuid={}",uploadId,fileUuid,cleanupError);
+            }
+            log.warn("合并文件摘要校验失败: uploadId={}, algorithm={}",uploadId,e.algorithm);
+            throw new BaseException("合并文件摘要校验失败");
         } catch (Exception e) {
             log.error("分片合并失败: {}", uploadId, e);
             throw new BaseException("分片合并失败");
+        }
+    }
+
+    private void validateMergedObjectDigests(UploadTask task, String fileUuid) throws Exception {
+        MinioclientUtil.ObjectDigests actual = minioclientUtil.calculateObjectDigests(fileUuid);
+        requireDigest("MD5",task.getFileMd5(),actual.md5());
+        requireDigest("SHA1",task.getFileSha1(),actual.sha1());
+        if(task.getFileHash() != null && task.getFileHash().matches("(?i)^[0-9a-f]{64}$")) {
+            requireDigest("SHA256",task.getFileHash(),actual.sha256());
+        }
+    }
+
+    private void requireDigest(String algorithm, String expected, String actual) {
+        if(expected == null || actual == null || !expected.equalsIgnoreCase(actual)) {
+            throw new MergedObjectDigestException(algorithm);
+        }
+    }
+
+    private static final class MergedObjectDigestException extends RuntimeException {
+        private final String algorithm;
+
+        private MergedObjectDigestException(String algorithm) {
+            super(algorithm + " digest mismatch");
+            this.algorithm = algorithm;
         }
     }
 
