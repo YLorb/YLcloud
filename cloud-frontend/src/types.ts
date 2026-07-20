@@ -483,6 +483,7 @@ export type KnowledgeRagQuery = {
 export type KnowledgeChatMessage = {
   id: number;
   sessionId: number;
+  sequenceNo?: number;
   role: "user" | "assistant" | "system";
   content: string;
   citationsJson?: string;
@@ -512,9 +513,31 @@ export type KnowledgeChatSession = {
   spaceIds: number[];
   messageCount?: number;
   messages?: KnowledgeChatMessage[];
+  summaryVersion?: number;
   createtime?: string;
   updatetime?: string;
 };
+
+export type UserMemory = {
+  id: number;
+  sourceSessionId: number;
+  sourceMessageId: number;
+  memoryType: "FACT" | "PREFERENCE" | "CONSTRAINT" | "DECISION";
+  content: string;
+  normalizedKey: string;
+  confidence?: number;
+  userConfirmed: boolean;
+  pinned: boolean;
+  expiresAt?: string;
+  version: number;
+  memoryStatus: string;
+  createtime?: string;
+  updatetime?: string;
+};
+
+export type UserMemorySetting = { enabled: boolean; retentionDays: number };
+export type UserMemoryStats = { activeCount: number; pinnedCount: number; pendingCount: number; failedCount: number; contextTokens: number; feedbackCount: number; helpfulCount: number };
+export type KnowledgeChatEpisode = { id: number; episodeNo: number; startSequenceNo: number; endSequenceNo: number; title: string; summary?: string; messageCount: number; updatetime?: string };
 
 export type RagAnalyticsSummary = {
   spaceId: number;

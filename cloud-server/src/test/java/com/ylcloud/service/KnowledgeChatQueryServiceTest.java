@@ -25,13 +25,15 @@ class KnowledgeChatQueryServiceTest {
     private final KnowledgeChatMessageMapper messageMapper = mock(KnowledgeChatMessageMapper.class);
     private final SpacePermissionService permissionService = mock(SpacePermissionService.class);
     private final KnowledgeRagQueryService ragQueryService = mock(KnowledgeRagQueryService.class);
+    private final ConversationContextService contextService = mock(ConversationContextService.class);
     private final KnowledgeChatQueryService service = new KnowledgeChatQueryService(
-            sessionMapper,messageMapper,permissionService,ragQueryService,new ObjectMapper(),Runnable::run);
+            sessionMapper,messageMapper,permissionService,ragQueryService,contextService,new ObjectMapper(),Runnable::run);
 
     @Test
     void submitPersistsUserAndRecoverableAssistantMessages() {
         KnowledgeChatSession session = new KnowledgeChatSession(); session.setId(3L); session.setUserId(7L);
-        when(sessionMapper.getActive(3L,7L)).thenReturn(session);
+        when(sessionMapper.getActiveForUpdate(3L,7L)).thenReturn(session);
+        when(sessionMapper.reserveSequences(eq(3L),eq(7L),eq(2),any())).thenReturn(1);
         when(messageMapper.insert(any())).thenAnswer(invocation -> { KnowledgeChatMessage message = invocation.getArgument(0); message.setId("user".equals(message.getRole()) ? 10L : 11L); return 1; });
 
         var result = service.submit(3L,7L,request(),"request-1");
@@ -51,6 +53,7 @@ class KnowledgeChatQueryServiceTest {
         task.setRequestJson(new ObjectMapper().writeValueAsString(request()));
         when(messageMapper.claimQueued(11L)).thenReturn(1);
         when(messageMapper.getTaskById(11L)).thenReturn(task);
+        when(contextService.resolve(task)).thenReturn(new ConversationContextSnapshot(1,3L,7L,11L,10L,List.of(),List.of(),0,0,1,0,List.of(),"test",java.time.LocalDateTime.now()));
         KnowledgeRagQueryVO result = new KnowledgeRagQueryVO(); result.setAnswer("answer"); result.setCitations(List.of());
         when(ragQueryService.query(any(),eq(7L))).thenReturn(result);
 

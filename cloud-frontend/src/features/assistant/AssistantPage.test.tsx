@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantPage } from "./AssistantPage";
 
@@ -25,7 +26,9 @@ vi.mock("../../api", () => ({
     updateKnowledgeChatSessionScope: vi.fn(),
     submitKnowledgeChatQuery: vi.fn(),
     deleteKnowledgeChatSession: vi.fn(),
-    retryKnowledgeChatQuery: vi.fn()
+    retryKnowledgeChatQuery: vi.fn(),
+    listKnowledgeChatEpisodes: vi.fn().mockResolvedValue([]),
+    submitKnowledgeChatFeedback: vi.fn()
   }
 }));
 
@@ -44,7 +47,7 @@ describe("AssistantPage effects", () => {
     render(
       <StrictMode>
         <QueryClientProvider client={client}>
-          <AssistantPage />
+          <MemoryRouter><AssistantPage /></MemoryRouter>
         </QueryClientProvider>
       </StrictMode>
     );
@@ -55,7 +58,7 @@ describe("AssistantPage effects", () => {
 
   it("keeps an explicit new-session draft instead of reselecting the first session", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><AssistantPage /></QueryClientProvider>);
+    render(<QueryClientProvider client={client}><MemoryRouter><AssistantPage /></MemoryRouter></QueryClientProvider>);
 
     expect(await screen.findByText("如何安装？")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{ name: "新建会话" }));

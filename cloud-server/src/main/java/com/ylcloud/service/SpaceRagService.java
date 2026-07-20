@@ -254,7 +254,7 @@ public class SpaceRagService {
         int limit = resolveQueryTopK(config,dto.getRetrievalMode());
         QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),dto.getHistory());
         List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
-        RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config);
+        RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config,dto.getHistory());
         String answer = chatResult.getAnswer();
         boolean noAnswer = chatResult.isNoAnswer() || answer == null || answer.isBlank();
         List<Long> hitChunkIds = new ArrayList<>();

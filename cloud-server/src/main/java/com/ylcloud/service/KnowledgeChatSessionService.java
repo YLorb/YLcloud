@@ -13,6 +13,7 @@ import com.ylcloud.entity.KnowledgeChatSession;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -28,13 +29,22 @@ public class KnowledgeChatSessionService {
     private final KnowledgeChatSessionMapper sessionMapper;
     private final KnowledgeChatMessageMapper messageMapper;
     private final SpacePermissionService spacePermissionService;
+    private final com.ylcloud.service.memory.UserMemoryService userMemoryService;
 
+    @Autowired
     public KnowledgeChatSessionService(KnowledgeChatSessionMapper sessionMapper,
                                        KnowledgeChatMessageMapper messageMapper,
-                                       SpacePermissionService spacePermissionService) {
+                                       SpacePermissionService spacePermissionService,
+                                       com.ylcloud.service.memory.UserMemoryService userMemoryService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.spacePermissionService = spacePermissionService;
+        this.userMemoryService = userMemoryService;
+    }
+
+    KnowledgeChatSessionService(KnowledgeChatSessionMapper sessionMapper, KnowledgeChatMessageMapper messageMapper,
+                                SpacePermissionService spacePermissionService) {
+        this(sessionMapper,messageMapper,spacePermissionService,null);
     }
 
     public List<KnowledgeChatSessionVO> list(Long userId, String keyword, Integer limit) {
@@ -57,6 +67,8 @@ public class KnowledgeChatSessionService {
         session.setTitle(resolveTitle(dto.getTitle()));
         session.setScopeMode(resolveScopeMode(dto.getScopeMode(),spaceIds));
         session.setScopeSpaceIds(joinSpaceIds(spaceIds));
+        session.setNextSequenceNo(1L);
+        session.setSummaryVersion(0);
         session.setStatus(StatusConstant.ENABLE);
         session.setCreatetime(now);
         session.setUpdatetime(now);
@@ -98,6 +110,7 @@ public class KnowledgeChatSessionService {
     public Boolean delete(Long userId, Long sessionId) {
         requireSession(userId,sessionId);
         messageMapper.disableBySessionId(sessionId);
+        if(userMemoryService != null) userMemoryService.deleteSourceSession(userId,sessionId);
         int rows = sessionMapper.disable(sessionId,userId,LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("会话删除失败");
@@ -107,10 +120,13 @@ public class KnowledgeChatSessionService {
 
     @Transactional
     public KnowledgeChatMessageVO appendMessage(Long userId, Long sessionId, KnowledgeChatMessageCreateDTO dto) {
-        requireSession(userId,sessionId);
+        KnowledgeChatSession session = requireSessionForUpdate(userId,sessionId);
+        long sequenceNo = session.getNextSequenceNo() == null ? 1 : session.getNextSequenceNo();
+        if(sessionMapper.reserveSequences(sessionId,userId,1,LocalDateTime.now()) == 0) throw new BaseException("会话序号分配失败");
         KnowledgeChatMessage message = new KnowledgeChatMessage();
         message.setSessionId(sessionId);
         message.setUserId(userId);
+        message.setSequenceNo(sequenceNo);
         message.setRole(dto.getRole() == null || dto.getRole().isBlank() ? "user" : dto.getRole());
         message.setContent(dto.getContent());
         message.setCitationsJson(dto.getCitationsJson());
@@ -131,6 +147,12 @@ public class KnowledgeChatSessionService {
         return session;
     }
 
+    private KnowledgeChatSession requireSessionForUpdate(Long userId, Long sessionId) {
+        KnowledgeChatSession session = sessionMapper.getActiveForUpdate(sessionId,userId);
+        if(session == null) throw new BaseException("会话不存在");
+        return session;
+    }
+
     private void requireSpaces(Long userId, List<Long> spaceIds) {
         for(Long spaceId : spaceIds) {
             spacePermissionService.requireMember(spaceId,userId);
@@ -144,6 +166,7 @@ public class KnowledgeChatSessionService {
         vo.setTitle(session.getTitle());
         vo.setScopeMode(session.getScopeMode());
         vo.setSpaceIds(parseSpaceIds(session.getScopeSpaceIds()));
+        vo.setSummaryVersion(session.getSummaryVersion());
         vo.setCreatetime(session.getCreatetime());
         vo.setUpdatetime(session.getUpdatetime());
         if(withMessages) {
@@ -161,6 +184,7 @@ public class KnowledgeChatSessionService {
         KnowledgeChatMessageVO vo = new KnowledgeChatMessageVO();
         vo.setId(message.getId());
         vo.setSessionId(message.getSessionId());
+        vo.setSequenceNo(message.getSequenceNo());
         vo.setRole(message.getRole());
         vo.setContent(message.getContent());
         vo.setCitationsJson(message.getCitationsJson());

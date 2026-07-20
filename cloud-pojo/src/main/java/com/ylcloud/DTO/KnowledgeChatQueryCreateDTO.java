@@ -18,6 +18,4 @@ public class KnowledgeChatQueryCreateDTO {
     private List<Long> spaceIds;
 
     private String retrievalMode;
-    @Size(max = 10)
-    private List<RagChatMessageDTO> history;
 }

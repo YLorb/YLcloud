@@ -1,16 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Bot, Check, ChevronLeft, FileText, MessageSquarePlus, Plus, RotateCw, Search, Send, Sparkles, Trash2, User } from "lucide-react";
+import { AlertCircle, Bot, Check, ChevronLeft, FileText, ListTree, MessageSquarePlus, Plus, RotateCw, Search, Send, Sparkles, ThumbsDown, ThumbsUp, Trash2, User } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../api";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/PageState";
-import type { KnowledgeChatMessage, KnowledgeChatSession, RagCitation, RagChatMessage } from "../../types";
+import type { KnowledgeChatMessage, KnowledgeChatSession, RagCitation } from "../../types";
+import { useSearchParams } from "react-router-dom";
 
 export function AssistantPage() {
   const client = useQueryClient();
-  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [searchParams] = useSearchParams();
+  const linkedSessionId = Number(searchParams.get("sessionId"));
+  const [sessionId, setSessionId] = useState<number | null>(() => Number.isFinite(linkedSessionId) && linkedSessionId > 0 ? linkedSessionId : null);
   const [newSessionDraft, setNewSessionDraft] = useState(false);
   const [sessionSearch, setSessionSearch] = useState("");
   const [question, setQuestion] = useState("");
@@ -21,6 +24,7 @@ export function AssistantPage() {
   const spaces = useQuery({ queryKey: ["spaces"], queryFn: api.listSpaces });
   const sessions = useQuery({ queryKey: ["chat-sessions", sessionSearch], queryFn: () => api.listKnowledgeChatSessions(sessionSearch), staleTime: 5_000 });
   const activeSession = useQuery({ queryKey: ["chat-session", sessionId], queryFn: () => api.getKnowledgeChatSession(sessionId!), enabled: Boolean(sessionId), refetchInterval: (query) => query.state.data?.messages?.some((message) => ["QUEUED", "RUNNING"].includes(message.taskStatus || "")) ? 2_000 : false });
+  const episodes = useQuery({ queryKey: ["chat-episodes", sessionId], queryFn: () => api.listKnowledgeChatEpisodes(sessionId!), enabled: Boolean(sessionId && activeSession.data?.messages?.length) });
   useEffect(() => {
     if (initialSessionHydrated.current || newSessionDraft || !sessions.isSuccess) return;
     initialSessionHydrated.current = true;
@@ -45,8 +49,7 @@ export function AssistantPage() {
       } else if (!sameNumbers(activeSession.data?.spaceIds || [], selectedSpaces)) {
         await api.updateKnowledgeChatSessionScope(currentSessionId, selectedSpaces);
       }
-      const history = (activeSession.data?.messages || []).filter((message) => !["QUEUED", "RUNNING", "FAILED"].includes(message.taskStatus || "")).slice(-10).map<RagChatMessage>((message) => ({ role: message.role, content: message.content }));
-      await api.submitKnowledgeChatQuery(currentSessionId, { spaceIds: selectedSpaces, question: content, retrievalMode: "balanced", history });
+      await api.submitKnowledgeChatQuery(currentSessionId, { spaceIds: selectedSpaces, question: content, retrievalMode: "balanced" });
       return currentSessionId;
     },
     onSuccess: async (id) => { setQuestion(""); await client.invalidateQueries({ queryKey: ["chat-sessions"] }); await client.invalidateQueries({ queryKey: ["chat-session", id] }); },
@@ -54,9 +57,11 @@ export function AssistantPage() {
   });
   const remove = useMutation({ mutationFn: (id: number) => api.deleteKnowledgeChatSession(id), onSuccess: () => { setDeleteTarget(null); if (deleteTarget?.id === sessionId) setSessionId(null); client.invalidateQueries({ queryKey: ["chat-sessions"] }); toast.success("会话已删除"); }, onError: (error) => toast.error(error instanceof Error ? error.message : "删除会话失败") });
   const retry = useMutation({ mutationFn: (messageId: number) => api.retryKnowledgeChatQuery(sessionId!, messageId), onSuccess: () => { client.invalidateQueries({ queryKey: ["chat-session", sessionId] }); toast.success("回答已重新排队"); }, onError: (error) => toast.error(error instanceof Error ? error.message : "重试失败") });
+  const feedback = useMutation({ mutationFn: ({ messageId, rating }: { messageId: number; rating: "HELPFUL" | "UNHELPFUL" }) => api.submitKnowledgeChatFeedback(sessionId!, messageId, { rating }), onSuccess: () => toast.success("感谢你的反馈"), onError: (error) => toast.error(error instanceof Error ? error.message : "反馈提交失败") });
 
   const messages = activeSession.data?.messages || [];
   const selectedSpaceDetails = (spaces.data || []).filter((space) => selectedSpaces.includes(space.id));
+  const episodeNavigation = episodes.data && episodes.data.length > 1 ? <nav className="episode-nav" aria-label="会话片段导航"><span><ListTree size={15} />对话片段</span>{episodes.data.map((episode) => <button key={episode.id} title={episode.summary || episode.title} onClick={() => document.getElementById(`message-${episode.startSequenceNo}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}>#{episode.episodeNo} {episode.title}</button>)}</nav> : null;
   return <div className="assistant-page"><aside className="assistant-sessions"><Button variant="confirm" className="full-width" onClick={() => { setNewSessionDraft(true); setSessionId(null); setQuestion(""); setSelectedSpaces([]); }}><MessageSquarePlus size={16} />新建会话</Button><label className="search-box search-box--small"><Search size={15} /><input value={sessionSearch} onChange={(event) => setSessionSearch(event.target.value)} placeholder="搜索会话" /></label><div className="session-list">{sessions.isLoading ? <LoadingState label="加载会话" /> : (sessions.data || []).map((session) => <div className={session.id === sessionId ? "session-item session-item--active" : "session-item"} key={session.id}><button onClick={() => { setNewSessionDraft(false); setSessionId(session.id); }}><strong>{session.title || "新会话"}</strong><small>{session.messageCount || 0} 条消息</small></button><button aria-label={`删除会话 ${session.title}`} onClick={() => setDeleteTarget(session)}><Trash2 size={14} /></button></div>)}</div></aside><section className="assistant-workspace"><div className="assistant-scope"><div className="assistant-scope__summary"><span className="section-eyebrow">知识范围</span>{selectedSpaceDetails.length ? <div className="knowledge-tags" aria-label="当前会话选择的知识库">{selectedSpaceDetails.map((space) => <span className="knowledge-tag" key={space.id}>{space.name}</span>)}</div> : <strong>选择回答所依据的知识库</strong>}</div><SpacePicker spaces={spaces.data || []} selected={selectedSpaces} onChange={setSelectedSpaces} /></div><div className="message-thread">{activeSession.isLoading ? <LoadingState label="正在加载会话" /> : activeSession.isError ? <ErrorState message={activeSession.error instanceof Error ? activeSession.error.message : "无法加载会话"} onRetry={() => activeSession.refetch()} /> : messages.length === 0 ? <div className="assistant-empty"><span><Sparkles size={28} /></span><h2>{newSessionDraft ? "开始一个新会话" : "从知识库中获得可信答案"}</h2><p>选择一个或多个知识库，然后询问文档内容、事实或流程。回答会附带可追溯引用。</p><div className="prompt-suggestions"><button onClick={() => setQuestion("概括这些知识库中最重要的主题")}>概括主要主题</button><button onClick={() => setQuestion("有哪些需要我关注的风险和待办？")}>查找风险与待办</button><button onClick={() => setQuestion("对比不同文档中的关键结论")}>对比关键结论</button></div></div> : messages.map((message) => <Message key={message.id} message={message} retrying={retry.isPending} onRetry={() => retry.mutate(message.id)} />)}{send.isPending && <div className="message-row message-row--assistant"><span className="message-avatar"><Bot size={17} /></span><div className="message-bubble message-bubble--thinking"><i /><i /><i /><span>正在安全提交问题…</span></div></div>}<div ref={messageEnd} /></div><form className="assistant-composer" onSubmit={(event) => { event.preventDefault(); send.mutate(); }}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send.mutate(); } }} placeholder="询问知识库中的内容…" rows={2} disabled={send.isPending} /><Button variant="confirm" size="icon" type="submit" aria-label="发送问题" loading={send.isPending} disabled={!question.trim() || !selectedSpaces.length}><Send size={17} /></Button><small>问题和处理状态由后端持久化；刷新页面不会丢失正在生成的回答。</small></form></section><Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)} title="删除会话？" description="这将永久删除会话及其消息记录。" footer={<><Button onClick={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" loading={remove.isPending} onClick={() => deleteTarget && remove.mutate(deleteTarget.id)}><Trash2 size={16} />确认删除</Button></>}><div className="danger-callout">将删除：<strong>{deleteTarget?.title}</strong></div></Dialog></div>;
 }
 

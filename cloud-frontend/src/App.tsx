@@ -14,6 +14,7 @@ const FilesPage = lazy(() => import("./features/files/FilesPage").then((module) 
 const SpacesPage = lazy(() => import("./features/spaces/SpacesPage").then((module) => ({ default: module.SpacesPage })));
 const KnowledgePage = lazy(() => import("./features/knowledge/KnowledgePage").then((module) => ({ default: module.KnowledgePage })));
 const AssistantPage = lazy(() => import("./features/assistant/AssistantPage").then((module) => ({ default: module.AssistantPage })));
+const MemoryPage = lazy(() => import("./features/memory/MemoryPage").then((module) => ({ default: module.MemoryPage })));
 const TasksPage = lazy(() => import("./features/async/TasksPage").then((module) => ({ default: module.TasksPage })));
 const AdminSettingsPage = lazy(() => import("./features/settings/AdminSettingsPage").then((module) => ({ default: module.AdminSettingsPage })));
 
@@ -57,6 +58,7 @@ const router = createBrowserRouter([
         { path: "/spaces", element: <LazyPage><SpacesPage /></LazyPage> },
         { path: "/knowledge", element: <LazyPage><KnowledgePage /></LazyPage> },
         { path: "/assistant", element: <LazyPage><AssistantPage /></LazyPage> },
+        { path: "/memories", element: <LazyPage><MemoryPage /></LazyPage> },
         { path: "/tasks", element: <LazyPage><TasksPage /></LazyPage> },
         { element: <AdminRoute />, children: [{ path: "/admin/settings", element: <LazyPage><AdminSettingsPage /></LazyPage> }] }
       ]

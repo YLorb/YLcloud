@@ -13,6 +13,7 @@ import com.ylcloud.entity.KnowledgeChatSession;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,26 +33,39 @@ public class KnowledgeChatQueryService {
     private final KnowledgeChatMessageMapper messageMapper;
     private final SpacePermissionService spacePermissionService;
     private final KnowledgeRagQueryService ragQueryService;
+    private final ConversationContextService contextService;
+    private final com.ylcloud.service.memory.UserMemoryExtractionService memoryExtractionService;
     private final ObjectMapper objectMapper;
     private final Executor executor;
 
+    @Autowired
     public KnowledgeChatQueryService(KnowledgeChatSessionMapper sessionMapper,
                                      KnowledgeChatMessageMapper messageMapper,
                                      SpacePermissionService spacePermissionService,
                                      KnowledgeRagQueryService ragQueryService,
+                                     ConversationContextService contextService,
+                                     com.ylcloud.service.memory.UserMemoryExtractionService memoryExtractionService,
                                      ObjectMapper objectMapper,
                                      @Qualifier("ragTaskExecutor") Executor executor) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.spacePermissionService = spacePermissionService;
         this.ragQueryService = ragQueryService;
+        this.contextService = contextService;
+        this.memoryExtractionService = memoryExtractionService;
         this.objectMapper = objectMapper;
         this.executor = executor;
     }
 
+    KnowledgeChatQueryService(KnowledgeChatSessionMapper sessionMapper, KnowledgeChatMessageMapper messageMapper,
+                              SpacePermissionService spacePermissionService, KnowledgeRagQueryService ragQueryService,
+                              ConversationContextService contextService, ObjectMapper objectMapper, Executor executor) {
+        this(sessionMapper,messageMapper,spacePermissionService,ragQueryService,contextService,null,objectMapper,executor);
+    }
+
     @Transactional
     public KnowledgeChatMessageVO submit(Long sessionId, Long userId, KnowledgeChatQueryCreateDTO dto, String requestKey) {
-        KnowledgeChatSession session = requireSession(sessionId,userId);
+        KnowledgeChatSession session = requireSessionForUpdate(sessionId,userId);
         List<Long> spaceIds = normalizeSpaces(dto.getSpaceIds());
         spaceIds.forEach(spaceId -> spacePermissionService.requireMember(spaceId,userId));
         String normalizedKey = normalizeRequestKey(requestKey);
@@ -61,9 +75,12 @@ public class KnowledgeChatQueryService {
         }
 
         LocalDateTime now = LocalDateTime.now();
+        long firstSequence = session.getNextSequenceNo() == null ? 1 : session.getNextSequenceNo();
+        if(sessionMapper.reserveSequences(sessionId,userId,2,now) == 0) throw new BaseException("会话序号分配失败");
         KnowledgeChatMessage userMessage = new KnowledgeChatMessage();
         userMessage.setSessionId(sessionId);
         userMessage.setUserId(userId);
+        userMessage.setSequenceNo(firstSequence);
         userMessage.setRole("user");
         userMessage.setContent(dto.getQuestion().trim());
         userMessage.setRetryCount(0);
@@ -76,6 +93,8 @@ public class KnowledgeChatQueryService {
         KnowledgeChatMessage assistant = new KnowledgeChatMessage();
         assistant.setSessionId(sessionId);
         assistant.setUserId(userId);
+        assistant.setSequenceNo(firstSequence + 1);
+        assistant.setSourceMessageId(userMessage.getId());
         assistant.setRole("assistant");
         assistant.setContent("正在生成回答…");
         assistant.setTaskStatus("QUEUED");
@@ -122,16 +141,21 @@ public class KnowledgeChatQueryService {
         }
         try {
             KnowledgeChatQueryCreateDTO request = objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class);
+            ConversationContextSnapshot context = contextService.resolve(message);
             KnowledgeRagQueryDTO ragRequest = new KnowledgeRagQueryDTO();
             ragRequest.setQuestion(request.getQuestion());
             ragRequest.setSpaceIds(request.getSpaceIds());
             ragRequest.setRetrievalMode(request.getRetrievalMode());
-            ragRequest.setHistory(request.getHistory());
+            ragRequest.setHistory(context.history());
             KnowledgeRagQueryVO result = ragQueryService.query(ragRequest,message.getUserId());
+            contextService.finalizeRetrieval(message,context,result.getCitations() == null ? List.of() : result.getCitations().stream()
+                    .map(citation -> citation.getChunkId()).filter(java.util.Objects::nonNull).distinct().toList());
             String answer = result.getAnswer() == null || result.getAnswer().isBlank()
                     ? "当前知识库中没有足够相关的信息来回答这个问题。" : result.getAnswer().trim();
             String citations = objectMapper.writeValueAsString(result.getCitations() == null ? List.of() : result.getCitations());
-            messageMapper.markSuccess(messageId,answer,citations);
+            if(messageMapper.markSuccess(messageId,answer,citations) > 0) {
+                if(memoryExtractionService != null) memoryExtractionService.enqueue(message);
+            }
         } catch(Exception exception) {
             messageMapper.markFailed(messageId,errorSummary(exception));
         }
@@ -167,6 +191,12 @@ public class KnowledgeChatQueryService {
         return session;
     }
 
+    private KnowledgeChatSession requireSessionForUpdate(Long sessionId, Long userId) {
+        KnowledgeChatSession session = sessionMapper.getActiveForUpdate(sessionId,userId);
+        if(session == null) throw new BaseException("会话不存在");
+        return session;
+    }
+
     private List<Long> normalizeSpaces(List<Long> values) {
         Set<Long> spaces = new LinkedHashSet<>();
         if(values != null) values.stream().filter(id -> id != null && id > 0).forEach(spaces::add);
@@ -193,7 +223,7 @@ public class KnowledgeChatQueryService {
 
     private KnowledgeChatMessageVO toVO(KnowledgeChatMessage message) {
         KnowledgeChatMessageVO vo = new KnowledgeChatMessageVO();
-        vo.setId(message.getId()); vo.setSessionId(message.getSessionId()); vo.setRole(message.getRole());
+        vo.setId(message.getId()); vo.setSessionId(message.getSessionId()); vo.setSequenceNo(message.getSequenceNo()); vo.setRole(message.getRole());
         vo.setContent(message.getContent()); vo.setCitationsJson(message.getCitationsJson());
         vo.setTaskStatus(message.getTaskStatus()); vo.setErrorMessage(message.getErrorMessage());
         vo.setRetryCount(message.getRetryCount()); vo.setCreatetime(message.getCreatetime()); vo.setUpdatetime(message.getUpdatetime());

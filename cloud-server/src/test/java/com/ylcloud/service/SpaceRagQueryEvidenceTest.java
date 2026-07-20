@@ -124,7 +124,7 @@ class SpaceRagQueryEvidenceTest {
 
     @Test
     void noAnswerClearsCitationsContextsHitIdsAndLoggedEvidence() {
-        when(chatService.answer(anyString(),anyList(),any()))
+        when(chatService.answer(anyString(),anyList(),any(),anyList()))
                 .thenReturn(RagChatResult.noAnswer("当前知识库中没有检索到足够的依据，无法回答该问题。"));
 
         SpaceRagQueryVO result = service.query(1L,query,7L);
@@ -141,7 +141,7 @@ class SpaceRagQueryEvidenceTest {
 
     @Test
     void modelUnavailableKeepsRetrievedCitationsForManualInspection() {
-        when(chatService.answer(anyString(),anyList(),any()))
+        when(chatService.answer(anyString(),anyList(),any(),anyList()))
                 .thenReturn(RagChatResult.failed("模型暂不可用，请查看引用。","model unavailable"));
         SpaceRagDocument document = new SpaceRagDocument();
         document.setId(21L);

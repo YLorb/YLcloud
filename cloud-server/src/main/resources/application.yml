@@ -67,8 +67,17 @@ ylcloud:
       port: ${YLCLOUD_RAG_QDRANT_PORT:6334}
       use-tls: ${YLCLOUD_RAG_QDRANT_USE_TLS:false}
       collection-name: ${YLCLOUD_RAG_QDRANT_COLLECTION_NAME:ylcloud_rag_bge_small_zh_v15}
+      memory-collection-name: ${YLCLOUD_MEMORY_QDRANT_COLLECTION_NAME:ylcloud_user_memory_bge_small_zh_v15}
       payload-text-key: text
       min-score: 0.0
+    memory:
+      enabled: ${YLCLOUD_MEMORY_ENABLED:true}
+      candidate-top-k: ${YLCLOUD_MEMORY_CANDIDATE_TOP_K:12}
+      top-k: ${YLCLOUD_MEMORY_TOP_K:5}
+      max-tokens: ${YLCLOUD_MEMORY_MAX_TOKENS:512}
+      retention-days: ${YLCLOUD_MEMORY_RETENTION_DAYS:365}
+      min-score: ${YLCLOUD_MEMORY_MIN_SCORE:0.25}
+      max-retries: ${YLCLOUD_MEMORY_MAX_RETRIES:8}
     rerank:
       enabled: ${YLCLOUD_RAG_RERANK_ENABLED:true}
       candidate-top-k: ${YLCLOUD_RAG_RERANK_CANDIDATE_TOP_K:5}
@@ -114,6 +123,8 @@ ylcloud:
       max-context-chars: 12000
       max-chunk-chars: 1800
       max-answer-tokens: 1024
+      max-history-tokens: ${YLCLOUD_CHAT_MAX_HISTORY_TOKENS:2048}
+      summary-max-tokens: ${YLCLOUD_CHAT_SUMMARY_MAX_TOKENS:512}
       temperature: 0.2
       no-answer-text: 当前知识库中没有检索到足够的依据，无法回答该问题。
       unavailable-text: 已检索到相关资料，但问答模型暂不可用。请先查看下方引用内容，稍后重试。

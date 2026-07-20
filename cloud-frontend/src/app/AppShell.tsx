@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Bot, ChevronLeft, ChevronRight, Database, Files, HardDrive, LayoutGrid,
+  Bot, BrainCircuit, ChevronLeft, ChevronRight, Database, Files, HardDrive, LayoutGrid,
   ListTodo, LogOut, Menu, Moon, Settings, Sun, Users, X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -15,10 +15,12 @@ const navItems = [
   { to: "/spaces", label: "团队空间", icon: Users },
   { to: "/knowledge", label: "知识库", icon: Database },
   { to: "/assistant", label: "AI Assistant", icon: Bot },
+  { to: "/memories", label: "记忆管理", icon: BrainCircuit },
   { to: "/tasks", label: "后台任务", icon: ListTodo }
 ];
 
 const routeMeta = [
+  { test: (path: string) => path.startsWith("/memories"), title: "记忆管理", description: "查看、修正或删除 AI 为跨会话连续性保存的个人长期记忆。" },
   { test: (path: string) => path.startsWith("/files"), title: "我的文件", description: "浏览、上传和管理你的云端文件。" },
   { test: (path: string) => path.startsWith("/spaces"), title: "团队空间", description: "协作管理文档、成员与版本。" },
   { test: (path: string) => path.startsWith("/knowledge"), title: "知识库", description: "管理 RAG 索引、知识画像和检索质量。" },

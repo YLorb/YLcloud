@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 public class KnowledgeChatMessageVO {
     private Long id;
     private Long sessionId;
+    private Long sequenceNo;
     private String role;
     private String content;
     private String citationsJson;
