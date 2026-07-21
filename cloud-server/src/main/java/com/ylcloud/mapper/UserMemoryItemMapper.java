@@ -80,6 +80,11 @@ public interface UserMemoryItemMapper {
     @Select("select " + COLUMNS + " from user_memory_item where id=#{id} and user_id=#{userId} and status=1")
     UserMemoryItem getOwned(@Param("id") Long id, @Param("userId") Long userId);
 
+    @Select({"<script>select " + COLUMNS + " from user_memory_item where user_id=#{userId} and status=1 and id in " +
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
+            "order by normalized_key,version desc,id desc</script>"})
+    List<UserMemoryItem> listOwnedVersions(@Param("userId") Long userId, @Param("ids") List<Long> ids);
+
     @Update("update user_memory_item set pinned=#{pinned}, updatetime=#{now} where id=#{id} and user_id=#{userId} and status=1 and memory_status='ACTIVE'")
     int setPinned(@Param("id") Long id, @Param("userId") Long userId, @Param("pinned") boolean pinned, @Param("now") LocalDateTime now);
 

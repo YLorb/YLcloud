@@ -65,6 +65,7 @@ class MapperSqlContractTest {
                     SqlSource source = languageDriver.createSqlSource(configuration,sql,Map.class);
                     Map<String,Object> parameters = new HashMap<>();
                     parameters.put("documentIds",List.of(1L));
+                    parameters.put("ids",List.of(1L));
                     String parsedSql = source.getBoundSql(parameters).getSql();
                     assertFalse(parsedSql.contains("&lt;") || parsedSql.contains("&gt;") || parsedSql.contains("CDATA"),
                             () -> mapper.getSimpleName() + "." + method.getName() + " leaks XML syntax: " + parsedSql);

@@ -22,7 +22,9 @@ public class WebConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/sign")
                 .excludePathPatterns("/api/login")
                 .excludePathPatterns("/api/site/public-settings")
-                .excludePathPatterns("/api/share/**");
+                .excludePathPatterns("/api/share/**")
+                // Internal API 使用独立 audience/scope/binding Service JWT，由各内部 Controller 强制验签。
+                .excludePathPatterns("/internal/**");
         registry.addInterceptor(userPermissionInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/api/sign", "/api/login", "/api/site/public-settings", "/api/share/**");
