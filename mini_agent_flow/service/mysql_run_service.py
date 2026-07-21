@@ -101,8 +101,10 @@ class MySQLRunApplicationService(RunApplicationService):
             raise self._not_found()
         return {"contractVersion": "1.0", "runId": run_id, "status": row["status"]}
 
-    async def retry_run(self, run_id: str) -> WorkflowRunAccepted:
-        return await asyncio.to_thread(self.store.retry_run, run_id)
+    async def retry_run(
+        self, run_id: str, metadata: RequestMetadata
+    ) -> WorkflowRunAccepted:
+        return await asyncio.to_thread(self.store.retry_run, run_id, metadata)
 
     async def recover_once(self) -> bool:
         if self.dispatcher is None:

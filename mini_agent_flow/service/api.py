@@ -282,11 +282,18 @@ def create_app(
         status_code=status.HTTP_202_ACCEPTED,
     )
     async def retry_run(
-        run_id: UUID, authorization: str | None = Header(default=None, alias="Authorization")
+        run_id: UUID,
+        idempotency_key: str = Header(alias="Idempotency-Key", min_length=1, max_length=256),
+        request_id: str = Header(alias="X-Request-Id", min_length=1, max_length=128),
+        traceparent: str | None = Header(default=None, max_length=128),
+        authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> dict[str, Any]:
         identity = auth.authenticate(authorization, {"workflow.run.retry"})
         require_bindings(identity, run_id=str(run_id))
-        accepted = await service.retry_run(str(run_id))
+        accepted = await service.retry_run(
+            str(run_id),
+            RequestMetadata(idempotency_key, request_id, traceparent),
+        )
         return accepted.model_dump(by_alias=True, mode="json")
 
     return application

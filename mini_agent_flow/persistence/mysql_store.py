@@ -304,42 +304,97 @@ class MySQLWorkflowStore:
                 connection.rollback()
                 raise
 
-    def retry_run(self, run_id: str) -> WorkflowRunAccepted:
-        with self.connection() as connection:
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT execution_epoch FROM workflow_run WHERE run_id=%s FOR UPDATE",
-                        (run_id,),
-                    )
-                    row = cursor.fetchone()
-                    if row is None:
-                        raise RunServiceError("NOT_FOUND", "workflow run not found", status_code=404)
-                    epoch = int(row["execution_epoch"]) + 1
-                    execution_id = str(uuid4())
-                    cursor.execute(
-                        "INSERT INTO workflow_execution(execution_id,run_id,epoch,status,created_at,updated_at) "
-                        "VALUES(%s,%s,%s,'QUEUED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
-                        (execution_id, run_id, epoch),
-                    )
-                    cursor.execute(
-                        "UPDATE workflow_run SET current_execution_id=%s,execution_epoch=%s,status='QUEUED',"
-                        "owner_id=NULL,owner_lease_until=NULL,version=version+1,updated_at=UTC_TIMESTAMP(6) "
-                        "WHERE run_id=%s",
-                        (execution_id, epoch, run_id),
-                    )
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                raise
-        return WorkflowRunAccepted(
-            contract_version="1.0",
-            run_id=run_id,
-            execution_id=execution_id,
-            execution_epoch=epoch,
-            status="QUEUED",
-            accepted_at=datetime.now(timezone.utc),
-        )
+    def retry_run(
+        self, run_id: str, metadata: RequestMetadata
+    ) -> WorkflowRunAccepted:
+        request_hash = hashlib.sha256(f"RETRY_RUN:{run_id}".encode("utf-8")).hexdigest()
+        try:
+            with self.connection() as connection:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT operation,request_hash,response_json "
+                            "FROM workflow_idempotency_record WHERE idempotency_key=%s FOR UPDATE",
+                            (metadata.idempotency_key,),
+                        )
+                        existing = cursor.fetchone()
+                        if existing is not None:
+                            connection.rollback()
+                            return self._validate_retry_replay(existing, request_hash)
+                        cursor.execute(
+                            "SELECT execution_epoch FROM workflow_run WHERE run_id=%s FOR UPDATE",
+                            (run_id,),
+                        )
+                        row = cursor.fetchone()
+                        if row is None:
+                            raise RunServiceError("NOT_FOUND", "workflow run not found", status_code=404)
+                        epoch = int(row["execution_epoch"]) + 1
+                        execution_id = str(uuid4())
+                        accepted = WorkflowRunAccepted(
+                            contract_version="1.0",
+                            run_id=run_id,
+                            execution_id=execution_id,
+                            execution_epoch=epoch,
+                            status="QUEUED",
+                            accepted_at=datetime.now(timezone.utc),
+                        )
+                        response_json = accepted.model_dump_json(by_alias=True)
+                        cursor.execute(
+                            "INSERT INTO workflow_execution(execution_id,run_id,epoch,status,created_at,updated_at) "
+                            "VALUES(%s,%s,%s,'QUEUED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
+                            (execution_id, run_id, epoch),
+                        )
+                        cursor.execute(
+                            "UPDATE workflow_run SET current_execution_id=%s,execution_epoch=%s,status='QUEUED',"
+                            "owner_id=NULL,owner_lease_until=NULL,version=version+1,updated_at=UTC_TIMESTAMP(6) "
+                            "WHERE run_id=%s",
+                            (execution_id, epoch, run_id),
+                        )
+                        cursor.execute(
+                            "INSERT INTO workflow_idempotency_record("
+                            "idempotency_key,operation,request_hash,run_id,execution_id,response_json,created_at,expires_at) "
+                            "VALUES(%s,'RETRY_RUN',%s,%s,%s,%s,UTC_TIMESTAMP(6),"
+                            "DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 24 HOUR))",
+                            (
+                                metadata.idempotency_key,
+                                request_hash,
+                                run_id,
+                                execution_id,
+                                response_json,
+                            ),
+                        )
+                    connection.commit()
+                    return accepted
+                except Exception:
+                    connection.rollback()
+                    raise
+        except pymysql.err.IntegrityError:
+            with self.connection() as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT operation,request_hash,response_json "
+                    "FROM workflow_idempotency_record WHERE idempotency_key=%s",
+                    (metadata.idempotency_key,),
+                )
+                existing = cursor.fetchone()
+            return self._validate_retry_replay(existing, request_hash)
+
+    def _validate_retry_replay(
+        self, row: dict[str, Any] | None, request_hash: str
+    ) -> WorkflowRunAccepted:
+        if (
+            row is None
+            or row["operation"] != "RETRY_RUN"
+            or row["request_hash"] != request_hash
+        ):
+            raise RunServiceError(
+                "IDEMPOTENCY_CONFLICT",
+                "idempotency key was reused with a different request",
+                status_code=409,
+            )
+        payload = row["response_json"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return WorkflowRunAccepted.model_validate(payload)
 
     def claim_recoverable_run(self, worker_id: str, lease_seconds: int) -> dict[str, Any] | None:
         with self.connection() as connection:

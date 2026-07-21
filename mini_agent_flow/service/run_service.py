@@ -65,7 +65,9 @@ class RunApplicationService(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def retry_run(self, run_id: str) -> WorkflowRunAccepted:
+    async def retry_run(
+        self, run_id: str, metadata: RequestMetadata
+    ) -> WorkflowRunAccepted:
         raise NotImplementedError
 
 
@@ -89,7 +91,9 @@ class UnconfiguredRunApplicationService(RunApplicationService):
     async def cancel_run(self, run_id: str) -> dict[str, Any]:
         raise self._unavailable()
 
-    async def retry_run(self, run_id: str) -> WorkflowRunAccepted:
+    async def retry_run(
+        self, run_id: str, metadata: RequestMetadata
+    ) -> WorkflowRunAccepted:
         raise self._unavailable()
 
     @staticmethod

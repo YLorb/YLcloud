@@ -232,3 +232,20 @@ def test_cancel_updates_run_and_current_execution_atomically(store: MySQLWorkflo
     assert row["run_status"] == "CANCELLED"
     assert row["execution_status"] == "CANCELLED"
     assert row["finished_at"] is not None
+
+
+def test_retry_creates_one_new_execution_per_idempotency_key(store: MySQLWorkflowStore) -> None:
+    accepted = store.accept_run(_request(), _metadata("retry-source"))
+    retry_metadata = _metadata("retry-once")
+    first = store.retry_run(str(accepted.run_id), retry_metadata)
+    replay = store.retry_run(str(accepted.run_id), retry_metadata)
+    assert first.execution_epoch == 2
+    assert replay.execution_id == first.execution_id
+    assert _count(store, "workflow_execution") == 2
+
+    other = store.accept_run(
+        _request(question="other run"), _metadata("retry-other-source")
+    )
+    with pytest.raises(RunServiceError) as conflict:
+        store.retry_run(str(other.run_id), retry_metadata)
+    assert conflict.value.code == "IDEMPOTENCY_CONFLICT"

@@ -60,7 +60,9 @@ class FakeRunService(RunApplicationService):
     async def cancel_run(self, run_id: str) -> dict[str, Any]:
         return {"runId": run_id, "status": "CANCELLED"}
 
-    async def retry_run(self, run_id: str) -> WorkflowRunAccepted:
+    async def retry_run(
+        self, run_id: str, metadata: RequestMetadata
+    ) -> WorkflowRunAccepted:
         return self._accepted(epoch=2)
 
     @staticmethod
@@ -125,7 +127,9 @@ def test_health_ready_lifespan_and_run_routes() -> None:
         )
         assert client.get(f"/internal/v1/workflow-runs/{RUN_ID}").status_code == 200
         assert client.post(f"/internal/v1/workflow-runs/{RUN_ID}/cancel").json()["status"] == "CANCELLED"
-        assert client.post(f"/internal/v1/workflow-runs/{RUN_ID}/retry").json()["executionEpoch"] == 2
+        assert client.post(
+            f"/internal/v1/workflow-runs/{RUN_ID}/retry", headers=_headers()
+        ).json()["executionEpoch"] == 2
     assert service.stopped is True
 
 

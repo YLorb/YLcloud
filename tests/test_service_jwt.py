@@ -100,7 +100,9 @@ class StubRunService(RunApplicationService):
     async def cancel_run(self, run_id: str) -> dict[str, Any]:
         return {"runId": run_id, "status": "CANCELLED"}
 
-    async def retry_run(self, run_id: str) -> WorkflowRunAccepted:
+    async def retry_run(
+        self, run_id: str, metadata: RequestMetadata
+    ) -> WorkflowRunAccepted:
         raise AssertionError("not used")
 
 
