@@ -5,5 +5,4 @@ import lombok.Data;
 @Data
 public class UserMemorySettingUpdateDTO {
     private Boolean enabled;
-    private Boolean clearExisting;
 }

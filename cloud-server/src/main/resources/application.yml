@@ -75,7 +75,7 @@ ylcloud:
       candidate-top-k: ${YLCLOUD_MEMORY_CANDIDATE_TOP_K:12}
       top-k: ${YLCLOUD_MEMORY_TOP_K:5}
       max-tokens: ${YLCLOUD_MEMORY_MAX_TOKENS:512}
-      retention-days: ${YLCLOUD_MEMORY_RETENTION_DAYS:365}
+      retention-days: ${YLCLOUD_MEMORY_RETENTION_DAYS:0}
       min-score: ${YLCLOUD_MEMORY_MIN_SCORE:0.25}
       max-retries: ${YLCLOUD_MEMORY_MAX_RETRIES:8}
     rerank:

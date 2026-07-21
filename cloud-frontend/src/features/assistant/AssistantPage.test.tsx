@@ -20,15 +20,20 @@ vi.mock("../../api", () => ({
       userId: 42,
       title: "安装说明",
       spaceIds: [48],
-      messages: [{ id: 11, sessionId: 7, role: "user", content: "如何安装？", taskStatus: "SUCCESS" }]
+      messages: [
+        { id: 11, sessionId: 7, sequenceNo: 1, role: "user", content: "如何安装？", taskStatus: "SUCCESS" },
+        { id: 12, sessionId: 7, sequenceNo: 21, role: "user", content: "如何检查部署？", taskStatus: "SUCCESS" }
+      ]
     }),
     createKnowledgeChatSession: vi.fn(),
     updateKnowledgeChatSessionScope: vi.fn(),
     submitKnowledgeChatQuery: vi.fn(),
     deleteKnowledgeChatSession: vi.fn(),
     retryKnowledgeChatQuery: vi.fn(),
-    listKnowledgeChatEpisodes: vi.fn().mockResolvedValue([]),
-    submitKnowledgeChatFeedback: vi.fn()
+    listKnowledgeChatEpisodes: vi.fn().mockResolvedValue([
+      { id: 1, sessionId: 7, episodeNo: 1, startSequenceNo: 1, endSequenceNo: 20, title: "安装阶段", messageCount: 20 },
+      { id: 2, sessionId: 7, episodeNo: 2, startSequenceNo: 21, endSequenceNo: 40, title: "部署阶段", messageCount: 20 }
+    ])
   }
 }));
 
@@ -67,5 +72,17 @@ describe("AssistantPage effects", () => {
     expect(screen.queryByText("如何安装？")).not.toBeInTheDocument();
     await client.invalidateQueries({ queryKey: ["chat-sessions"] });
     expect(await screen.findByRole("heading",{ name: "开始一个新会话" })).toBeInTheDocument();
+  });
+
+  it("renders episode navigation and scrolls to the selected conversation segment", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><AssistantPage /></MemoryRouter></QueryClientProvider>);
+
+    const episode = await screen.findByRole("button", { name: "#2 部署阶段" }, { timeout: 5_000 });
+    vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+    fireEvent.click(episode);
+
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(episode).toHaveAttribute("aria-current","location");
   });
 });

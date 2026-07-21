@@ -37,7 +37,7 @@ public class UserMemoryManagementService {
     }
 
     public UserMemorySettingVO setting(Long userId) {
-        int fallback=properties.getMemory().getRetentionDays()==null?365:properties.getMemory().getRetentionDays();
+        int fallback=properties.getMemory().getRetentionDays()==null?0:properties.getMemory().getRetentionDays();
         return new UserMemorySettingVO(memoryService.enabled(userId),mapper.retentionDays(userId,fallback));
     }
 
@@ -46,7 +46,6 @@ public class UserMemoryManagementService {
         boolean enabled=dto.getEnabled()==null||dto.getEnabled();
         int retention=setting(userId).getRetentionDays();
         mapper.saveSetting(userId,enabled,retention,LocalDateTime.now());
-        if(Boolean.TRUE.equals(dto.getClearExisting())) memoryService.clear(userId);
         return new UserMemorySettingVO(enabled,retention);
     }
 

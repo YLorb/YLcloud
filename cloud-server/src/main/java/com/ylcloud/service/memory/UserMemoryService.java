@@ -53,8 +53,7 @@ public class UserMemoryService {
         item.setNormalizedKey(key); item.setContentHash(sha256(item.getContent())); item.setSourceHash(sourceHash);
         item.setConfidence(BigDecimal.valueOf(Math.max(0,Math.min(1,candidate.confidence()))));
         item.setUserConfirmed(candidate.userConfirmed()); item.setPinned(false);
-        int retention = properties.getMemory().getRetentionDays() == null ? 365 : properties.getMemory().getRetentionDays();
-        item.setExpiresAt(retention <= 0 ? null : now.plusDays(retention));
+        item.setExpiresAt(null);
         item.setVersion(active == null || active.getVersion() == null ? 1 : active.getVersion() + 1);
         item.setMemoryStatus("CANDIDATE"); item.setEmbeddingStatus("PENDING");
         item.setSupersedesId(active == null ? null : active.getId()); item.setStatus(1); item.setCreatetime(now); item.setUpdatetime(now);
@@ -76,10 +75,6 @@ public class UserMemoryService {
         }
     }
 
-    public void deleteSourceSession(Long userId, Long sessionId) {
-        mapper.deleteBySourceSession(userId,sessionId,LocalDateTime.now());
-    }
-
     public void forget(Long userId, Long id) {
         if(mapper.forget(id,userId,LocalDateTime.now()) > 0) processDelete(id);
     }
@@ -95,7 +90,6 @@ public class UserMemoryService {
 
     @Scheduled(fixedDelayString = "${ylcloud.memory.recovery-delay-ms:30000}", initialDelayString = "${ylcloud.memory.recovery-initial-delay-ms:20000}")
     public void reconcile() {
-        mapper.expire(LocalDateTime.now());
         mapper.listPendingIndex(100,maxRetries()).forEach(item -> processIndex(item.getId()));
         mapper.listDeletePending(100).forEach(item -> processDelete(item.getId()));
     }

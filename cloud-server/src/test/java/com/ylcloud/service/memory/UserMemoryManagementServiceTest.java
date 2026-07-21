@@ -1,5 +1,6 @@
 package com.ylcloud.service.memory;
 
+import com.ylcloud.DTO.UserMemorySettingUpdateDTO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.config.RagProperties;
 import com.ylcloud.entity.UserMemoryItem;
@@ -12,6 +13,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
 class UserMemoryManagementServiceTest {
+    @Test
+    void disablingMemoryOnlyUpdatesTheSettingAndKeepsExistingMemories() {
+        UserMemoryItemMapper mapper=mock(UserMemoryItemMapper.class);
+        UserMemoryService memoryService=mock(UserMemoryService.class);
+        UserMemoryManagementService service=new UserMemoryManagementService(mapper,memoryService,new RagProperties(),
+                mock(KnowledgeChatMessageMapper.class),mock(KnowledgeChatFeedbackMapper.class));
+        when(mapper.retentionDays(7L,0)).thenReturn(0);
+        UserMemorySettingUpdateDTO dto=new UserMemorySettingUpdateDTO();
+        dto.setEnabled(false);
+
+        service.updateSetting(7L,dto);
+
+        verify(mapper).saveSetting(eq(7L),eq(false),eq(0),any());
+        verify(memoryService).enabled(7L);
+        verify(memoryService,never()).clear(anyLong());
+    }
+
     @Test
     void neverMutatesMemoryOwnedByAnotherUser() {
         UserMemoryItemMapper mapper=mock(UserMemoryItemMapper.class);

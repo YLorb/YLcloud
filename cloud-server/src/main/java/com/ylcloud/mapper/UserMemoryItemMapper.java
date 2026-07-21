@@ -68,14 +68,6 @@ public interface UserMemoryItemMapper {
     int failDelete(@Param("id") Long id, @Param("error") String error, @Param("nextRetry") LocalDateTime nextRetry,
                    @Param("now") LocalDateTime now);
 
-    @Update("update user_memory_item set memory_status='EXPIRED', embedding_status='DELETE_PENDING', updatetime=#{now} " +
-            "where memory_status='ACTIVE' and pinned=0 and expires_at is not null and expires_at <= #{now}")
-    int expire(@Param("now") LocalDateTime now);
-
-    @Update("update user_memory_item set memory_status='DELETE_PENDING', embedding_status='DELETE_PENDING', updatetime=#{now} " +
-            "where user_id=#{userId} and source_session_id=#{sessionId} and pinned=0 and memory_status not in ('DELETED','DELETE_PENDING')")
-    int deleteBySourceSession(@Param("userId") Long userId, @Param("sessionId") Long sessionId, @Param("now") LocalDateTime now);
-
     @Select("select coalesce((select enabled from user_memory_setting where user_id=#{userId}),1)")
     Boolean isEnabled(@Param("userId") Long userId);
 

@@ -413,7 +413,7 @@ export const api = {
   listUserMemories: (type?: string, keyword?: string) =>
     request<UserMemory[]>(`/api/assistant/memories?${params({ type, keyword, limit: 500 })}`),
   userMemorySetting: () => request<UserMemorySetting>("/api/assistant/memories/setting"),
-  updateUserMemorySetting: (payload: { enabled: boolean; clearExisting?: boolean }) =>
+  updateUserMemorySetting: (payload: { enabled: boolean }) =>
     request<UserMemorySetting>("/api/assistant/memories/setting", { method: "PUT", body: JSON.stringify(payload) }),
   userMemoryStats: () => request<UserMemoryStats>("/api/assistant/memories/stats"),
   updateUserMemory: (id: number, payload: { memoryType: UserMemory["memoryType"]; content: string }) =>
@@ -424,8 +424,6 @@ export const api = {
   clearUserMemories: () => request<boolean>("/api/assistant/memories", { method: "DELETE" }),
   exportUserMemories: () => download("/api/assistant/memories/export", "ylcloud-memories.csv"),
   listKnowledgeChatEpisodes: (sessionId: number) => request<KnowledgeChatEpisode[]>(`/api/knowledge/chat/sessions/${sessionId}/episodes`),
-  submitKnowledgeChatFeedback: (sessionId: number, messageId: number, payload: { rating: "HELPFUL" | "UNHELPFUL"; reason?: string; comment?: string }) =>
-    request<boolean>(`/api/knowledge/chat/sessions/${sessionId}/messages/${messageId}/feedback`, { method: "PUT", body: JSON.stringify(payload) }),
   ragAnalyticsSummary: (spaceId: number) =>
     request<RagAnalyticsSummary>(`/api/space/${spaceId}/rag/analytics/summary`),
   ragAnalyticsQueries: (spaceId: number, limit = 50) =>

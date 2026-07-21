@@ -26,4 +26,17 @@ class UserMemoryServiceTest {
         verify(mapper,never()).insert(any());
         verifyNoInteractions(vectorStore);
     }
+
+    @Test
+    void newMemoryHasNoAutomaticExpiration() {
+        UserMemoryItemMapper mapper = mock(UserMemoryItemMapper.class);
+        when(mapper.isEnabled(7L)).thenReturn(true);
+        UserMemoryService service = new UserMemoryService(mapper,mock(UserMemoryVectorStoreService.class),new RagProperties());
+
+        UserMemoryItem result = service.accept(7L,9L,11L,"项目只部署在内网",new UserMemoryCandidate(
+                "CONSTRAINT","deployment.network","项目只部署在内网",0.9,true));
+
+        assertThat(result.getExpiresAt()).isNull();
+        verify(mapper).insert(result);
+    }
 }

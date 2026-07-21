@@ -57,7 +57,7 @@ public class RagProperties {
         private Integer candidateTopK = 12;
         private Integer topK = 5;
         private Integer maxTokens = 512;
-        private Integer retentionDays = 365;
+        private Integer retentionDays = 0;
         private Double minScore = 0.25;
         private Integer maxRetries = 8;
     }

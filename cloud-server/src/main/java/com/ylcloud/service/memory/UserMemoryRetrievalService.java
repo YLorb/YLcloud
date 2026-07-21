@@ -39,13 +39,15 @@ public class UserMemoryRetrievalService {
             if(ordered.isEmpty()) return List.of();
             int topK = Math.min(positive(properties.getMemory().getTopK(),5),ordered.size());
             List<RerankResult> reranked = modelClient.rerank(query,ordered.stream().map(UserMemoryItem::getContent).toList(),topK);
+            if(reranked == null || reranked.isEmpty()) return List.of();
             double threshold = properties.getMemory().getMinScore() == null ? 0.25 : properties.getMemory().getMinScore();
             List<UserMemoryItem> result = new ArrayList<>();
-            reranked.stream().filter(r -> r.getIndex() != null && r.getIndex() >= 0 && r.getIndex() < ordered.size())
-                    .filter(r -> r.getScore() == null || r.getScore() >= threshold)
+            reranked.stream().filter(Objects::nonNull)
+                    .filter(r -> r.getIndex() != null && r.getIndex() >= 0 && r.getIndex() < ordered.size())
+                    .filter(r -> r.getScore() != null && r.getScore() >= threshold)
                     .sorted(Comparator.comparing(RerankResult::getScore,Comparator.nullsLast(Double::compareTo)).reversed())
                     .limit(topK).forEach(r -> result.add(ordered.get(r.getIndex())));
-            return result.isEmpty() ? ordered.subList(0,topK) : result;
+            return List.copyOf(result);
         } catch(Exception ex) {
             log.warn("User memory retrieval failed closed for userId={}",userId,ex);
             return List.of();

@@ -13,7 +13,6 @@ import com.ylcloud.entity.KnowledgeChatSession;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -29,22 +28,13 @@ public class KnowledgeChatSessionService {
     private final KnowledgeChatSessionMapper sessionMapper;
     private final KnowledgeChatMessageMapper messageMapper;
     private final SpacePermissionService spacePermissionService;
-    private final com.ylcloud.service.memory.UserMemoryService userMemoryService;
 
-    @Autowired
     public KnowledgeChatSessionService(KnowledgeChatSessionMapper sessionMapper,
                                        KnowledgeChatMessageMapper messageMapper,
-                                       SpacePermissionService spacePermissionService,
-                                       com.ylcloud.service.memory.UserMemoryService userMemoryService) {
+                                       SpacePermissionService spacePermissionService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.spacePermissionService = spacePermissionService;
-        this.userMemoryService = userMemoryService;
-    }
-
-    KnowledgeChatSessionService(KnowledgeChatSessionMapper sessionMapper, KnowledgeChatMessageMapper messageMapper,
-                                SpacePermissionService spacePermissionService) {
-        this(sessionMapper,messageMapper,spacePermissionService,null);
     }
 
     public List<KnowledgeChatSessionVO> list(Long userId, String keyword, Integer limit) {
@@ -110,7 +100,6 @@ public class KnowledgeChatSessionService {
     public Boolean delete(Long userId, Long sessionId) {
         requireSession(userId,sessionId);
         messageMapper.disableBySessionId(sessionId);
-        if(userMemoryService != null) userMemoryService.deleteSourceSession(userId,sessionId);
         int rows = sessionMapper.disable(sessionId,userId,LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("会话删除失败");

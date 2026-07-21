@@ -694,6 +694,7 @@ progress::-webkit-progress-value { background: var(--confirm); border-radius: 99
 .episode-nav > span { color: var(--muted); font-size: 12px; font-weight: 700; }
 .episode-nav button { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; }
 .episode-nav button:hover { border-color: var(--primary); color: var(--primary); }
+.episode-nav button[aria-current="location"] { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); font-weight: 700; }
 .message-feedback { display: flex; gap: 4px; margin-top: 6px; }
 .message-feedback button { display: inline-grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .message-feedback button:hover, .message-feedback button:focus-visible { background: var(--surface-subtle); color: var(--primary); }

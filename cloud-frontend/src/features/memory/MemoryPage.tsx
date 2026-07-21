@@ -32,7 +32,7 @@ export function MemoryPage() {
 
   return <div className="memory-page">
     <section className="memory-intro">
-      <div><span className="section-eyebrow">Personal memory</span><h2>由你掌控的长期记忆</h2><p>查看 AI 从已完成对话中保存的偏好、事实、约束和决定。关闭后会立即停止写入和召回，已有内容仍由你决定是否保留。</p></div>
+      <div><span className="section-eyebrow">Personal memory</span><h2>由你掌控的长期记忆</h2><p>查看 AI 从已完成对话中保存的偏好、事实、约束和决定。关闭后会立即停止写入和召回，已有内容将继续长期保存，直到你主动清理。</p></div>
       <label className="memory-toggle"><input type="checkbox" checked={setting.data?.enabled ?? true} disabled={setting.isLoading || toggle.isPending} onChange={(event) => toggle.mutate(event.target.checked)} /><span aria-hidden="true" /><strong>{setting.data?.enabled === false ? "已关闭" : "已开启"}</strong></label>
     </section>
     <section className="memory-metrics" aria-label="长期记忆概览">
