@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import sleep
 from typing import Any
 
@@ -34,8 +34,16 @@ class WorkflowExecutionError(RuntimeError):
         super().__init__(message)
         self.trace = trace or []
 
+
+class NodeContractError(WorkflowExecutionError):
+    """节点或 Tool 输出违反已声明 Schema；不得进入业务 Error Edge。"""
+
 class NodeTimeoutError(Exception):
     """节点执行超时。"""     
+
+
+class NodeCancelledError(Exception):
+    """节点收到显式取消请求。"""
 
 
 @dataclass(frozen=True)
@@ -47,6 +55,12 @@ class WorkflowRunResult:
     final_output: Any | None
     executed_nodes: list[str]
     trace: list[dict[str, Any]]
+    status: str = "completed"
+    run_id: str | None = None
+    execution_id: str | None = None
+    active_end_nodes: list[str] = field(default_factory=list)
+    handled_outcomes: list[dict[str, Any]] = field(default_factory=list)
+    cleanup_errors: list[Any] = field(default_factory=list)
 
 
 class SequentialWorkflowExecutor:
@@ -507,9 +521,13 @@ def _validate_value_against_schema(value: Any, schema: dict[str, Any]) -> list[s
 
     if schema_type == "string" and not isinstance(value, str):
         errors.append(f"expected string, got {type(value).__name__}")
-    elif schema_type == "integer" and not isinstance(value, int):
+    elif schema_type == "integer" and (
+        not isinstance(value, int) or isinstance(value, bool)
+    ):
         errors.append(f"expected integer, got {type(value).__name__}")
-    elif schema_type == "number" and not isinstance(value, (int, float)):
+    elif schema_type == "number" and (
+        not isinstance(value, (int, float)) or isinstance(value, bool)
+    ):
         errors.append(f"expected number, got {type(value).__name__}")
     elif schema_type == "boolean" and not isinstance(value, bool):
         errors.append(f"expected boolean, got {type(value).__name__}")
@@ -529,5 +547,33 @@ def _validate_value_against_schema(value: Any, schema: dict[str, Any]) -> list[s
                 item_errors = _validate_value_against_schema(item, items_schema)
                 for item_error in item_errors:
                     errors.append(f"item {index}: {item_error}")
+
+    if schema_type == "object" and isinstance(value, dict):
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            errors.append("object properties must be an object")
+            properties = {}
+        required = schema.get("required", [])
+        if not isinstance(required, list):
+            errors.append("object required must be an array")
+            required = []
+        for name in required:
+            if name not in value:
+                errors.append(f"missing required property: {name}")
+        for name, item in value.items():
+            if name in properties:
+                item_schema = properties[name]
+            else:
+                additional = schema.get("additionalProperties", True)
+                if additional is False:
+                    errors.append(f"unexpected property: {name}")
+                    continue
+                if additional is True:
+                    continue
+                item_schema = additional
+            if isinstance(item_schema, dict):
+                item_errors = _validate_value_against_schema(item, item_schema)
+                for item_error in item_errors:
+                    errors.append(f"property {name}: {item_error}")
 
     return errors

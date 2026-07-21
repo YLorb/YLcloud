@@ -64,8 +64,9 @@ def test_generator_repairs_invalid_workflow() -> None:
         {
             "version": "1.0",
             "name": "bad_workflow",
-            # 缺少 outputs，但 repair 后会补全
+            # 声明一个没有来源的 output，确保首次校验失败并触发 repair
             "inputs": {"goal": "测试"},
+            "outputs": ["missing_answer"],
             "nodes": [
                 {"id": "start", "type": "start", "next": "plan"},
                 {"id": "plan", "type": "llm", "prompt": "{{ goal }}", "output": "final_answer", "next": "end"},

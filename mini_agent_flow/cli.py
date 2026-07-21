@@ -10,7 +10,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from mini_agent_flow.engine.executor import SequentialWorkflowExecutor, WorkflowExecutionError
+from mini_agent_flow.engine.executor import WorkflowExecutionError
+from mini_agent_flow.engine.graph_executor import GraphWorkflowExecutor
+from mini_agent_flow.engine.run_manager import RunManager, RunManagerError
+from mini_agent_flow.engine.runtime_config import RuntimeConfig
 from mini_agent_flow.engine.loader import WorkflowLoadError, WorkflowLoader
 from mini_agent_flow.engine.validator import WorkflowValidationError, WorkflowValidator
 from mini_agent_flow.llm.base import LLMClientError
@@ -28,9 +31,12 @@ from mini_agent_flow.planner.selector import (
 )
 from mini_agent_flow.planner.service import Level2ExecutionError, Level2WorkflowService
 from mini_agent_flow.tools.builtin import create_default_tool_registry
+from mini_agent_flow.persistence.sqlite_store import SQLiteRunControlStore
 
 
 app = typer.Typer(help="Mini Agent Flow command line interface.", no_args_is_help=True)
+runs_app = typer.Typer(help="Inspect and control persisted workflow runs.", no_args_is_help=True)
+app.add_typer(runs_app, name="runs")
 console = Console(highlight=False)
 error_console = Console(stderr=True, highlight=False)
 
@@ -47,9 +53,13 @@ def run_workflow(
     workflow_path: Path = typer.Argument(..., help="Path to a workflow .json/.yaml/.yml/.md file."),
     provider: LLMProvider = typer.Option(LLMProvider.mock, help="LLM provider."),
     model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL, help="Model used by remote providers."),
+    database: Path = typer.Option(
+        Path(".mini-agent-flow/runs.db"), "--database", help="SQLite run database."
+    ),
 ) -> None:
     """Run a Level 1 workflow file with the selected LLM provider."""
 
+    manager: RunManager | None = None
     try:
         registry = create_default_tool_registry()
         tool_specs = _tool_specs_from_registry(registry)
@@ -58,24 +68,134 @@ def run_workflow(
             tool_specs=tool_specs,
         )
         loader = WorkflowLoader(validator=validator)
-        executor = SequentialWorkflowExecutor(
-            llm=create_llm(provider, model=model),
-            tool_registry=registry,
-            allowed_permissions={"public"},
-            max_risk_level=5,
+        manager = _create_run_manager(
+            database,
+            provider=provider,
+            model=model,
+            start_services=True,
         )
         workflow = loader.load(workflow_path)
-        result = executor.run(workflow)
+        result = manager.run(workflow)
     except (
         LLMClientError,
         WorkflowLoadError,
         WorkflowValidationError,
         WorkflowExecutionError,
+        RunManagerError,
     ) as exc:
         _print_error(exc)
         raise typer.Exit(code=1) from exc
+    finally:
+        if manager is not None:
+            manager.shutdown()
 
     _print_result(result)
+
+
+@runs_app.command("list")
+def list_runs(
+    database: Path = typer.Option(Path(".mini-agent-flow/runs.db"), "--database"),
+    limit: int = typer.Option(100, min=1, max=1000),
+) -> None:
+    """List recent logical workflow runs."""
+
+    manager = _create_run_manager(database)
+    try:
+        rows = manager.list_runs(limit=limit)
+        table = Table(title="Workflow Runs")
+        for name in ("run_id", "workflow_name", "status", "restart_count", "updated_at_utc"):
+            table.add_column(name)
+        for row in rows:
+            table.add_row(*(str(row.get(name, "")) for name in (
+                "run_id", "workflow_name", "status", "restart_count", "updated_at_utc"
+            )))
+        console.print(table)
+    finally:
+        manager.shutdown()
+
+
+@runs_app.command("show")
+def show_run(
+    run_id: str = typer.Argument(...),
+    database: Path = typer.Option(Path(".mini-agent-flow/runs.db"), "--database"),
+) -> None:
+    """Show a run, its execution epochs, invocations and trace."""
+
+    manager = _create_run_manager(database)
+    try:
+        details = manager.show_run(run_id)
+        run = dict(details["run"])
+        run.pop("workflow_json", None)
+        console.print(Panel(_format_value(run), title="Run"))
+        console.print(Panel(_format_value(details["executions"]), title="Executions"))
+    except RunManagerError as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+    finally:
+        manager.shutdown()
+
+
+@runs_app.command("cancel")
+def cancel_run(
+    run_id: str = typer.Argument(...),
+    reason: str = typer.Option("USER_CANCELLED", "--reason"),
+    database: Path = typer.Option(Path(".mini-agent-flow/runs.db"), "--database"),
+) -> None:
+    """Request cancellation of the complete active run."""
+
+    _request_cancel(database, run_id, target_node_id=None, reason=reason)
+
+
+@runs_app.command("cancel-node")
+def cancel_node(
+    run_id: str = typer.Argument(...),
+    node_id: str = typer.Argument(...),
+    reason: str = typer.Option("USER_CANCELLED", "--reason"),
+    database: Path = typer.Option(Path(".mini-agent-flow/runs.db"), "--database"),
+) -> None:
+    """Request cancellation when the selected pending/running node is reached."""
+
+    _request_cancel(database, run_id, target_node_id=node_id, reason=reason)
+
+
+@runs_app.command("retry")
+def retry_run(
+    run_id: str = typer.Argument(...),
+    database: Path = typer.Option(Path(".mini-agent-flow/runs.db"), "--database"),
+    provider: LLMProvider = typer.Option(LLMProvider.mock),
+    model: str = typer.Option(DEFAULT_DEEPSEEK_MODEL),
+) -> None:
+    """Explicitly retry an unsuccessful logical run in a new execution epoch."""
+
+    manager = _create_run_manager(database, provider=provider, model=model)
+    try:
+        _print_result(manager.retry(run_id))
+    except (RunManagerError, WorkflowExecutionError) as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+    finally:
+        manager.shutdown()
+
+
+@runs_app.command("cleanup")
+def cleanup_runs(
+    database: Path = typer.Option(Path(".mini-agent-flow/runs.db"), "--database"),
+    apply: bool = typer.Option(False, "--apply", help="Delete rows; default is dry-run."),
+    batch_size: int = typer.Option(100, min=1, max=1000),
+) -> None:
+    """Preview or apply retention cleanup for terminal runs."""
+
+    manager = _create_run_manager(database)
+    try:
+        result = manager.cleanup(dry_run=not apply, batch_size=batch_size)
+        console.print(
+            Panel(
+                _format_value({"dry_run": result.dry_run, "count": result.count, "run_ids": result.run_ids}),
+                title="Cleanup",
+            )
+        )
+    finally:
+        manager.shutdown()
 
 
 @app.command("select")
@@ -111,7 +231,7 @@ def select_workflow(
         loader = WorkflowLoader(validator=validator)
         catalog = WorkflowTemplateCatalog(templates_dir, loader=loader)
         llm = create_llm(provider, model=model)
-        executor = SequentialWorkflowExecutor(
+        executor = GraphWorkflowExecutor(
             llm=llm,
             tool_registry=registry,
             allowed_permissions={"public"},
@@ -145,6 +265,14 @@ def _print_result(result: Any) -> None:
     console.print(Panel(result.workflow_name, title="Workflow", expand=False))
     console.print(Panel(_format_value(result.final_output), title="Final Output", expand=False))
     console.print(Panel(" -> ".join(result.executed_nodes), title="Executed Nodes", expand=False))
+    if len(getattr(result, "active_end_nodes", [])) > 1:
+        console.print(
+            Panel(
+                ", ".join(result.active_end_nodes),
+                title="Multiple Active End Nodes",
+                expand=False,
+            )
+        )
     console.print(Panel(_format_value(result.context), title="Context", expand=False))
     console.print(_build_trace_table(result.trace))
 
@@ -252,7 +380,7 @@ def make_and_run_workflow(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         save_path.write_text(result.generated_yaml, encoding="utf-8")
         console.print(f"Saved workflow to {save_path}")
-        executor = SequentialWorkflowExecutor(
+        executor = GraphWorkflowExecutor(
             llm=create_llm(provider, model=model),
             tool_registry=registry,
             allowed_permissions={"public"},
@@ -329,12 +457,67 @@ def _tool_specs_from_registry(registry: Any) -> dict[str, Any]:
     return specs
 
 
+def _open_store(database: Path) -> SQLiteRunControlStore:
+    store = SQLiteRunControlStore(database)
+    store.migrate()
+    return store
+
+
+def _create_run_manager(
+    database: Path,
+    *,
+    provider: LLMProvider = LLMProvider.mock,
+    model: str = DEFAULT_DEEPSEEK_MODEL,
+    start_services: bool = False,
+) -> RunManager:
+    store = _open_store(database)
+    config = RuntimeConfig(database_path=str(database))
+
+    def executor_factory() -> GraphWorkflowExecutor:
+        registry = create_default_tool_registry()
+        return GraphWorkflowExecutor(
+            llm=create_llm(provider, model=model),
+            tool_registry=registry,
+            allowed_permissions={"public"},
+            max_risk_level=5,
+            run_control_store=store,
+            runtime_config=config,
+        )
+
+    return RunManager(
+        executor_factory=executor_factory,
+        store=store,
+        config=config,
+        start_services=start_services,
+    )
+
+
+def _request_cancel(
+    database: Path,
+    run_id: str,
+    *,
+    target_node_id: str | None,
+    reason: str,
+) -> None:
+    manager = _create_run_manager(database)
+    try:
+        request_id = manager.request_cancel(
+            run_id, target_node_id=target_node_id, reason=reason
+        )
+        console.print(Panel(request_id, title="Cancellation Request"))
+    except RunManagerError as exc:
+        _print_error(exc)
+        raise typer.Exit(code=1) from exc
+    finally:
+        manager.shutdown()
+
+
 def _workflow_to_yaml(workflow: Any) -> str:
     """将 Workflow 对象转成 YAML 字符串。"""
 
     import yaml
 
-    data = workflow.model_dump(mode="python")
+    data = workflow.model_dump(mode="python", by_alias=True)
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, default_flow_style=False)
 
 

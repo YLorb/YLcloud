@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import re
+import json
+import importlib
 from collections.abc import Mapping
 from typing import Any, Callable
 
-from mini_agent_flow.tools.spec import ToolSpec
+from mini_agent_flow.tools.spec import (
+    ImportableToolEntrypoint,
+    ProcessToolProviderDescriptor,
+    ToolSpec,
+)
 
 
 TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
@@ -46,6 +52,8 @@ class ToolRegistry:
             raise ToolRegistryError(f"tool must be callable: {name}")
         if name in self._tools:
             raise ToolRegistryError(f"tool is already registered: {name}")
+        if spec is not None:
+            self._validate_spec(name, spec)
 
         self._tools[name] = tool
         if spec is not None:
@@ -75,6 +83,8 @@ class ToolRegistry:
                 raise ToolRegistryError(f"tool must be callable: {name}")
             if name in self._tools:
                 raise ToolRegistryError(f"tool is already registered: {name}")
+            if name in specs:
+                self._validate_spec(name, specs[name])
             validated_tools[name] = tool
             if name in specs:
                 validated_specs[name] = specs[name]
@@ -125,3 +135,40 @@ class ToolRegistry:
 
         if not isinstance(name, str) or not TOOL_NAME_PATTERN.fullmatch(name):
             raise ToolRegistryError(f"invalid tool name: {name!r}")
+
+    def _validate_spec(self, name: str, spec: ToolSpec) -> None:
+        if spec.name != name:
+            raise ToolRegistryError(
+                f"ToolSpec name must match registry name: {spec.name!r} != {name!r}"
+            )
+        for label, schema in (
+            ("input_schema", spec.input_schema),
+            ("output_schema", spec.output_schema),
+        ):
+            if schema is not None and not isinstance(schema, dict):
+                raise ToolRegistryError(f"tool {label} must be a JSON object: {name}")
+            try:
+                json.dumps(schema)
+            except (TypeError, ValueError) as exc:
+                raise ToolRegistryError(
+                    f"tool {label} must be JSON-compatible: {name}"
+                ) from exc
+        if spec.execution_mode != "isolated_process":
+            return
+        loader = spec.loader
+        try:
+            if isinstance(loader, ImportableToolEntrypoint):
+                target = getattr(importlib.import_module(loader.module), loader.function)
+            elif isinstance(loader, ProcessToolProviderDescriptor):
+                module_name, _, factory_name = loader.provider_type.partition(":")
+                target = getattr(importlib.import_module(module_name), factory_name)
+            else:
+                raise TypeError("missing isolated loader")
+        except (ImportError, AttributeError, TypeError) as exc:
+            raise ToolRegistryError(
+                f"isolated tool loader cannot be reconstructed: {name}"
+            ) from exc
+        if not callable(target):
+            raise ToolRegistryError(
+                f"isolated tool loader target must be callable: {name}"
+            )

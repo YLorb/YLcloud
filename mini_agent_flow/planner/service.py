@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from mini_agent_flow.engine.executor import SequentialWorkflowExecutor
+from typing import Any, Protocol
+
+from mini_agent_flow.engine.executor import WorkflowRunResult
 from mini_agent_flow.engine.validator import WorkflowValidator
 from mini_agent_flow.planner.catalog import WorkflowTemplateCatalog
 from mini_agent_flow.planner.models import Level2RunResult
@@ -11,6 +13,10 @@ class Level2ExecutionError(RuntimeError):
     """模板输入无法填充或执行准备失败时抛出的异常。"""
 
 
+class WorkflowExecutor(Protocol):
+    def run(self, workflow: Any) -> WorkflowRunResult: ...
+
+
 class Level2WorkflowService:
     """串联模板加载、选择、输入填充、校验和 Level 1 执行。"""
 
@@ -19,7 +25,7 @@ class Level2WorkflowService:
         catalog: WorkflowTemplateCatalog,
         selector: TemplateSelector,
         validator: WorkflowValidator,
-        executor: SequentialWorkflowExecutor,
+        executor: WorkflowExecutor,
     ) -> None:
         self.catalog = catalog
         self.selector = selector

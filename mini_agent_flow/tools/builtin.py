@@ -40,6 +40,7 @@ def _echo_spec() -> ToolSpec:
         input_schema={"type": "any"},
         permission="public",
         risk_level=0,
+        idempotent=True,
     )
 
 
@@ -55,6 +56,7 @@ def _mock_search_spec() -> ToolSpec:
         },
         permission="public",
         risk_level=0,
+        idempotent=True,
     )
 
 

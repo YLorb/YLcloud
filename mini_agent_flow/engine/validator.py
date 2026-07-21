@@ -4,6 +4,14 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from mini_agent_flow.engine.graph_analyzer import GraphAnalysisError, NetworkXGraphAnalyzer
+from mini_agent_flow.engine.graph_models import (
+    GraphLLMNode,
+    GraphLoopNode,
+    GraphMergeNode,
+    GraphToolNode,
+    GraphWorkflow,
+)
 from mini_agent_flow.engine.models import (
     ConditionNode,
     LLMNode,
@@ -62,8 +70,11 @@ class WorkflowValidator:
 
         return WorkflowLoader(validator=self).load(path)
 
-    def validate_data(self, data: dict[str, Any]) -> Workflow:
+    def validate_data(self, data: dict[str, Any]) -> Workflow | GraphWorkflow:
         """校验已解析为 dict 的 workflow 数据并返回 Workflow 对象。"""
+
+        if data.get("version") == "2.0":
+            return self._validate_graph_data(data)
 
         try:
             workflow = Workflow.model_validate(data)
@@ -77,6 +88,77 @@ class WorkflowValidator:
         self._validate_reachability(workflow)
         self._validate_path_to_end(workflow)
         return workflow
+
+    def _validate_graph_data(self, data: dict[str, Any]) -> GraphWorkflow:
+        """校验 Workflow v2 结构、工具安全与图语义。"""
+
+        try:
+            workflow = GraphWorkflow.model_validate(data)
+        except ValidationError as exc:
+            raise WorkflowValidationError(str(exc)) from exc
+
+        self._validate_graph_allowed_tools(workflow)
+        self._validate_graph_tool_specs(workflow)
+        self._validate_graph_outputs(workflow)
+        try:
+            NetworkXGraphAnalyzer().analyze(workflow)
+        except GraphAnalysisError as exc:
+            raise WorkflowValidationError(str(exc)) from exc
+        return workflow
+
+    def _validate_graph_allowed_tools(self, workflow: GraphWorkflow) -> None:
+        if self.allowed_tools is None:
+            return
+        invalid = sorted(
+            {
+                node.tool
+                for node in workflow.nodes
+                if isinstance(node, GraphToolNode) and node.tool not in self.allowed_tools
+            }
+        )
+        if invalid:
+            raise WorkflowValidationError(
+                f"workflow references unsupported tools: {', '.join(invalid)}"
+            )
+
+    def _validate_graph_tool_specs(self, workflow: GraphWorkflow) -> None:
+        if not self.tool_specs:
+            return
+        for node in workflow.nodes:
+            if not isinstance(node, GraphToolNode):
+                continue
+            spec = self.tool_specs.get(node.tool)
+            if spec is None:
+                continue
+            if self.allowed_permissions is not None and spec.permission not in self.allowed_permissions:
+                raise WorkflowValidationError(
+                    f"tool {node.tool!r} permission {spec.permission!r} is not allowed"
+                )
+            if self.max_risk_level is not None and spec.risk_level > self.max_risk_level:
+                raise WorkflowValidationError(
+                    f"tool {node.tool!r} risk level {spec.risk_level} exceeds max {self.max_risk_level}"
+                )
+
+    def _validate_graph_outputs(self, workflow: GraphWorkflow) -> None:
+        duplicate_outputs = sorted(
+            name for name in set(workflow.outputs) if workflow.outputs.count(name) > 1
+        )
+        if duplicate_outputs:
+            raise WorkflowValidationError(
+                f"workflow outputs contain duplicate keys: {', '.join(duplicate_outputs)}"
+            )
+
+        available = set(workflow.inputs) | set(workflow.state)
+        for node in workflow.nodes:
+            if isinstance(node, (GraphLLMNode, GraphToolNode, GraphMergeNode)) and node.publish:
+                available.add(node.output)
+            if isinstance(node, GraphLoopNode) and node.collect and node.collect.publish:
+                available.add(node.collect.target)
+        missing = sorted(set(workflow.outputs) - available)
+        if missing:
+            raise WorkflowValidationError(
+                f"workflow outputs are not produced by published nodes, inputs or state: {', '.join(missing)}"
+            )
 
     def _validate_edges(self, workflow: Workflow) -> None:
         """校验所有节点引用的目标节点都真实存在。"""

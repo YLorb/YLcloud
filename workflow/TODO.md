@@ -361,3 +361,84 @@ mini_agent_flow/cli.py          # 新增 chat 命令入口
 mini_agent_flow/interactive.py  # 交互式会话控制器和渲染
 mini_agent_flow/chat_session.py # 会话状态管理
 ```
+
+## Graph Workflow 图工作流引擎
+
+状态：Graph Engine 稳定版已实现并通过 Windows 回归；Linux Worker 路径待验证。
+
+统一归类任务：
+
+```text
+TASK-20260721-001  Graph IR 与边索引
+TASK-20260721-002  NetworkX Graph Analyzer
+TASK-20260721-003  同步拓扑执行器
+TASK-20260721-004  Loop Composite Executor
+TASK-20260721-005  变量字段补齐与路径校验
+TASK-20260721-006  Graph Trace 扩展
+TASK-20260721-007  Graph 安全边界定稿
+TASK-20260721-008  Checkpoint 技术预研
+TASK-20260721-009  State Patch 并发前置改造（延期）
+TASK-20260721-010  结构化节点输出与 Merge
+TASK-20260721-011  Edge 条件路由与 v1 Condition 转换
+TASK-20260721-012  唯一核心执行器与原子模块拆分
+TASK-20260721-013  Schema 标准化与输出契约
+TASK-20260721-014  完整静态字段数据流分析
+TASK-20260721-015  Join、End、死路和 Merge 状态语义
+TASK-20260721-016  Loop Controller 与返回事件
+TASK-20260721-017  Loop 输出隔离与 collectItem
+TASK-20260721-018  运行预算、全局时限和 Timeout
+TASK-20260721-019  运行标识与 Trace 版本
+TASK-20260721-020  后续 Graph 能力设计（延期）
+TASK-20260721-021  Outcome Edge 与结果路由
+TASK-20260721-022  预算与超限强制执行
+TASK-20260721-023  Inactive 与 Skipped 传播语义
+TASK-20260721-024  Skipped 数据映射与静态校验
+TASK-20260721-025  RunControlStore 与状态 CAS
+TASK-20260721-026  Deadline Poller 与 Heartbeat Lease
+TASK-20260721-027  隔离 Tool Worker
+TASK-20260721-028  Timeout Outcome 集成
+TASK-20260721-029  运行审计持久化与保留期清理
+TASK-20260721-030  主进程崩溃重启与 Execution Epoch
+TASK-20260721-031  运行控制 CLI 与 README
+```
+
+实现状态：TASK-001–006、010–019、021–026、028–031 已完成；TASK-007 与
+TASK-027 的 Windows 范围完成但仍等待 Linux 实机验证；TASK-008、009、020 按确认延期。
+
+当前技术决策：
+
+```text
+1. 使用 NetworkX 做拓扑排序、可达性、SCC 和环分析。
+2. 当前按稳定拓扑顺序同步执行，不实现异步与并发。
+3. Loop 是由合法 SCC 缩点形成的复合节点，内部包含多个子任务。
+4. 当前保留共享 WorkflowContext。
+5. 引入异步或并发前必须先完成 State Patch。
+6. 下游需要的变量/字段必须在所有路径上补齐。
+7. Checkpoint 仅进入技术预研，不进入当前实现。
+8. 宿主 Runtime 提供已确认的安全硬上限；Context 超限失败，Trace 超限保留摘要并 warning。
+9. 新增显式 edges 的 Workflow v2，v1 经 V1ToV2Compiler 保持兼容。
+10. 节点按 ID 获得稳定词典序拓扑顺序，并使用激活状态决定是否执行。
+11. Condition 形成的环必须属于显式 Loop；第一版使用单层 LoopFrame。
+12. 节点输出按来源隔离，由 Merge 显式合并到公共 State。
+13. Workflow v2 的条件属于 Edge；v1 Condition 节点转换为真/假条件边并保留来源映射。
+14. GraphWorkflowExecutor 是唯一核心执行器，Workflow v1 永久通过编译保持兼容。
+15. 本轮完成 Engine 稳定版；Level 3 Graph Generator、Checkpoint Runtime、异步并发延期。
+16. Loop items 进入时一次性求值，内部输出按轮次隔离，分支结果 Merge 为 collectItem 后由 Loop 收集。
+17. Loop Controller 使用显式 LoopReturnEvent，不从前驱节点推断返回语义。
+18. Default Edge 只在零条普通成功 Edge 命中时激活，不处理 Error/Timeout。
+19. 新增 Error、Timeout、End Outcome Edge；Timeout 采用完整持久化运行控制与隔离 Worker 方案。
+20. Error/Timeout 恢复后到达 End 时状态为 completed_with_recovery；Retry 先于 Outcome Edge。
+21. inactive 表示未激活且不传播；skipped 表示已激活但不执行，并传播控制及上游信息。
+22. Run Control 采用 SQLite WAL/FULL、短事务 CAS、单 Poller owner lease 和默认 4 个并发 Run。
+23. Worker 使用 JSON Pipe；Windows Job Object、Linux process group 终止整个进程树。
+24. v1 Trace 通过 Adapter 永久兼容；v1 自动 Outcome terminal 保持 fail-fast/timed_out。
+25. Q1-Q19 已全部选择 A，架构未决事项清零。
+```
+
+详细方案：[[08-Graph-Workflow图工作流引擎]]
+Loop Controller：[[09-Loop-Controller运行时模型]]
+Outcome Edge 与 Timeout：[[10-Outcome-Edge与Timeout模型]]
+Run Control 与隔离 Worker：[[11-Run-Control与隔离Worker]]
+稳定版完整实施方案与确认记录：[[12-Graph-Workflow稳定版完整实施方案]]
+稳定版字段、接口、SQL、任务和测试规格：[[13-Graph-Workflow稳定版详细实现规格]]
+稳定版测试门禁：[[TEST-20260721-002-Graph-Workflow稳定版测试要求]]

@@ -7,8 +7,9 @@ from typing import Any
 from mini_agent_flow.engine.context import VARIABLE_NAME_PATTERN, WorkflowContext, WorkflowContextError
 
 
-VARIABLE_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-FULL_VARIABLE_PATTERN = re.compile(r"^\s*\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}\s*$")
+VARIABLE_PATH = r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
+VARIABLE_PATTERN = re.compile(rf"\{{\{{\s*({VARIABLE_PATH})\s*\}}\}}")
+FULL_VARIABLE_PATTERN = re.compile(rf"^\s*\{{\{{\s*({VARIABLE_PATH})\s*\}}\}}\s*$")
 UNRESOLVED_BRACES_PATTERN = re.compile(r"\{\{|\}\}")
 
 
@@ -92,13 +93,20 @@ class VariableResolver:
     def _require_context_value(self, key: str, context: WorkflowContext) -> Any:
         """从 Context 读取变量，并把 Context 错误转换成 Resolver 错误。"""
 
-        if not VARIABLE_NAME_PATTERN.fullmatch(key):
+        parts = key.split(".")
+        if not parts or any(not VARIABLE_NAME_PATTERN.fullmatch(part) for part in parts):
             raise VariableResolveError(f"invalid variable name: {key!r}")
 
         try:
-            return context.require(key)
+            value = context.require(parts[0])
         except WorkflowContextError as exc:
             raise VariableResolveError(f"missing variable: {key}") from exc
+
+        for part in parts[1:]:
+            if not isinstance(value, dict) or part not in value:
+                raise VariableResolveError(f"missing variable: {key}")
+            value = value[part]
+        return value
 
     def _stringify_for_template(self, value: Any) -> str:
         """把变量值转换成适合拼入字符串模板的文本。

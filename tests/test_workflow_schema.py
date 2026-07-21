@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from mini_agent_flow.engine.validator import WorkflowValidationError, WorkflowValidator
+from mini_agent_flow.engine.graph_models import GraphWorkflow
 from mini_agent_flow.tools.spec import ToolSpec
 
 
@@ -27,6 +28,15 @@ def test_valid_workflow_file_passes_validation() -> None:
 
     assert workflow.name == "research_summarizer"
     assert len(workflow.nodes) == 5
+
+
+def test_committed_workflow_v2_schema_matches_pydantic_source() -> None:
+    expected = GraphWorkflow.model_json_schema(by_alias=True, mode="validation")
+    expected["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    expected["$id"] = "https://example.local/schemas/workflow-v2.schema.json"
+    actual = json.loads(Path("schemas/workflow-v2.schema.json").read_text(encoding="utf-8"))
+
+    assert actual == expected
 
 
 def test_missing_required_top_level_field_fails(valid_workflow_data: dict) -> None:

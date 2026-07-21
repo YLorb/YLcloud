@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from mini_agent_flow.engine.graph_models import GraphWorkflow
 from mini_agent_flow.engine.models import Workflow
 from mini_agent_flow.engine.validator import WorkflowValidator
 
@@ -31,7 +32,7 @@ class WorkflowLoader:
 
         self.validator = validator or WorkflowValidator()
 
-    def load(self, path: str | Path) -> Workflow:
+    def load(self, path: str | Path) -> Workflow | GraphWorkflow:
         """根据文件后缀自动加载 .json / .yaml / .yml workflow。"""
 
         workflow_path = Path(path)
@@ -48,7 +49,7 @@ class WorkflowLoader:
             f"workflow file must use .json, .yaml, .yml or .md extension: {workflow_path}"
         )
 
-    def load_data(self, data: Any) -> Workflow:
+    def load_data(self, data: Any) -> Workflow | GraphWorkflow:
         """加载已解析的 dict 数据，供 AI 生成 workflow 后复用同一套校验。"""
 
         if not isinstance(data, dict):
@@ -73,7 +74,7 @@ class JsonWorkflowLoader:
 
         self.validator = validator or WorkflowValidator()
 
-    def load(self, path: str | Path) -> Workflow:
+    def load(self, path: str | Path) -> Workflow | GraphWorkflow:
         """从 .json 文件加载并校验 workflow，返回标准 Workflow 对象。"""
 
         workflow_path = Path(path)
@@ -81,7 +82,7 @@ class JsonWorkflowLoader:
         data = self._read_json(workflow_path)
         return self.load_data(data)
 
-    def load_data(self, data: Any) -> Workflow:
+    def load_data(self, data: Any) -> Workflow | GraphWorkflow:
         """加载已解析的 dict 数据。
 
         这个方法主要服务于测试和后续 Planner：AI 生成 JSON 后可以先转成 dict，
@@ -138,7 +139,7 @@ class YamlWorkflowLoader:
 
         self.validator = validator or WorkflowValidator()
 
-    def load(self, path: str | Path) -> Workflow:
+    def load(self, path: str | Path) -> Workflow | GraphWorkflow:
         """从 .yaml / .yml 文件加载并校验 workflow。"""
 
         workflow_path = Path(path)
@@ -146,7 +147,7 @@ class YamlWorkflowLoader:
         data = self._read_yaml(workflow_path)
         return self.load_data(data)
 
-    def load_data(self, data: Any) -> Workflow:
+    def load_data(self, data: Any) -> Workflow | GraphWorkflow:
         """加载已解析的 YAML 数据。"""
 
         if not isinstance(data, dict):
@@ -196,7 +197,7 @@ class MarkdownWorkflowLoader:
 
         self.validator = validator or WorkflowValidator()
 
-    def load(self, path: str | Path) -> Workflow:
+    def load(self, path: str | Path) -> Workflow | GraphWorkflow:
         """从 .md 文件加载并校验 workflow。"""
 
         workflow_path = Path(path)
@@ -204,7 +205,7 @@ class MarkdownWorkflowLoader:
         data = self._read_markdown(workflow_path)
         return self.load_data(data)
 
-    def load_data(self, data: Any) -> Workflow:
+    def load_data(self, data: Any) -> Workflow | GraphWorkflow:
         """加载已解析的 YAML 数据。"""
 
         if not isinstance(data, dict):

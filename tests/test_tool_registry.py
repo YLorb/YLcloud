@@ -172,3 +172,15 @@ def test_register_many_with_specs() -> None:
 
     assert registry.get_spec("echo") == specs["echo"]
     assert registry.get_spec("mock_search") == specs["mock_search"]
+
+
+def test_registry_rejects_mismatched_tool_spec_name() -> None:
+    registry = ToolRegistry()
+
+    with pytest.raises(ToolRegistryError, match="must match"):
+        registry.register("echo", echo, spec=ToolSpec(name="different"))
+
+
+def test_side_effect_idempotency_requires_runtime_key_contract() -> None:
+    with pytest.raises(ValueError, match="idempotency key"):
+        ToolSpec(name="write", side_effecting=True, idempotent=True)

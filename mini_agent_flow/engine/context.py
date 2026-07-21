@@ -85,6 +85,12 @@ class WorkflowContext:
         self._validate_key(key)
         return key in self._values
 
+    def delete(self, key: str) -> None:
+        """删除临时变量；不存在时保持幂等。"""
+
+        self._validate_key(key)
+        self._values.pop(key, None)
+
     def to_dict(self) -> dict[str, Any]:
         """导出完整 Context 副本。"""
 
