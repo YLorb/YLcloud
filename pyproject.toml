@@ -10,6 +10,7 @@ dependencies = [
     "networkx>=3.2.0",
     "openai>=1.30.0",
     "pydantic>=2.7.0",
+    "pymysql>=1.1.1,<2.0.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0.0",
     "rich>=13.0.0",
@@ -26,7 +27,7 @@ include = ["mini_agent_flow*"]
 exclude = ["schemas*", "examples*", "tests*"]
 
 [tool.setuptools.package-data]
-"mini_agent_flow.persistence" = ["sql/*.sql"]
+"mini_agent_flow.persistence" = ["sql/*.sql", "mysql_sql/*.sql"]
 
 [project.optional-dependencies]
 dev = [

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 from uuid import UUID
@@ -98,7 +99,7 @@ def create_app(
     run_service: RunApplicationService | None = None,
     settings: ServiceSettings | None = None,
 ) -> FastAPI:
-    service = run_service or UnconfiguredRunApplicationService()
+    service = run_service or _default_run_service()
     config = settings or ServiceSettings.from_env()
     limiter = asyncio.Semaphore(config.max_concurrent_requests)
 
@@ -248,6 +249,16 @@ def create_app(
         return accepted.model_dump(by_alias=True, mode="json")
 
     return application
+
+
+def _default_run_service() -> RunApplicationService:
+    # Lazy imports keep contract-only consumers free from database setup side effects.
+    if os.getenv("WORKFLOW_MYSQL_ENABLED", "false").lower() not in {"1", "true", "yes"}:
+        return UnconfiguredRunApplicationService()
+    from mini_agent_flow.service.mysql_run_service import MySQLRunApplicationService
+    from mini_agent_flow.persistence.mysql_store import MySQLSettings, MySQLWorkflowStore
+
+    return MySQLRunApplicationService(MySQLWorkflowStore(MySQLSettings.from_env()))
 
 
 app = create_app()
