@@ -22,6 +22,16 @@ mybatis:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  workflow:
+    client:
+      enabled: ${YLCLOUD_WORKFLOW_ENABLED:false}
+      base-url: ${YLCLOUD_WORKFLOW_BASE_URL:http://127.0.0.1:8003}
+      connect-timeout-ms: ${YLCLOUD_WORKFLOW_CONNECT_TIMEOUT_MS:2000}
+      read-timeout-ms: ${YLCLOUD_WORKFLOW_READ_TIMEOUT_MS:5000}
+      max-connections: ${YLCLOUD_WORKFLOW_MAX_CONNECTIONS:32}
+      max-connections-per-route: ${YLCLOUD_WORKFLOW_MAX_CONNECTIONS_PER_ROUTE:16}
+      retry-backoff-ms: ${YLCLOUD_WORKFLOW_RETRY_BACKOFF_MS:50}
+      max-response-bytes: ${YLCLOUD_WORKFLOW_MAX_RESPONSE_BYTES:2097152}
   cross-store:
     lease-seconds: 3600
     recovery-delay-ms: 60000
