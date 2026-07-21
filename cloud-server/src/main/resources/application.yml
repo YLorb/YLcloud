@@ -34,6 +34,16 @@ ylcloud:
   jwt:
     secret: ${YLCLOUD_JWT_SECRET}
     expiration-ms: ${YLCLOUD_JWT_EXPIRATION_MS:3600000}
+  service-jwt:
+    active-secret: ${YLCLOUD_SERVICE_JWT_ACTIVE_SECRET}
+    previous-secret: ${YLCLOUD_SERVICE_JWT_PREVIOUS_SECRET:}
+    previous-valid-until-epoch-seconds: ${YLCLOUD_SERVICE_JWT_PREVIOUS_VALID_UNTIL_EPOCH_SECONDS:0}
+    issuer: ylcloud-app
+    subject: ylcloud-app
+    workflow-issuer: ylcloud-workflow
+    workflow-subject: ylcloud-workflow
+    max-ttl-seconds: ${YLCLOUD_SERVICE_JWT_MAX_TTL_SECONDS:300}
+    clock-skew-seconds: ${YLCLOUD_SERVICE_JWT_CLOCK_SKEW_SECONDS:30}
   upload:
     max-file-size: 2147483648
     multipart-threshold-bytes: ${YLCLOUD_UPLOAD_MULTIPART_THRESHOLD_BYTES:20971520}

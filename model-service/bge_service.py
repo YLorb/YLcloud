@@ -12,14 +12,32 @@ if MODEL_CACHE_DIR:
     os.environ.setdefault("TRANSFORMERS_CACHE", MODEL_CACHE_DIR)
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from FlagEmbedding import BGEM3FlagModel, FlagModel, FlagReranker
 from secret_utils import read_secret
+from service_auth import ModelServiceAuthError, ModelServiceJwtVerifier
 
 
 app = FastAPI(title="ylcloud BGE model service")
+SERVICE_JWT_VERIFIER = ModelServiceJwtVerifier.from_env()
+
+
+def require_model_scope(required_scope: str):
+    """业务推理端点默认 fail-closed；健康端点不携带模型输入，可供容器探针访问。"""
+    def dependency(authorization: str | None = Header(default=None, alias="Authorization")):
+        if SERVICE_JWT_VERIFIER is None:
+            raise HTTPException(status_code=503, detail="service authentication is not configured")
+        try:
+            return SERVICE_JWT_VERIFIER.verify(authorization, required_scope)
+        except ModelServiceAuthError as exc:
+            insufficient = str(exc) == "insufficient service scope"
+            status_code = 403 if insufficient else 401
+            detail = "insufficient service scope" if insufficient else "invalid service token"
+            raise HTTPException(status_code=status_code, detail=detail) from None
+
+    return dependency
 
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3")
 RERANK_MODEL_NAME = os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3")
@@ -253,7 +271,7 @@ def ready():
 
 
 @app.post("/embed", response_model=EmbedResponse)
-def embed(request: EmbedRequest):
+def embed(request: EmbedRequest, _identity=Depends(require_model_scope("model.embed"))):
     if not request.texts:
         raise HTTPException(status_code=422, detail="texts must not be empty")
     model = get_embedding_model()
@@ -274,7 +292,7 @@ def embed(request: EmbedRequest):
 
 
 @app.post("/rerank", response_model=RerankResponse)
-def rerank(request: RerankRequest):
+def rerank(request: RerankRequest, _identity=Depends(require_model_scope("model.rerank"))):
     pairs = [[request.query, document] for document in request.documents]
     model = get_reranker()
     if model is None:
@@ -443,7 +461,7 @@ def call_text_model(base_url: str, api_key: str, api_style: str, model: str, sys
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, _identity=Depends(require_model_scope("model.chat"))):
     ensure_llm_config("chat", CHAT_BASE_URL, CHAT_API_KEY)
     model = request.model or CHAT_MODEL_NAME
     answer, data = call_text_model(CHAT_BASE_URL, CHAT_API_KEY, CHAT_API_STYLE, model, request.systemPrompt, build_chat_prompt(request), request.maxTokens, request.temperature)
@@ -458,7 +476,7 @@ def chat(request: ChatRequest):
 
 
 @app.post("/generate", response_model=GenerateResponse)
-def generate(request: GenerateRequest):
+def generate(request: GenerateRequest, _identity=Depends(require_model_scope("model.generate"))):
     ensure_llm_config("generation", GENERATE_BASE_URL, GENERATE_API_KEY)
     model = request.model or GENERATE_MODEL_NAME
     text, data = call_text_model(GENERATE_BASE_URL, GENERATE_API_KEY, GENERATE_API_STYLE, model, request.systemPrompt, request.prompt, request.maxTokens, request.temperature)

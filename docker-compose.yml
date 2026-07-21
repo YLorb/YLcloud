@@ -60,11 +60,13 @@ services:
     container_name: ylcloud-model-service
     restart: unless-stopped
     secrets:
+      - service_jwt_active_secret
       - llm_api_key
       - ark_api_key
       - rag_query_api_key
     environment:
       MODEL_CACHE_DIR: /models
+      MODEL_SERVICE_JWT_ACTIVE_SECRET_FILE: /run/secrets/service_jwt_active_secret
       USE_FP16: "false"
       OFFLINE_FALLBACK: ${YLCLOUD_MODEL_SERVICE_OFFLINE_FALLBACK:-true}
       FALLBACK_DIMENSION: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:-512}
@@ -128,6 +130,7 @@ services:
     restart: unless-stopped
     secrets:
       - jwt_secret
+      - service_jwt_active_secret
       - llm_api_key
       - ark_api_key
       - rag_query_api_key
@@ -149,6 +152,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${YLCLOUD_MYSQL_USER:-ylcloud}
       SPRING_DATASOURCE_PASSWORD: ${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}
       YLCLOUD_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      YLCLOUD_SERVICE_JWT_ACTIVE_SECRET_FILE: /run/secrets/service_jwt_active_secret
       YLCLOUD_LLM_API_KEY_FILE: /run/secrets/llm_api_key
       YLCLOUD_ARK_API_KEY_FILE: /run/secrets/ark_api_key
       YLCLOUD_RAG_QUERY_API_KEY_FILE: /run/secrets/rag_query_api_key
@@ -217,6 +221,8 @@ volumes:
 secrets:
   jwt_secret:
     file: ./.secrets/jwt_secret
+  service_jwt_active_secret:
+    file: ./.secrets/service_jwt_active_secret
   llm_api_key:
     file: ./.secrets/llm_api_key
   ark_api_key:

@@ -10,6 +10,9 @@ This directory contains deploy-time secrets mounted into containers as read-only
 Required for application startup:
 
 - `jwt_secret`: stable JWT signing secret with at least 32 bytes.
+- `service_jwt_active_secret`: independent service-to-service HS256 secret with at least 32 random bytes; do not reuse the user JWT secret.
+
+During rotation, mount the previous service secret through a deployment override and set the same absolute previous-valid-until epoch on all services. Remove it after the bounded overlap; see Workflow `docs/SERVICE_JWT.md`.
 
 Optional platform AI secrets:
 
