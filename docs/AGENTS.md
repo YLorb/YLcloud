@@ -1,5 +1,23 @@
 # AGENTS.md
 
+## 当前 YLcloud 集成任务（优先于下方历史学习路线）
+
+本仓库已进入 YLcloud 跨仓库集成阶段。实施 `REQ-20260722-001` 时，以 YLcloud 仓库中的以下版本化文档为权威需求与架构来源：
+
+- `docs/obsidian/10-规划与实施/REQ-20260722-001-意图识别与Workflow服务集成.md`
+- `docs/obsidian/10-规划与实施/ADR-20260722-001-独立Workflow服务通信架构.md`
+- 对应 `TASK-20260722-001` 至 `TASK-20260722-013` 和 `TEST-20260722-001`
+
+下文“第一版不需要生产级分布式执行、多用户认证、向量数据库记忆”等内容是原 Mini AI Workflow Builder 学习阶段的历史边界，不适用于已确认的 YLcloud 集成任务。原有“先确定性 Workflow、显式 Tool Registry、Mock Provider 优先、Validator 后执行”等安全原则继续有效。
+
+YLcloud 集成期间还必须遵守：
+
+1. Workflow 只负责编排和生成结构化 Context，最终用户回答由 Java 生成并持久化。
+2. Workflow 不直接访问 YLcloud 业务 Schema 或 Qdrant，只能调用有 scope、Schema、权限和幂等门禁的 Java Internal Tool Gateway。
+3. 跨仓库 JSON Schema 的唯一权威目录是 `ylcloud/schemas`；本仓库只能消费生成或同步产物。
+4. 按 TASK 编号逐项实现。每项功能先补完整测试用例并执行适用测试，再完成正确性审查和安全审查；通过后才允许创建包含该 TASK 编号的规范 Git commit，不混入下一项功能。
+5. Mock Web/SMTP/CalDAV Tool 属于本阶段交付；真实 OAuth 和真实外部账号联调属于 TASK-20260722-014，不阻塞当前阶段。
+
 ## 项目：Mini AI Workflow Builder
 
 本项目是一个小型 Agent 工作流平台，用来理解现代 Agent 系统是如何由工作流执行、工具调用、上下文传递、状态流转、重试机制和 LLM 规划能力组成的。
