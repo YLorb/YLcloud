@@ -15,10 +15,15 @@ from mini_agent_flow.contracts.models import (
 from mini_agent_flow.service.api import RequestSizeLimitMiddleware, create_app
 from mini_agent_flow.service.run_service import RequestMetadata, RunApplicationService
 from mini_agent_flow.service.settings import ServiceSettings
+from mini_agent_flow.security.service_jwt import AllowAllServiceAuthenticator
 
 
 RUN_ID = UUID("11111111-1111-4111-8111-111111111111")
 EXECUTION_ID = UUID("22222222-2222-4222-8222-222222222222")
+
+
+def _test_app(service=None, settings=None):
+    return create_app(service, settings, AllowAllServiceAuthenticator())
 
 
 class FakeRunService(RunApplicationService):
@@ -103,7 +108,7 @@ def _headers() -> dict[str, str]:
 
 def test_health_ready_lifespan_and_run_routes() -> None:
     service = FakeRunService()
-    with TestClient(create_app(service)) as client:
+    with TestClient(_test_app(service)) as client:
         assert service.started is True
         assert client.get("/health").json() == {"status": "UP"}
         assert client.get("/ready").json() == {"status": "READY"}
@@ -132,7 +137,7 @@ def test_unconfigured_service_is_alive_but_not_ready() -> None:
             "/internal/v1/workflow-runs", json=_request(), headers=_headers()
         )
         assert response.status_code == 503
-        assert response.json()["code"] == "SERVICE_NOT_READY"
+        assert response.json()["code"] == "SERVICE_AUTH_NOT_CONFIGURED"
 
 
 def test_contract_body_limit_and_timeout_are_enforced() -> None:
@@ -141,7 +146,7 @@ def test_contract_body_limit_and_timeout_are_enforced() -> None:
         request_timeout_seconds=0.01,
         max_concurrent_requests=1,
     )
-    with TestClient(create_app(FakeRunService(delay=0.05), settings)) as client:
+    with TestClient(_test_app(FakeRunService(delay=0.05), settings)) as client:
         oversized = client.post(
             "/internal/v1/workflow-runs", json=_request(), headers=_headers()
         )
@@ -152,7 +157,7 @@ def test_contract_body_limit_and_timeout_are_enforced() -> None:
         request_timeout_seconds=0.01,
         max_concurrent_requests=1,
     )
-    with TestClient(create_app(FakeRunService(delay=0.05), timeout_settings)) as client:
+    with TestClient(_test_app(FakeRunService(delay=0.05), timeout_settings)) as client:
         timed_out = client.post(
             "/internal/v1/workflow-runs", json=_request(), headers=_headers()
         )
@@ -163,7 +168,7 @@ def test_contract_body_limit_and_timeout_are_enforced() -> None:
 def test_invalid_contract_and_missing_headers_use_stable_error_envelope() -> None:
     invalid = _request()
     invalid["contractVersion"] = "2.0"
-    with TestClient(create_app(FakeRunService())) as client:
+    with TestClient(_test_app(FakeRunService())) as client:
         response = client.post("/internal/v1/workflow-runs", json=invalid)
         assert response.status_code == 422
         assert response.json()["code"] == "INVALID_REQUEST"
@@ -222,7 +227,7 @@ def test_unexpected_error_is_sanitized() -> None:
         async def create_run(self, request, metadata):
             raise RuntimeError("database password=must-not-leak")
 
-    with TestClient(create_app(BrokenRunService()), raise_server_exceptions=False) as client:
+    with TestClient(_test_app(BrokenRunService()), raise_server_exceptions=False) as client:
         response = client.post(
             "/internal/v1/workflow-runs", json=_request(), headers=_headers()
         )

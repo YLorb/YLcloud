@@ -20,6 +20,7 @@ from mini_agent_flow.persistence.mysql_store import (
 from mini_agent_flow.service.api import create_app
 from mini_agent_flow.service.mysql_run_service import MySQLRunApplicationService
 from mini_agent_flow.service.run_service import RequestMetadata, RunServiceError
+from mini_agent_flow.security.service_jwt import AllowAllServiceAuthenticator
 
 
 pytestmark = pytest.mark.skipif(
@@ -121,7 +122,7 @@ def test_acceptance_is_atomic_idempotent_and_conflict_safe(store: MySQLWorkflowS
 def test_api_returns_202_only_after_committed_rows_are_visible(store: MySQLWorkflowStore) -> None:
     service = MySQLRunApplicationService(store)
     payload = _request().model_dump(by_alias=True, mode="json")
-    with TestClient(create_app(service)) as client:
+    with TestClient(create_app(service, authenticator=AllowAllServiceAuthenticator())) as client:
         response = client.post(
             "/internal/v1/workflow-runs",
             json=payload,

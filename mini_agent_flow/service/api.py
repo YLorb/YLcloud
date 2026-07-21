@@ -13,6 +13,14 @@ from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mini_agent_flow.contracts.models import WorkflowRunCreateRequest
+from mini_agent_flow.security.service_jwt import (
+    HmacJwtVerifier,
+    ServiceAuthError,
+    ServiceAuthenticator,
+    ServiceJwtSettings,
+    UnconfiguredServiceAuthenticator,
+    require_bindings,
+)
 from mini_agent_flow.service.run_service import (
     RequestMetadata,
     RunApplicationService,
@@ -98,8 +106,10 @@ class RequestSizeLimitMiddleware:
 def create_app(
     run_service: RunApplicationService | None = None,
     settings: ServiceSettings | None = None,
+    authenticator: ServiceAuthenticator | None = None,
 ) -> FastAPI:
     service = run_service or _default_run_service()
+    auth = authenticator or _default_authenticator()
     config = settings or ServiceSettings.from_env()
     limiter = asyncio.Semaphore(config.max_concurrent_requests)
 
@@ -163,6 +173,13 @@ def create_app(
             content=_error_body(exc.code, str(exc), retryable=exc.retryable),
         )
 
+    @application.exception_handler(ServiceAuthError)
+    async def handle_auth_error(_: Request, exc: ServiceAuthError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_error_body(exc.code, str(exc), retryable=exc.status_code == 503),
+        )
+
     @application.exception_handler(RequestValidationError)
     async def handle_validation_error(
         _: Request, exc: RequestValidationError
@@ -202,7 +219,7 @@ def create_app(
 
     @application.get("/ready")
     async def ready(response: Response) -> dict[str, str]:
-        if not await service.is_ready():
+        if not auth.is_ready() or not await service.is_ready():
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "NOT_READY"}
         return {"status": "READY"}
@@ -216,7 +233,15 @@ def create_app(
         idempotency_key: str = Header(alias="Idempotency-Key", min_length=1, max_length=256),
         request_id: str = Header(alias="X-Request-Id", min_length=1, max_length=128),
         traceparent: str | None = Header(default=None, max_length=128),
+        authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> dict[str, Any]:
+        identity = auth.authenticate(authorization, {"workflow.run.create"})
+        require_bindings(
+            identity,
+            user_id=payload.user_id,
+            session_id=payload.session_id,
+            message_id=payload.assistant_message_id,
+        )
         accepted = await service.create_run(
             payload,
             RequestMetadata(
@@ -228,23 +253,39 @@ def create_app(
         return accepted.model_dump(by_alias=True, mode="json")
 
     @application.get("/internal/v1/workflow-runs/{run_id}")
-    async def get_run(run_id: UUID) -> dict[str, Any]:
+    async def get_run(
+        run_id: UUID, authorization: str | None = Header(default=None, alias="Authorization")
+    ) -> dict[str, Any]:
+        identity = auth.authenticate(authorization, {"workflow.run.read"})
+        require_bindings(identity, run_id=str(run_id))
         return await service.get_run(str(run_id))
 
     @application.get("/internal/v1/workflow-runs/{run_id}/result")
-    async def get_result(run_id: UUID) -> dict[str, Any]:
+    async def get_result(
+        run_id: UUID, authorization: str | None = Header(default=None, alias="Authorization")
+    ) -> dict[str, Any]:
+        identity = auth.authenticate(authorization, {"workflow.run.read"})
+        require_bindings(identity, run_id=str(run_id))
         result = await service.get_result(str(run_id))
         return result.model_dump(by_alias=True, mode="json")
 
     @application.post("/internal/v1/workflow-runs/{run_id}/cancel")
-    async def cancel_run(run_id: UUID) -> dict[str, Any]:
+    async def cancel_run(
+        run_id: UUID, authorization: str | None = Header(default=None, alias="Authorization")
+    ) -> dict[str, Any]:
+        identity = auth.authenticate(authorization, {"workflow.run.cancel"})
+        require_bindings(identity, run_id=str(run_id))
         return await service.cancel_run(str(run_id))
 
     @application.post(
         "/internal/v1/workflow-runs/{run_id}/retry",
         status_code=status.HTTP_202_ACCEPTED,
     )
-    async def retry_run(run_id: UUID) -> dict[str, Any]:
+    async def retry_run(
+        run_id: UUID, authorization: str | None = Header(default=None, alias="Authorization")
+    ) -> dict[str, Any]:
+        identity = auth.authenticate(authorization, {"workflow.run.retry"})
+        require_bindings(identity, run_id=str(run_id))
         accepted = await service.retry_run(str(run_id))
         return accepted.model_dump(by_alias=True, mode="json")
 
@@ -259,6 +300,11 @@ def _default_run_service() -> RunApplicationService:
     from mini_agent_flow.persistence.mysql_store import MySQLSettings, MySQLWorkflowStore
 
     return MySQLRunApplicationService(MySQLWorkflowStore(MySQLSettings.from_env()))
+
+
+def _default_authenticator() -> ServiceAuthenticator:
+    settings = ServiceJwtSettings.workflow_from_env()
+    return HmacJwtVerifier(settings) if settings else UnconfiguredServiceAuthenticator()
 
 
 app = create_app()

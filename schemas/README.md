@@ -1,6 +1,7 @@
 # 生成的 YLcloud Schema 快照
 
 本目录中的同名 Workflow Schema 不是权威源。权威契约位于 YLcloud 仓库的 `schemas/`。
+`service-jwt-claims.schema.json` 同样只允许从权威目录同步。
 
 同步：
 

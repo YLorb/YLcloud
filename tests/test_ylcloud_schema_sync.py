@@ -10,6 +10,7 @@ SCHEMAS = (
     "workflow.schema.json",
     "workflow-v2.schema.json",
     "workflow-run-contracts.schema.json",
+    "service-jwt-claims.schema.json",
 )
 EXAMPLES = (
     "workflow-run-create.valid.json",

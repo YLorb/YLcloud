@@ -11,6 +11,7 @@ SCHEMA_FILES = (
     "workflow.schema.json",
     "workflow-v2.schema.json",
     "workflow-run-contracts.schema.json",
+    "service-jwt-claims.schema.json",
 )
 EXAMPLE_FILES = (
     "workflow-run-create.valid.json",
