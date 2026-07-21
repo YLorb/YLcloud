@@ -12,6 +12,9 @@ import com.ylcloud.entity.KnowledgeChatMessage;
 import com.ylcloud.entity.KnowledgeChatSession;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
+import com.ylcloud.workflow.client.WorkflowMessageLifecycleService;
+import com.ylcloud.workflow.client.WorkflowStatusPresentation;
+import com.ylcloud.workflow.contract.WorkflowContracts.WorkflowRunStatus;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,6 +40,7 @@ public class KnowledgeChatQueryService {
     private final com.ylcloud.service.memory.UserMemoryExtractionService memoryExtractionService;
     private final ObjectMapper objectMapper;
     private final Executor executor;
+    private final WorkflowMessageLifecycleService workflowLifecycle;
 
     @Autowired
     public KnowledgeChatQueryService(KnowledgeChatSessionMapper sessionMapper,
@@ -46,7 +50,8 @@ public class KnowledgeChatQueryService {
                                      ConversationContextService contextService,
                                      com.ylcloud.service.memory.UserMemoryExtractionService memoryExtractionService,
                                      ObjectMapper objectMapper,
-                                     @Qualifier("ragTaskExecutor") Executor executor) {
+                                     @Qualifier("ragTaskExecutor") Executor executor,
+                                     WorkflowMessageLifecycleService workflowLifecycle) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.spacePermissionService = spacePermissionService;
@@ -55,12 +60,14 @@ public class KnowledgeChatQueryService {
         this.memoryExtractionService = memoryExtractionService;
         this.objectMapper = objectMapper;
         this.executor = executor;
+        this.workflowLifecycle = workflowLifecycle;
     }
 
     KnowledgeChatQueryService(KnowledgeChatSessionMapper sessionMapper, KnowledgeChatMessageMapper messageMapper,
                               SpacePermissionService spacePermissionService, KnowledgeRagQueryService ragQueryService,
                               ConversationContextService contextService, ObjectMapper objectMapper, Executor executor) {
-        this(sessionMapper,messageMapper,spacePermissionService,ragQueryService,contextService,null,objectMapper,executor);
+        this(sessionMapper,messageMapper,spacePermissionService,ragQueryService,contextService,null,
+                objectMapper,executor,null);
     }
 
     @Transactional
@@ -120,15 +127,32 @@ public class KnowledgeChatQueryService {
         if(!"FAILED".equals(message.getTaskStatus())) {
             throw new BaseException("只有失败的回答可以重试");
         }
-        if(messageMapper.retryFailed(messageId) == 0) {
+        boolean workflowRetry = workflowLifecycle != null && workflowLifecycle.isEnabled()
+                && message.getWorkflowRunId() != null;
+        int updated = workflowRetry ? messageMapper.prepareWorkflowRetry(messageId) : messageMapper.retryFailed(messageId);
+        if(updated == 0) {
             throw new BaseException("回答状态已变化，请刷新后重试");
         }
-        dispatchAfterCommit(messageId);
+        dispatchAfterCommit(messageId, workflowRetry);
         message.setTaskStatus("QUEUED");
         message.setErrorMessage(null);
         message.setRetryCount((message.getRetryCount() == null ? 0 : message.getRetryCount()) + 1);
         message.setUpdatetime(LocalDateTime.now());
         return toVO(message);
+    }
+
+    @Transactional
+    public KnowledgeChatMessageVO cancel(Long sessionId, Long messageId, Long userId) {
+        requireSession(sessionId,userId);
+        KnowledgeChatMessage message = messageMapper.getOwned(messageId,sessionId,userId);
+        if(message == null || !"assistant".equals(message.getRole())) throw new BaseException("待取消的回答不存在");
+        if(workflowLifecycle == null || !workflowLifecycle.isEnabled()) throw new BaseException("Workflow 未启用");
+        if(!"QUEUED".equals(message.getTaskStatus()) && !"RUNNING".equals(message.getTaskStatus())) {
+            throw new BaseException("当前回答不可取消");
+        }
+        workflowLifecycle.cancel(message);
+        KnowledgeChatMessage cancelled = messageMapper.getOwned(messageId,sessionId,userId);
+        return toVO(cancelled);
     }
 
     public void execute(Long messageId) {
@@ -164,6 +188,7 @@ public class KnowledgeChatQueryService {
     @Scheduled(fixedDelayString = "${ylcloud.chat.recovery-delay-ms:30000}",
             initialDelayString = "${ylcloud.chat.recovery-initial-delay-ms:15000}")
     public void recoverPendingQueries() {
+        if(workflowLifecycle != null && workflowLifecycle.isEnabled()) return;
         messageMapper.requeueStale(LocalDateTime.now().minusMinutes(10));
         messageMapper.listQueued(100).forEach(message -> executor.execute(() -> execute(message.getId())));
     }
@@ -173,7 +198,17 @@ public class KnowledgeChatQueryService {
     }
 
     private void dispatchAfterCommit(Long messageId) {
-        Runnable dispatch = () -> executor.execute(() -> execute(messageId));
+        boolean workflow = workflowLifecycle != null && workflowLifecycle.isEnabled();
+        dispatchAfterCommit(messageId, workflow);
+    }
+
+    private void dispatchAfterCommit(Long messageId, boolean workflowRetry) {
+        Runnable action = workflowRetry
+                ? () -> workflowLifecycle.retry(messageId)
+                : workflowLifecycle != null && workflowLifecycle.isEnabled()
+                    ? () -> workflowLifecycle.start(messageId)
+                    : () -> execute(messageId);
+        Runnable dispatch = () -> executor.execute(action);
         if(TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { dispatch.run(); }
@@ -226,7 +261,26 @@ public class KnowledgeChatQueryService {
         vo.setId(message.getId()); vo.setSessionId(message.getSessionId()); vo.setSequenceNo(message.getSequenceNo()); vo.setRole(message.getRole());
         vo.setContent(message.getContent()); vo.setCitationsJson(message.getCitationsJson());
         vo.setTaskStatus(message.getTaskStatus()); vo.setErrorMessage(message.getErrorMessage());
-        vo.setRetryCount(message.getRetryCount()); vo.setCreatetime(message.getCreatetime()); vo.setUpdatetime(message.getUpdatetime());
+        vo.setRetryCount(message.getRetryCount());
+        applyWorkflowPresentation(vo,message);
+        vo.setCreatetime(message.getCreatetime()); vo.setUpdatetime(message.getUpdatetime());
         return vo;
+    }
+
+    static void applyWorkflowPresentation(KnowledgeChatMessageVO vo, KnowledgeChatMessage message) {
+        vo.setWorkflowRunId(message.getWorkflowRunId());
+        vo.setWorkflowExecutionId(message.getWorkflowExecutionId());
+        vo.setWorkflowExecutionEpoch(message.getWorkflowExecutionEpoch());
+        vo.setWorkflowStatus(message.getWorkflowStatus());
+        vo.setDegraded(Boolean.TRUE.equals(message.getWorkflowDegraded()));
+        if(message.getWorkflowStatus() != null) {
+            try {
+                WorkflowStatusPresentation presentation = WorkflowStatusPresentation.from(
+                        WorkflowRunStatus.valueOf(message.getWorkflowStatus()));
+                vo.setStatusColor(presentation.color());
+            } catch(IllegalArgumentException ignored) {
+                vo.setStatusColor(null);
+            }
+        }
     }
 }

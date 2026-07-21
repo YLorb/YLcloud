@@ -29,7 +29,7 @@ import java.util.function.Supplier;
 
 /**
  * 带连接池、短超时、Service JWT 和稳定错误分类的 Workflow 客户端。
- * create 使用同一幂等键最多重试一次；GET 最多重试两次；retry execution 绝不自动重放。
+ * create/retry 使用同一幂等键最多重试一次；GET 最多重试两次。
  */
 @Component
 public class WorkflowHttpClient {
@@ -103,12 +103,11 @@ public class WorkflowHttpClient {
     }
 
     public WorkflowRunAccepted retryRun(UUID runId, String retryKey) {
-        // Workflow retry 会创建新 execution；在服务端支持 retry 幂等前，客户端禁止自动重放。
-        return executeJson(
+        return withRetry(() -> executeJson(
                 "POST", "/internal/v1/workflow-runs/" + runId + "/retry", null,
                 token("workflow.run.retry", ServiceJwtBinding.run(runId.toString())), retryKey,
                 Set.of(202), WorkflowRunAccepted.class
-        );
+        ), 2);
     }
 
     private String token(String scope, ServiceJwtBinding binding) {

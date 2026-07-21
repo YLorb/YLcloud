@@ -468,6 +468,7 @@ progress::-webkit-progress-value { background: var(--confirm); border-radius: 99
 .message-row > div { max-width: min(82%, 720px); }
 .message-bubble { padding: 11px 13px; border: 1px solid var(--border); border-radius: 4px 13px 13px 13px; background: var(--surface); font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .message-row--user .message-bubble { border-color: var(--primary); border-radius: 13px 4px 13px 13px; background: var(--primary); color: white; }
+.message-statuses { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .message-bubble--thinking { display: flex; align-items: center; gap: 5px; color: var(--muted); }
 .message-bubble--thinking span { margin-left: 5px; font-size: 11px; }
 .message-bubble--thinking i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: pulse 1s infinite alternate; }

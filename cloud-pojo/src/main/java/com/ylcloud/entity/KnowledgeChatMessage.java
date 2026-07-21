@@ -23,6 +23,15 @@ public class KnowledgeChatMessage {
     private Integer contextVersion;
     private Integer contextTokenCount;
     private Integer retryCount;
+    private String workflowRunId;
+    private String workflowExecutionId;
+    private Integer workflowExecutionEpoch;
+    private String workflowStatus;
+    private Boolean workflowDegraded;
+    private String workflowResultHash;
+    private String workflowSnapshotHash;
+    private String workflowResultJson;
+    private String generationStatus;
     private Integer status;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;

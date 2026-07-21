@@ -67,16 +67,13 @@ class WorkflowHttpClientTest {
     }
 
     @Test
-    void getCancelAndRetryUseExpectedContractsAndRetryExecutionIsNotAutoReplayed() {
+    void getCancelAndRetryUseExpectedContractsAndRetryExecutionReusesIdempotency() {
         var runId = java.util.UUID.fromString("11111111-1111-4111-8111-111111111111");
         assertEquals("RUNNING", client.getRun(runId).status().name());
         assertEquals("CANCELLED", client.cancelRun(runId).status().name());
-        WorkflowClientException failure = assertThrows(
-                WorkflowClientException.class,
-                () -> client.retryRun(runId, "retry-1")
-        );
-        assertEquals(503, failure.getHttpStatus());
-        assertEquals(1, retries.get());
+        var accepted = client.retryRun(runId, "retry-1");
+        assertEquals(2, accepted.executionEpoch());
+        assertEquals(2, retries.get());
     }
 
     @Test
@@ -109,8 +106,15 @@ class WorkflowHttpClientTest {
             return;
         }
         if (path.endsWith("/retry")) {
-            retries.incrementAndGet();
-            send(exchange, 503, "{}");
+            if (retries.incrementAndGet() == 1) {
+                send(exchange, 503, "{}");
+                return;
+            }
+            send(exchange, 202, """
+                    {"contractVersion":"1.0","runId":"11111111-1111-4111-8111-111111111111",
+                    "executionId":"33333333-3333-4333-8333-333333333333","executionEpoch":2,
+                    "status":"QUEUED","acceptedAt":"2026-07-22T00:00:02Z"}
+                    """);
             return;
         }
         send(exchange, 200, """

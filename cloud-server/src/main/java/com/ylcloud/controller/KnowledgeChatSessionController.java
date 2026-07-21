@@ -97,6 +97,11 @@ public class KnowledgeChatSessionController {
         return Result.success(queryService.retry(sessionId,messageId,BaseContext.getCurrentId()));
     }
 
+    @PostMapping("/{sessionId}/queries/{messageId}/cancel")
+    public Result<KnowledgeChatMessageVO> cancelQuery(@PathVariable Long sessionId, @PathVariable Long messageId) {
+        return Result.success(queryService.cancel(sessionId,messageId,BaseContext.getCurrentId()));
+    }
+
     @GetMapping("/{sessionId}/episodes")
     public Result<List<KnowledgeChatEpisodeVO>> episodes(@PathVariable Long sessionId) {
         return Result.success(episodeService.list(BaseContext.getCurrentId(),sessionId));

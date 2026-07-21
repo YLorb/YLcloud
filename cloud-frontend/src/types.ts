@@ -490,6 +490,12 @@ export type KnowledgeChatMessage = {
   taskStatus?: "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED";
   errorMessage?: string;
   retryCount?: number;
+  workflowRunId?: string;
+  workflowExecutionId?: string;
+  workflowExecutionEpoch?: number;
+  workflowStatus?: "QUEUED" | "PLANNING" | "VALIDATING" | "RUNNING" | "SUCCEEDED" | "DEGRADED" | "FAILED" | "TIMED_OUT" | "CANCELLED" | "ABANDONED";
+  degraded?: boolean;
+  statusColor?: "purple" | "blue" | "green" | "red" | "yellow";
   createtime?: string;
   updatetime?: string;
 };

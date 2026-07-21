@@ -180,6 +180,7 @@ public class KnowledgeChatSessionService {
         vo.setTaskStatus(message.getTaskStatus());
         vo.setErrorMessage(message.getErrorMessage());
         vo.setRetryCount(message.getRetryCount());
+        KnowledgeChatQueryService.applyWorkflowPresentation(vo,message);
         vo.setCreatetime(message.getCreatetime());
         vo.setUpdatetime(message.getUpdatetime());
         return vo;

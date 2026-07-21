@@ -410,6 +410,8 @@ export const api = {
   }),
   retryKnowledgeChatQuery: (sessionId: number, messageId: number) =>
     request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/queries/${messageId}/retry`, { method: "POST" }),
+  cancelKnowledgeChatQuery: (sessionId: number, messageId: number) =>
+    request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/queries/${messageId}/cancel`, { method: "POST" }),
   listUserMemories: (type?: string, keyword?: string) =>
     request<UserMemory[]>(`/api/assistant/memories?${params({ type, keyword, limit: 500 })}`),
   userMemorySetting: () => request<UserMemorySetting>("/api/assistant/memories/setting"),

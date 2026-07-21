@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle, Bot, Check, ChevronLeft, FileText, ListTree, MessageSquarePlus,
-  Plus, RotateCw, Search, Send, Sparkles, Trash2, User
+  Plus, RotateCw, Search, Send, Sparkles, Trash2, User, XCircle
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -10,6 +10,7 @@ import { api } from "../../api";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
 import { ErrorState, LoadingState } from "../../components/ui/PageState";
+import { StatusBadge, type StatusTone } from "../../components/ui/StatusBadge";
 import type { KnowledgeChatEpisode, KnowledgeChatMessage, KnowledgeChatSession, RagCitation } from "../../types";
 
 export function AssistantPage() {
@@ -127,6 +128,14 @@ export function AssistantPage() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "重试失败")
   });
+  const cancel = useMutation({
+    mutationFn: (messageId: number) => api.cancelKnowledgeChatQuery(sessionId!, messageId),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ["chat-session", sessionId] });
+      toast.success("回答已取消");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "取消失败")
+  });
 
   const messages = activeSession.data?.messages || [];
   const selectedSpaceDetails = (spaces.data || []).filter((space) => selectedSpaces.includes(space.id));
@@ -168,7 +177,9 @@ export function AssistantPage() {
           ? <ErrorState message={activeSession.error instanceof Error ? activeSession.error.message : "无法加载会话"} onRetry={() => activeSession.refetch()} />
           : messages.length === 0
             ? <AssistantEmpty newSession={newSessionDraft} onSuggest={setQuestion} />
-            : messages.map((message) => <Message key={message.id} message={message} retrying={retry.isPending} onRetry={() => retry.mutate(message.id)} />)}
+            : messages.map((message) => <Message key={message.id} message={message}
+                retrying={retry.isPending} cancelling={cancel.isPending}
+                onRetry={() => retry.mutate(message.id)} onCancel={() => cancel.mutate(message.id)} />)}
         {send.isPending && <div className="message-row message-row--assistant"><span className="message-avatar"><Bot size={17} /></span><div className="message-bubble message-bubble--thinking"><i /><i /><i /><span>正在安全提交问题…</span></div></div>}
         <div ref={messageEnd} />
       </div>
@@ -201,12 +212,20 @@ function SpacePicker({ spaces, selected, onChange }: { spaces: Array<{ id: numbe
   return <div className="space-picker"><Button onClick={() => setOpen((value) => !value)} aria-expanded={open}>{open ? <ChevronLeft size={16} /> : <Plus size={16} />}{open ? "收起选择" : "选择知识库"}</Button>{open && <div className="space-picker__panel">{spaces.length ? spaces.map((space) => { const checked = selected.includes(space.id); return <label key={space.id}><input type="checkbox" checked={checked} onChange={() => onChange(checked ? selected.filter((id) => id !== space.id) : [...selected, space.id])} /><span>{checked && <Check size={14} />}</span>{space.name}</label>; }) : <small>暂无可用空间</small>}</div>}</div>;
 }
 
-function Message({ message, onRetry, retrying }: { message: KnowledgeChatMessage; onRetry: () => void; retrying: boolean }) {
+function Message({ message, onRetry, onCancel, retrying, cancelling }: { message: KnowledgeChatMessage; onRetry: () => void; onCancel: () => void; retrying: boolean; cancelling: boolean }) {
   const citations = useMemo(() => parseCitations(message.citationsJson), [message.citationsJson]);
   const assistant = message.role === "assistant";
   const pending = ["QUEUED", "RUNNING"].includes(message.taskStatus || "");
   const failed = message.taskStatus === "FAILED";
-  return <article id={message.sequenceNo ? `message-${message.sequenceNo}` : undefined} className={assistant ? "message-row message-row--assistant" : "message-row message-row--user"}><span className="message-avatar">{assistant ? <Bot size={17} /> : <User size={17} />}</span><div>{pending ? <div className="message-bubble message-bubble--thinking" role="status"><i /><i /><i /><span>{message.taskStatus === "QUEUED" ? "已排队，等待生成回答" : "正在检索知识库并生成回答"}</span></div> : <div className="message-bubble">{message.content}</div>}{failed && <div className="assistant-error" role="alert"><AlertCircle size={17} /><div><strong>回答生成失败</strong><p>{message.errorMessage || "服务暂时不可用，请稍后重试。"}</p></div><Button size="sm" loading={retrying} onClick={onRetry}><RotateCw size={15} />重试</Button></div>}{assistant && !failed && citations.length > 0 && <div className="citation-list"><span>引用来源</span>{citations.map((citation, index) => <article key={`${citation.documentId}-${citation.chunkId}-${index}`}><FileText size={15} /><div><strong>{citation.fileName || `来源 ${index + 1}`}</strong><p>{citation.contentSummary || "相关文档片段"}</p></div>{citation.rerankScore != null && <small>{Math.round(citation.rerankScore * 100)}%</small>}</article>)}</div>}</div></article>;
+  const presentation = messagePresentation(message);
+  return <article id={message.sequenceNo ? `message-${message.sequenceNo}` : undefined} className={assistant ? "message-row message-row--assistant" : "message-row message-row--user"}><span className="message-avatar">{assistant ? <Bot size={17} /> : <User size={17} />}</span><div>{pending ? <div className="message-bubble message-bubble--thinking" role="status"><i /><i /><i /><span>{message.taskStatus === "QUEUED" ? "已排队，等待生成回答" : "Workflow 正在准备上下文，Java 将生成最终回答"}</span></div> : <div className="message-bubble">{message.content}</div>}{assistant && message.taskStatus && <div className="message-statuses"><StatusBadge tone={presentation.tone}>{presentation.primary}</StatusBadge>{message.workflowStatus && <StatusBadge tone={presentation.workflowTone}>Workflow · {message.workflowStatus}</StatusBadge>}{pending && message.workflowRunId && <Button variant="ghost" size="sm" loading={cancelling} onClick={onCancel}><XCircle size={14} />取消</Button>}</div>}{failed && <div className="assistant-error" role="alert"><AlertCircle size={17} /><div><strong>回答生成失败</strong><p>{message.errorMessage || "服务暂时不可用，请稍后重试。"}</p></div><Button size="sm" loading={retrying} onClick={onRetry}><RotateCw size={15} />重试</Button></div>}{assistant && !failed && citations.length > 0 && <div className="citation-list"><span>引用来源</span>{citations.map((citation, index) => <article key={`${citation.documentId}-${citation.chunkId}-${index}`}><FileText size={15} /><div><strong>{citation.fileName || `来源 ${index + 1}`}</strong><p>{citation.contentSummary || "相关文档片段"}</p></div>{citation.rerankScore != null && <small>{Math.round(citation.rerankScore * 100)}%</small>}</article>)}</div>}</div></article>;
+}
+
+function messagePresentation(message: KnowledgeChatMessage): { primary: string; tone: StatusTone; workflowTone: StatusTone } {
+  const primary = { QUEUED: "已排队", RUNNING: "处理中", SUCCESS: message.degraded ? "成功（降级）" : "成功", FAILED: "失败" }[message.taskStatus || "QUEUED"];
+  const tone: StatusTone = message.degraded ? "warning" : message.taskStatus === "FAILED" ? "danger" : message.taskStatus === "SUCCESS" ? "success" : message.taskStatus === "RUNNING" ? "running" : "info";
+  const workflowTone: StatusTone = message.workflowStatus === "DEGRADED" ? "warning" : ["FAILED", "TIMED_OUT", "CANCELLED", "ABANDONED"].includes(message.workflowStatus || "") ? "danger" : message.workflowStatus === "SUCCEEDED" ? "success" : message.workflowStatus === "QUEUED" ? "info" : "running";
+  return { primary, tone, workflowTone };
 }
 
 function positiveNumber(value: string | null) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0 ? parsed : null; }
