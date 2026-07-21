@@ -6,7 +6,7 @@ priority: P0
 created: 2026-07-22
 updated: 2026-07-22
 owner: Codex
-version: 1
+version: 2
 tags: [workflow, fastapi, docker, security]
 ---
 # TASK-002 FastAPI 与 Docker 测试记录
@@ -49,6 +49,6 @@ tags: [workflow, fastapi, docker, security]
 
 ## 待验证项与结论
 
-- 未执行：真实 MySQL 提交后 202、进程终止后恢复、数据库 Poller。原因：属于 TASK-003 产物。
+- 已补齐：真实 MySQL 提交后 202、进程重启恢复和数据库 lease/CAS Poller 基础能力，证据见 `TEST-20260722-004`。
 - 未执行：Compose 内部端口和只读根文件系统。原因：属于 TASK-011 产物。
-- 其余 TASK-002 实现和测试通过；当前状态必须保持 `pending-verification`，TASK-003 与 TASK-011 证据补齐后才能更新为 `completed`。
+- 其余 TASK-002 实现和测试通过；当前状态保持 `pending-verification`，仅待 TASK-011 Compose 证据补齐。
