@@ -1,0 +1,12 @@
+.git
+.venv
+.pytest_cache
+.mini-agent-flow
+__pycache__
+*.pyc
+*.pyo
+*.db
+tests
+workflow
+docs
+benchmarks
