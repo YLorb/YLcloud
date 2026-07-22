@@ -15,4 +15,6 @@ python scripts/check_ylcloud_schemas.py --source D:\path\to\ylcloud\schemas --sy
 python scripts/check_ylcloud_schemas.py --source D:\path\to\ylcloud\schemas
 ```
 
+`intent-plan.schema.json` 是 TASK-007 的结构化 Plan 契约；本仓库中的文件同样仅为同步快照。
+
 禁止直接修改生成快照；任何契约变更必须先在 YLcloud 仓库完成并通过双端契约测试。

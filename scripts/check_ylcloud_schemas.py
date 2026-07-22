@@ -12,12 +12,15 @@ SCHEMA_FILES = (
     "workflow-v2.schema.json",
     "workflow-run-contracts.schema.json",
     "service-jwt-claims.schema.json",
+    "intent-plan.schema.json",
 )
 EXAMPLE_FILES = (
     "workflow-run-create.valid.json",
     "workflow-result.valid.json",
     "workflow-callback.valid.json",
     "workflow-delivery-ack.valid.json",
+    "intent-plan-request.valid.json",
+    "intent-plan-response.valid.json",
 )
 
 
