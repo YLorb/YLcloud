@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0+cpu \
     && pip install -r requirements.txt
 
-COPY bge_service.py secret_utils.py service_auth.py ./
+COPY bge_service.py secret_utils.py service_auth.py intent_plan_contract.py ./
 
 EXPOSE 8001
 

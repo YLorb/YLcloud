@@ -1,0 +1,9 @@
+{
+  "contractVersion": "1.0",
+  "schemaVersion": "intent-plan/1.0",
+  "promptVersion": "intent-plan-prompt/1.0",
+  "question": "参照知识库格式起草邮件并发送",
+  "shortTermContext": [],
+  "attempt": 1,
+  "confidenceThreshold": 0.7
+}

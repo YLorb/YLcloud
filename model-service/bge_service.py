@@ -1,5 +1,6 @@
 import os
 import hashlib
+import json
 import math
 import re
 from threading import Lock
@@ -18,6 +19,12 @@ from pydantic import BaseModel, Field
 from FlagEmbedding import BGEM3FlagModel, FlagModel, FlagReranker
 from secret_utils import read_secret
 from service_auth import ModelServiceAuthError, ModelServiceJwtVerifier
+from intent_plan_contract import (
+    IntentPlan,
+    IntentPlanRequest,
+    IntentPlanResponse,
+    IntentTask,
+)
 
 
 app = FastAPI(title="ylcloud BGE model service")
@@ -53,6 +60,11 @@ CHAT_API_STYLE = os.getenv("CHAT_API_STYLE") or os.getenv("LLM_CHAT_API_STYLE") 
 GENERATE_BASE_URL = os.getenv("GENERATE_BASE_URL") or os.getenv("QUERY_REWRITE_BASE_URL") or OPENAI_COMPATIBLE_BASE_URL
 GENERATE_API_KEY = read_secret("GENERATE_API_KEY", "QUERY_REWRITE_API_KEY") or OPENAI_COMPATIBLE_API_KEY
 GENERATE_API_STYLE = os.getenv("GENERATE_API_STYLE") or os.getenv("QUERY_REWRITE_API_STYLE") or os.getenv("LLM_API_STYLE", "responses")
+PLAN_MODEL_NAME = os.getenv("PLAN_MODEL_NAME", GENERATE_MODEL_NAME)
+PLAN_BASE_URL = os.getenv("PLAN_BASE_URL") or GENERATE_BASE_URL
+PLAN_API_KEY = read_secret("PLAN_API_KEY") or GENERATE_API_KEY
+PLAN_API_STYLE = os.getenv("PLAN_API_STYLE") or GENERATE_API_STYLE
+PLAN_MOCK_ENABLED = os.getenv("PLAN_MOCK_ENABLED", "false").lower() == "true"
 OFFLINE_FALLBACK = os.getenv("OFFLINE_FALLBACK", "false").lower() == "true"
 FALLBACK_DIMENSION = int(os.getenv("FALLBACK_DIMENSION", "512"))
 EXPECTED_EMBEDDING_DIMENSION = int(os.getenv("EXPECTED_EMBEDDING_DIMENSION", "0"))
@@ -232,6 +244,9 @@ class GenerateResponse(BaseModel):
     totalTokens: int = 0
 
 
+INTENT_PLAN_PROMPT_VERSION = "intent-plan-prompt/1.0"
+
+
 @app.get("/health")
 def health():
     return {
@@ -244,6 +259,9 @@ def health():
         "generateModel": GENERATE_MODEL_NAME,
         "generateEnabled": bool(GENERATE_BASE_URL and GENERATE_API_KEY),
         "generateApiStyle": GENERATE_API_STYLE.lower(),
+        "planModel": PLAN_MODEL_NAME,
+        "planEnabled": PLAN_MOCK_ENABLED or bool(PLAN_BASE_URL and PLAN_API_KEY),
+        "planApiStyle": PLAN_API_STYLE.lower(),
         "llmApiStyle": LLM_API_STYLE,
         "embeddingLoaded": embedding_model is not None,
         "embeddingReady": embedding_ready,
@@ -487,6 +505,96 @@ def generate(request: GenerateRequest, _identity=Depends(require_model_scope("mo
         promptTokens=prompt_tokens,
         completionTokens=completion_tokens,
         totalTokens=total_tokens,
+    )
+
+
+@app.post("/plan", response_model=IntentPlanResponse)
+def plan(request: IntentPlanRequest, _identity=Depends(require_model_scope("model.plan"))):
+    """一次调用只生成完整 Plan；是否重试由 Workflow 根据不确定性统一决定。"""
+    if PLAN_MOCK_ENABLED:
+        structured = mock_intent_plan(request)
+        model = "mock-plan-v1"
+    else:
+        ensure_llm_config("intent planning", PLAN_BASE_URL, PLAN_API_KEY)
+        prompt_text = build_intent_plan_prompt(request)
+        try:
+            raw, _usage = call_text_model(
+                PLAN_BASE_URL,
+                PLAN_API_KEY,
+                PLAN_API_STYLE,
+                PLAN_MODEL_NAME,
+                "你是受约束的意图规划器，只输出符合给定 Schema 的 JSON。",
+                prompt_text,
+                4096,
+                0.0,
+            )
+        except Exception:
+            raise HTTPException(status_code=502, detail="intent plan model is unavailable") from None
+        try:
+            structured = IntentPlan.model_validate(extract_json_object(raw))
+            if any(task.disposition != "ACTIVE" for task in structured.tasks):
+                raise ValueError("model cannot pre-skip tasks")
+        except Exception:
+            # 不向调用方回显上游正文或解析细节，修复重试由 Workflow 发起。
+            raise HTTPException(status_code=502, detail="model returned an invalid intent plan") from None
+        model = PLAN_MODEL_NAME
+    return IntentPlanResponse(
+        contractVersion="1.0",
+        schemaVersion="intent-plan/1.0",
+        promptVersion=INTENT_PLAN_PROMPT_VERSION,
+        modelVersion=model,
+        plan=structured,
+    )
+
+
+def build_intent_plan_prompt(request: IntentPlanRequest) -> str:
+    context = [item.model_dump() for item in request.shortTermContext]
+    schema = IntentPlan.model_json_schema()
+    return (
+        f"Prompt version: {INTENT_PLAN_PROMPT_VERSION}\n"
+        f"Attempt: {request.attempt}\n"
+        f"Confidence threshold: {request.confidenceThreshold}\n"
+        "规则：主任务必须唯一；子任务只能保留完成主任务必需的独立步骤；"
+        "Context 不足不是意图；安全或关键路由不确定必须标注 uncertainty；"
+        "初次输出 disposition 必须为 ACTIVE；最多 6 个任务且依赖必须无环。\n"
+        f"用户问题：{request.question}\n"
+        f"短期上下文：{json.dumps(context, ensure_ascii=False)}\n"
+        f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+    )
+
+
+def extract_json_object(raw: str) -> dict:
+    value = (raw or "").strip()
+    if value.startswith("```"):
+        value = re.sub(r"^```(?:json)?\s*", "", value)
+        value = re.sub(r"\s*```$", "", value)
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict):
+        raise ValueError("intent plan root must be an object")
+    return parsed
+
+
+def mock_intent_plan(request: IntentPlanRequest) -> IntentPlan:
+    """仅用于本地契约/E2E 的确定性 Mock，不伪装成真实模型能力。"""
+    question = request.question.lower()
+    intent = "EMAIL_SEND" if ("邮件" in question or "email" in question) else "GENERAL_QA"
+    return IntentPlan(
+        primaryTaskId="primary",
+        complexity="SIMPLE",
+        tasks=[
+            IntentTask(
+                taskId="primary",
+                role="PRIMARY",
+                intent=intent,
+                instruction=request.question,
+                dependencies=[],
+                confidence=0.95,
+                contextSufficiency="PARTIAL",
+                relevance="REQUIRED",
+                uncertainty="NONE",
+                disposition="ACTIVE",
+            )
+        ],
     )
 
 

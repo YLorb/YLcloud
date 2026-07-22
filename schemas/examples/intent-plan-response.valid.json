@@ -1,0 +1,36 @@
+{
+  "contractVersion": "1.0",
+  "schemaVersion": "intent-plan/1.0",
+  "promptVersion": "intent-plan-prompt/1.0",
+  "modelVersion": "mock-plan-v1",
+  "plan": {
+    "primaryTaskId": "send_email",
+    "complexity": "COMPLEX",
+    "tasks": [
+      {
+        "taskId": "load_format",
+        "role": "SUBTASK",
+        "intent": "FILE_SEARCH",
+        "instruction": "从明确授权的知识库加载邮件格式",
+        "dependencies": [],
+        "confidence": 0.94,
+        "contextSufficiency": "INSUFFICIENT",
+        "relevance": "REQUIRED",
+        "uncertainty": "NONE",
+        "disposition": "ACTIVE"
+      },
+      {
+        "taskId": "send_email",
+        "role": "PRIMARY",
+        "intent": "EMAIL_SEND",
+        "instruction": "按格式起草并发送邮件",
+        "dependencies": ["load_format"],
+        "confidence": 0.96,
+        "contextSufficiency": "PARTIAL",
+        "relevance": "REQUIRED",
+        "uncertainty": "NONE",
+        "disposition": "ACTIVE"
+      }
+    ]
+  }
+}
