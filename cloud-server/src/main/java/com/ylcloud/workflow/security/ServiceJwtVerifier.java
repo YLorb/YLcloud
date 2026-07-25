@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,7 @@ public class ServiceJwtVerifier {
     private final long clockSkewSeconds;
     private final Clock clock;
 
+    @Autowired
     public ServiceJwtVerifier(
             @Value("${ylcloud.service-jwt.active-secret}") String activeSecret,
             @Value("${ylcloud.service-jwt.previous-secret:}") String previousSecret,

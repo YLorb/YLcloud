@@ -41,6 +41,28 @@ class AdminUserServiceTest {
         assertThrows(BaseException.class,() -> service.update(16L,update("USER",null)));
     }
 
+    @Test
+    void preventsDowngradingDeploymentOwner() {
+        BaseContext.setCurrentId(42L);
+        User owner = user(16L,"ADMIN",1);
+        owner.setDeploymentOwner(true);
+        when(mapper.lockById(16L)).thenReturn(owner);
+
+        assertThrows(BaseException.class,() -> service.update(16L,update("USER",null)));
+        verify(mapper,never()).updateRole(16L,"USER");
+    }
+
+    @Test
+    void preventsDisablingDeploymentOwner() {
+        BaseContext.setCurrentId(42L);
+        User owner = user(16L,"ADMIN",1);
+        owner.setDeploymentOwner(true);
+        when(mapper.lockById(16L)).thenReturn(owner);
+
+        assertThrows(BaseException.class,() -> service.update(16L,update(null,0)));
+        verify(mapper,never()).updateStatus(16L,0);
+    }
+
     private User user(Long id, String role, int status) { User user = new User(); user.setId(id); user.setRole(role); user.setStatus(status); user.setUsername("user" + id); return user; }
     private AdminUserUpdateDTO update(String role, Integer status) { AdminUserUpdateDTO dto = new AdminUserUpdateDTO(); dto.setRole(role); dto.setStatus(status); return dto; }
 }

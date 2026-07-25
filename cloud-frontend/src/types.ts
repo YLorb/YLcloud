@@ -9,6 +9,7 @@ export type User = {
   username: string;
   nickname: string;
   role?: string;
+  deploymentOwner?: boolean;
   token: string;
 };
 
@@ -32,6 +33,7 @@ export type AdminUser = {
   nickname?: string;
   email?: string;
   role: "ADMIN" | "USER";
+  deploymentOwner: boolean;
   status: number;
   groupId?: number | null;
   groupName?: string | null;

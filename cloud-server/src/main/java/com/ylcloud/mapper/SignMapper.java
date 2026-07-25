@@ -10,8 +10,8 @@ public interface SignMapper {
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true,keyProperty = "id",keyColumn = "user_id")
-    @Insert("insert into users(username,password,nickname,status,role,create_time,update_time) " +
-            "values(#{username}, #{password}, #{nickname}, #{status}, #{role}, #{createTime}, #{updateTime})")
+    @Insert("insert into users(username,password,nickname,status,role,deployment_owner,create_time,update_time) " +
+            "values(#{username}, #{password}, #{nickname}, #{status}, #{role}, #{deploymentOwner}, #{createTime}, #{updateTime})")
     int insert(User user);
 
     /**
@@ -22,7 +22,7 @@ public interface SignMapper {
     int countByUsername(String username);
 
     /**
-     * Count all users for first-run bootstrap checks.
+     * Count all users while holding the registration guard.
      */
     @Select("select count(*) from users")
     int countAll();

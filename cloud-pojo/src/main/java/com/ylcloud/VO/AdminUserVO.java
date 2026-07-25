@@ -13,6 +13,7 @@ public class AdminUserVO {
     private String nickname;
     private String email;
     private String role;
+    private Boolean deploymentOwner;
     private Integer status;
     private Long groupId;
     private String groupName;

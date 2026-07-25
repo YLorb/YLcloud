@@ -25,6 +25,8 @@ public class User {
 
     private String role;
 
+    private Boolean deploymentOwner;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;
