@@ -78,6 +78,7 @@ public class SignService {
         if(rows == 0) {
             throw new RuntimeException("用户根目录绑定失败");
         }
+        signMapper.assignDefaultPermissionGroup(user.getId());
         spaceService.createDefaultPersonalSpace(user.getId(),user.getUsername());
         return user.getId();
     }

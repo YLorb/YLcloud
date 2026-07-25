@@ -8,6 +8,9 @@ import com.ylcloud.DTO.UserFileDTO;
 import com.ylcloud.VO.FileVO;
 import com.ylcloud.VO.FilePreviewVO;
 import com.ylcloud.VO.ShareFileVO;
+import com.ylcloud.authorization.AccessSubject;
+import com.ylcloud.authorization.ResourceAction;
+import com.ylcloud.authorization.ResourceType;
 import com.ylcloud.constant.NameConstant;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.context.BaseContext;
@@ -71,12 +74,15 @@ public class FileService {
     private PhysicalFileCleanupService physicalFileCleanupService;
     @Autowired
     private CrossStoreFileWriteService crossStoreFileWriteService;
+    @Autowired
+    private AuthorizationService authorizationService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
 
     private enum FilePermission {
         READ,
+        DOWNLOAD,
         WRITE,
         MODIFY,
         DELETE
@@ -159,17 +165,6 @@ public class FileService {
     }
 
     /**
-     * 执行 Admin 函数的业务处理。
-     *
-     * @param user 方法入参
-     * @return 处理结果
-     */
-    private boolean Admin(User user) {
-        //return user != null && ("ADMIN".equalsIgnoreCase(user.getRole()) || "admin".equalsIgnoreCase(user.getUsername()));
-        return user != null && ("ADMIN".equalsIgnoreCase(user.getRole())); // fixed：防止越权
-    }
-
-    /**
      * 执行 currentUser 函数的业务处理。
      * @return 处理结果
      */
@@ -191,25 +186,19 @@ public class FileService {
         if(userFileDTO == null || userFileDTO.getStatus() == StatusConstant.DISABLE) {
             throw new NotFoundException("文件不存在或已失效");
         }
-        User user = currentUser();
-        if(Admin(user) || user.getId().equals(userFileDTO.getUserId())) {
-            return;
-        }
-        throw new BaseException("没有文件" + permissionName(permission) + "权限");
+        authorizationService.require(
+                AccessSubject.user(BaseContext.getCurrentId()),
+                ResourceType.USER_PRIVATE,
+                userFileDTO.getUserId(),
+                resourceAction(permission)
+        );
     }
 
-    /**
-     * 把 FilePermission 枚举值转换成对应的中文名称。
-     *
-     * @param permission 方法入参
-     * @return 处理结果
-     */
-    private String permissionName(FilePermission permission) {
+    private ResourceAction resourceAction(FilePermission permission) {
         return switch (permission) {
-            case READ -> "读取";
-            case WRITE -> "写入";
-            case MODIFY -> "修改";
-            case DELETE -> "删除";
+            case READ -> ResourceAction.READ;
+            case DOWNLOAD -> ResourceAction.DOWNLOAD;
+            case WRITE, MODIFY, DELETE -> ResourceAction.WRITE;
         };
     }
 
@@ -221,8 +210,7 @@ public class FileService {
      * @return 处理结果
      */
     private UserFileDTO requireFileById(Long fileId, FilePermission permission) {
-        User user = currentUser();
-        UserFileDTO userFileDTO = Admin(user) ? fileInfoMapper.getByFileIdAny(fileId) : fileInfoMapper.getByFileId(fileId,user.getId());
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileIdAny(fileId);
         requirePermission(userFileDTO,permission);
         return userFileDTO;
     }
@@ -235,10 +223,7 @@ public class FileService {
      * @return 处理结果
      */
     private UserFileDTO requireFileByIdActiveOrRecycle(Long fileId, FilePermission permission) {
-        User user = currentUser();
-        UserFileDTO userFileDTO = Admin(user) ?
-                fileInfoMapper.getByFileIdAnyActiveOrRecycle(fileId) :
-                fileInfoMapper.getByFileIdActiveOrRecycle(fileId,user.getId());
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileIdAnyActiveOrRecycle(fileId);
         requirePermission(userFileDTO,permission);
         return userFileDTO;
     }
@@ -252,11 +237,11 @@ public class FileService {
      * @return 处理结果
      */
     private UserFileDTO requireFileByUuid(String fileUuid, Long parentId, FilePermission permission) {
-        User user = currentUser();
-        Long realParentId = normalizeParentId(parentId,user.getId());
-        UserFileDTO userFileDTO = Admin(user) ?
-                fileInfoMapper.getByFileUuidAny(fileUuid,realParentId) :
-                fileInfoMapper.getByFileUuidAndParent(fileUuid,realParentId,user.getId());
+        Long currentUserId = BaseContext.getCurrentId();
+        Long realParentId = parentId == null || parentId == 0L
+                ? normalizeParentId(parentId,currentUserId)
+                : parentId;
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuidAny(fileUuid,realParentId);
         requirePermission(userFileDTO,permission);
         return userFileDTO;
     }
@@ -281,10 +266,6 @@ public class FileService {
      * @return 列表结果
      */
     private List<UserFileDTO> listChildren(Long parentId, Long ownerId) {
-        User user = currentUser();
-        if(Admin(user)) {
-            return fileInfoMapper.listFileByparentIdAny(parentId);
-        }
         return fileInfoMapper.listFileByparentId(parentId,ownerId);
     }
 
@@ -296,10 +277,6 @@ public class FileService {
      * @return 列表结果
      */
     private List<UserFileDTO> listChildrenActiveOrRecycle(Long parentId, Long ownerId) {
-        User user = currentUser();
-        if(Admin(user)) {
-            return fileInfoMapper.listFileByparentIdAnyActiveOrRecycle(parentId);
-        }
         return fileInfoMapper.listFileByparentIdActiveOrRecycle(parentId,ownerId);
     }
 
@@ -527,8 +504,7 @@ public class FileService {
             return root.getId();
         }
 
-        User user = loginMapper.getById(userId);
-        boolean parentExists = Admin(user) ? fileInfoMapper.ParentIdExistAny(parentId) : fileInfoMapper.ParentIdExist(parentId,userId);
+        boolean parentExists = fileInfoMapper.ParentIdExist(parentId,userId);
         if (!parentExists) {
             log.info("尝试访问一个不存在的目录");
             throw new BaseException("目录不存在");
@@ -720,7 +696,7 @@ public class FileService {
      * @param response 响应对象
      */
     public void downloadFile(String fileUuid, Long parentId, HttpServletResponse response) {
-        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
+        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.DOWNLOAD);
         Long ownerId = userFileDTO.getUserId();
 
         //TODO：未来需要支持打包下载
@@ -933,7 +909,7 @@ public class FileService {
      * @return 处理结果
      */
     public String shareFile(String fileUuid, Long parentId) {
-        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
+        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
         if(!userFileAvailable(userFileDTO)) {
             throw new BaseException("文件不可用，无法分享");
         }
@@ -1214,8 +1190,17 @@ public class FileService {
      * @return 列表结果
      */
     public List<FileVO> listFiles(Long parentId,Long userId) {
+        authorizationService.require(
+                AccessSubject.user(BaseContext.getCurrentId()),
+                ResourceType.USER_PRIVATE,
+                userId,
+                ResourceAction.READ
+        );
         parentId = normalizeParentId(parentId, userId);
-        UserFileDTO parent = requireFileById(parentId,FilePermission.READ);
+        UserFileDTO parent = fileInfoMapper.getByFileId(parentId,userId);
+        if(parent == null || parent.getStatus() == StatusConstant.DISABLE) {
+            throw new NotFoundException("目录不存在或已失效");
+        }
         if(parent.getDir() != 1) {
             throw new BaseException("目标位置不是目录");
         }
@@ -1226,6 +1211,12 @@ public class FileService {
     }
 
     public List<FileVO> listFilesByCategory(String category, String keyword, Long userId) {
+        authorizationService.require(
+                AccessSubject.user(BaseContext.getCurrentId()),
+                ResourceType.USER_PRIVATE,
+                userId,
+                ResourceAction.READ
+        );
         String normalizedCategory = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
         if(!Set.of("images","videos","music","documents").contains(normalizedCategory)) {
             throw new BaseException("不支持的文件分类");

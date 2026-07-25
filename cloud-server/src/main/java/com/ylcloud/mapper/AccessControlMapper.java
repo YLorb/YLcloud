@@ -71,7 +71,7 @@ public interface AccessControlMapper {
     int insertUserOverride(@Param("userId") Long userId, @Param("permissionKey") String permissionKey,
                            @Param("allowed") boolean allowed);
 
-    @Select("select case when upper(u.role) = 'ADMIN' then 1 else coalesce(uo.allowed, gg.allowed, 1) end " +
+    @Select("select case when u.deployment_owner = 1 then 1 else coalesce(uo.allowed, gg.allowed, 0) end " +
             "from users u left join user_permission_group ug on ug.user_id = u.user_id " +
             "left join permission_group_grant gg on gg.group_id = ug.group_id and gg.permission_key = #{permissionKey} " +
             "left join user_permission_override uo on uo.user_id = u.user_id and uo.permission_key = #{permissionKey} " +

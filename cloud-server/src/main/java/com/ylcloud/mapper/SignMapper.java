@@ -42,4 +42,9 @@ public interface SignMapper {
             "set root_id = #{rootId}, email = #{email} " +
             "where user_id = #{userId}")
     int updateAll(@Param("rootId") Long rootId, @Param("userId") Long userId, @Param("email") String email);
+
+    @Insert("insert into user_permission_group(user_id, group_id) " +
+            "select #{userId}, group_id from permission_group where group_name = '默认用户组' " +
+            "on duplicate key update group_id = values(group_id), update_time = now()")
+    int assignDefaultPermissionGroup(@Param("userId") Long userId);
 }
