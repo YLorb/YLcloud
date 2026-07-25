@@ -29,6 +29,12 @@ public class SpaceConstant {
      */
     public static final String ROLE_MEMBER = "MEMBER";
 
+    public static final String LIFECYCLE_ACTIVE = "ACTIVE";
+
+    public static final String LIFECYCLE_DISSOLVING = "DISSOLVING";
+
+    public static final String LIFECYCLE_DISSOLVED = "DISSOLVED";
+
     /**
      * RAG 文档待索引。
      */

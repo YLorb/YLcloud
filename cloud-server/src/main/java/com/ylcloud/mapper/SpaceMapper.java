@@ -23,27 +23,32 @@ public interface SpaceMapper {
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    @Insert("insert into spaces(name, description, type, owner_id, root_dir_id, rag_status, version_enabled, status, createtime, updatetime) " +
-            "values(#{name}, #{description}, #{type}, #{ownerId}, #{rootDirId}, #{ragStatus}, #{versionEnabled}, #{status}, #{createtime}, #{updatetime})")
+    @Insert("insert into spaces(name, description, type, lifecycle_state, owner_id, root_dir_id, rag_status, version_enabled, status, createtime, updatetime) " +
+            "values(#{name}, #{description}, #{type}, #{lifecycleState}, #{ownerId}, #{rootDirId}, #{ragStatus}, #{versionEnabled}, #{status}, #{createtime}, #{updatetime})")
     int insert(Space space);
 
     /**
      * 查询 getById 相关逻辑。
      * @return 处理结果
      */
-    @Select("select id, name, description, type, owner_id as ownerId, root_dir_id as rootDirId, " +
+    @Select("select id, name, description, type, lifecycle_state as lifecycleState, owner_id as ownerId, root_dir_id as rootDirId, " +
             "rag_status as ragStatus, version_enabled as versionEnabled, status, createtime, updatetime " +
-            "from spaces where id = #{spaceId} and status = 1")
+            "from spaces where id = #{spaceId} and status = 1 and lifecycle_state = 'ACTIVE'")
     Space getById(@Param("spaceId") Long spaceId);
+
+    @Select("select id, name, description, type, lifecycle_state as lifecycleState, owner_id as ownerId, root_dir_id as rootDirId, " +
+            "rag_status as ragStatus, version_enabled as versionEnabled, status, createtime, updatetime " +
+            "from spaces where id = #{spaceId} and status = 1 for update")
+    Space getByIdForUpdate(@Param("spaceId") Long spaceId);
 
     /**
      * 查询 listByUserId 相关逻辑。
      * @return 列表结果
      */
-    @Select("select s.id, s.name, s.description, s.type, s.owner_id as ownerId, s.root_dir_id as rootDirId, " +
+    @Select("select s.id, s.name, s.description, s.type, s.lifecycle_state as lifecycleState, s.owner_id as ownerId, s.root_dir_id as rootDirId, " +
             "m.role, s.rag_status as ragStatus, s.version_enabled as versionEnabled, s.createtime, s.updatetime " +
             "from spaces s join space_member m on s.id = m.space_id " +
-            "where m.user_id = #{userId} and m.status = 1 and s.status = 1 " +
+            "where m.user_id = #{userId} and m.status = 1 and s.status = 1 and s.lifecycle_state = 'ACTIVE' " +
             "order by s.updatetime desc")
     List<SpaceVO> listByUserId(@Param("userId") Long userId);
 
@@ -75,6 +80,17 @@ public interface SpaceMapper {
     int updateVersionEnabled(@Param("spaceId") Long spaceId,
                              @Param("versionEnabled") Integer versionEnabled,
                              @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update spaces set owner_id = #{ownerId}, updatetime = #{updateTime} " +
+            "where id = #{spaceId} and status = 1 and lifecycle_state = 'ACTIVE'")
+    int updateOwner(@Param("spaceId") Long spaceId,
+                    @Param("ownerId") Long ownerId,
+                    @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update spaces set lifecycle_state = 'DISSOLVING', updatetime = #{updateTime} " +
+            "where id = #{spaceId} and status = 1 and lifecycle_state = 'ACTIVE'")
+    int markDissolving(@Param("spaceId") Long spaceId,
+                       @Param("updateTime") LocalDateTime updateTime);
 
     /**
      * 执行 disable 函数的业务处理。
