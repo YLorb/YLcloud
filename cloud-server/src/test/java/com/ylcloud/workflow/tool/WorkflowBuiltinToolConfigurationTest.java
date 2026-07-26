@@ -20,7 +20,7 @@ class WorkflowBuiltinToolConfigurationTest {
         doThrow(new BaseException(403, "forbidden")).when(permission).requireMember(5L, 7L);
         WorkflowToolHandler handler = new WorkflowBuiltinToolConfiguration().knowledgeLoadChunks(permission, chunks);
         ToolInvocationContext context = new ToolInvocationContext(UUID.randomUUID(), UUID.randomUUID(), "node",
-                UUID.randomUUID(), 7, 8);
+                UUID.randomUUID(), 7, null, 8);
 
         assertThrows(BaseException.class, () -> handler.invoke(context, Map.of("spaceId", 5, "chunkIds", List.of(10))));
 

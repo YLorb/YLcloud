@@ -353,21 +353,6 @@
         "acknowledgedAt": {"type": "string", "format": "date-time"}
       }
     },
-    "ConfirmationGrant": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["mode", "grantId", "userId", "toolName", "parameterHash", "issuedAt", "expiresAt"],
-      "properties": {
-        "mode": {"type": "string", "enum": ["ALLOW_ONCE", "ALLOW_SIMILAR"]},
-        "grantId": {"$ref": "#/$defs/Uuid"},
-        "userId": {"$ref": "#/$defs/PositiveId"},
-        "toolName": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,127}$"},
-        "parameterHash": {"$ref": "#/$defs/Sha256"},
-        "similarityScope": {"type": ["object", "null"], "maxProperties": 32},
-        "issuedAt": {"type": "string", "format": "date-time"},
-        "expiresAt": {"type": "string", "format": "date-time"}
-      }
-    },
     "ToolInvokeRequest": {
       "type": "object",
       "additionalProperties": false,
@@ -379,24 +364,12 @@
         "nodeId": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"},
         "invocationId": {"$ref": "#/$defs/Uuid"},
         "userId": {"$ref": "#/$defs/PositiveId"},
+        "apiKeyId": {"oneOf": [{"$ref": "#/$defs/PositiveId"}, {"type": "null"}]},
         "sessionId": {"$ref": "#/$defs/PositiveId"},
         "toolName": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,127}$"},
         "riskLevel": {"type": "string", "enum": ["READ_ONLY", "WRITE", "HIGH"]},
-        "arguments": {"type": "object"},
-        "confirmation": {"oneOf": [{"$ref": "#/$defs/ConfirmationGrant"}, {"type": "null"}]}
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {"riskLevel": {"const": "HIGH"}},
-            "required": ["riskLevel"]
-          },
-          "then": {
-            "required": ["confirmation"],
-            "properties": {"confirmation": {"$ref": "#/$defs/ConfirmationGrant"}}
-          }
-        }
-      ]
+        "arguments": {"type": "object"}
+      }
     },
     "ToolInvokeResponse": {
       "type": "object",

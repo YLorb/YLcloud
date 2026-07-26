@@ -100,20 +100,21 @@ class WorkflowContractsTest {
     }
 
     @Test
-    void highRiskToolRequiresConfirmationBoundToUserAndTool() {
-        assertThrows(IllegalArgumentException.class, () -> new WorkflowContracts.ToolInvokeRequest(
+    void highRiskToolCarriesCredentialSubjectWithoutPerToolGrant() {
+        WorkflowContracts.ToolInvokeRequest request = new WorkflowContracts.ToolInvokeRequest(
                 "1.0",
                 UUID.fromString("11111111-1111-4111-8111-111111111111"),
                 UUID.fromString("22222222-2222-4222-8222-222222222222"),
                 "send_email",
                 UUID.fromString("44444444-4444-4444-8444-444444444444"),
                 101,
+                301L,
                 201,
                 "email.send",
                 WorkflowContracts.RiskLevel.HIGH,
-                Map.of("to", "sandbox@example.com"),
-                null
-        ));
+                Map.of("to", "sandbox@example.com")
+        );
+        assertTrue(validator.validate(request).isEmpty());
 
         assertThrows(IllegalArgumentException.class, () -> new WorkflowContracts.ToolInvokeResponse(
                 "1.0",

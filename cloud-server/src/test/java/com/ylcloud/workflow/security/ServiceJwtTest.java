@@ -26,7 +26,7 @@ class ServiceJwtTest {
         );
         ServiceJwtVerifier verifier = verifier(ACTIVE, "");
         ServiceJwtBinding binding = new ServiceJwtBinding(
-                101L, 201L, 302L, "run-1", "exec-1", "node-1", "invoke-1"
+                101L, 151L, 201L, 302L, "run-1", "exec-1", "node-1", "invoke-1"
         );
         String token = issuer.issue(
                 ServiceJwtAudience.TOOL_GATEWAY,
@@ -49,7 +49,7 @@ class ServiceJwtTest {
         ));
         assertCode("SERVICE_TOKEN_BINDING_MISMATCH", () -> verifier.verify(
                 token, ServiceJwtAudience.TOOL_GATEWAY, Set.of("tool.memory.read"),
-                new ServiceJwtBinding(999L, null, null, null, null, null, null)
+                new ServiceJwtBinding(999L, null, null, null, null, null, null, null)
         ));
         assertThrows(IllegalArgumentException.class, () -> issuer.issue(
                 "user-browser", Set.of("model.embed"), binding, 120

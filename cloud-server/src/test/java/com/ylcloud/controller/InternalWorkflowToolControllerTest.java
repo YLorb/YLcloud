@@ -26,7 +26,7 @@ class InternalWorkflowToolControllerTest {
         when(handler.requiredScope()).thenReturn("tool.web.search");
         when(service.requireHandler("web.search")).thenReturn(handler);
         ToolInvokeRequest request = request();
-        ServiceJwtBinding binding = new ServiceJwtBinding(7L, 8L, null, request.runId().toString(),
+        ServiceJwtBinding binding = new ServiceJwtBinding(7L, request.apiKeyId(), 8L, null, request.runId().toString(),
                 request.executionId().toString(), request.nodeId(), request.invocationId().toString());
         ServiceJwtIssuer issuer = new ServiceJwtIssuer(SECRET, "ylcloud-workflow", "ylcloud-workflow", 300);
         ServiceJwtVerifier verifier = new ServiceJwtVerifier(SECRET, "", 0,
@@ -40,13 +40,13 @@ class InternalWorkflowToolControllerTest {
         String wrongScope = issuer.issue(ServiceJwtAudience.TOOL_GATEWAY, Set.of("tool.memory.read"), binding, 120);
         assertThrows(BaseException.class, () -> controller.invoke("Bearer " + wrongScope, request));
         String wrongBinding = issuer.issue(ServiceJwtAudience.TOOL_GATEWAY, Set.of("tool.web.search"),
-                new ServiceJwtBinding(99L, 8L, null, request.runId().toString(), request.executionId().toString(),
+                new ServiceJwtBinding(99L, request.apiKeyId(), 8L, null, request.runId().toString(), request.executionId().toString(),
                         request.nodeId(), request.invocationId().toString()), 120);
         assertThrows(BaseException.class, () -> controller.invoke("Bearer " + wrongBinding, request));
     }
 
     private ToolInvokeRequest request() {
         return new ToolInvokeRequest("1.0", UUID.randomUUID(), UUID.randomUUID(), "node_1", UUID.randomUUID(),
-                7, 8, "web.search", RiskLevel.READ_ONLY, Map.of("query", "hello"), null);
+                7, 41L, 8, "web.search", RiskLevel.READ_ONLY, Map.of("query", "hello"));
     }
 }

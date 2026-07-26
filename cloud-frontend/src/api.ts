@@ -1,5 +1,6 @@
 import type {
   AdminUser,
+  AgentRiskAuthorization,
   PermissionDefinition,
   PermissionGroup,
   ApiResult,
@@ -162,6 +163,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  agentRiskAuthorizations: () => request<AgentRiskAuthorization[]>("/api/agent-risk-authorizations"),
+  issueAgentRiskAuthorization: (payload: { mode: "ALLOW_ONCE" | "PERSISTENT"; expiresAt?: string; riskAcknowledged: true }) =>
+    request<AgentRiskAuthorization>("/api/agent-risk-authorizations", { method: "POST", body: JSON.stringify(payload) }),
+  revokeAgentRiskAuthorization: (authorizationId: number) =>
+    request<boolean>(`/api/agent-risk-authorizations/${authorizationId}`, { method: "DELETE" }),
   publicSettings: () => request<PublicSiteSettings>("/api/site/public-settings"),
   adminSettings: () => request<SiteSetting[]>("/api/admin/settings"),
   updateAdminSettings: (settings: Array<{ key: string; value: string }>) =>

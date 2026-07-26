@@ -6,6 +6,7 @@ package com.ylcloud.workflow.security;
  */
 public record ServiceJwtBinding(
         Long userId,
+        Long apiKeyId,
         Long sessionId,
         Long messageId,
         String runId,
@@ -14,10 +15,10 @@ public record ServiceJwtBinding(
         String invocationId
 ) {
     public static ServiceJwtBinding runCreate(long userId, long sessionId, long messageId) {
-        return new ServiceJwtBinding(userId, sessionId, messageId, null, null, null, null);
+        return new ServiceJwtBinding(userId, null, sessionId, messageId, null, null, null, null);
     }
 
     public static ServiceJwtBinding run(String runId) {
-        return new ServiceJwtBinding(null, null, null, runId, null, null, null);
+        return new ServiceJwtBinding(null, null, null, null, runId, null, null, null);
     }
 }

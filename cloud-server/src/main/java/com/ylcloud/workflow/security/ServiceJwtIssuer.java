@@ -93,6 +93,7 @@ public class ServiceJwtIssuer {
             return;
         }
         put(builder, "userId", binding.userId());
+        put(builder, "apiKeyId", binding.apiKeyId());
         put(builder, "sessionId", binding.sessionId());
         put(builder, "messageId", binding.messageId());
         put(builder, "runId", binding.runId());

@@ -75,11 +75,6 @@ public final class WorkflowContracts {
         HIGH
     }
 
-    public enum ConfirmationMode {
-        ALLOW_ONCE,
-        ALLOW_SIMILAR
-    }
-
     public enum IntentType {
         GENERAL_CHAT,
         KNOWLEDGE_QA,
@@ -401,29 +396,6 @@ public final class WorkflowContracts {
         }
     }
 
-    public record ConfirmationGrant(
-            @NotNull ConfirmationMode mode,
-            @NotNull UUID grantId,
-            @Positive long userId,
-            @NotBlank @Pattern(regexp = "^[a-z][a-z0-9_.-]{1,127}$") String toolName,
-            @NotBlank @Pattern(regexp = SHA_256_PATTERN) String parameterHash,
-            @Size(max = 32) Map<String, Object> similarityScope,
-            @NotNull Instant issuedAt,
-            @NotNull Instant expiresAt
-    ) {
-        public ConfirmationGrant {
-            if (!expiresAt.isAfter(issuedAt)) {
-                throw new IllegalArgumentException("confirmation grant must expire after issue time");
-            }
-            if (mode == ConfirmationMode.ALLOW_ONCE && similarityScope != null) {
-                throw new IllegalArgumentException("ALLOW_ONCE cannot define similarity scope");
-            }
-            if (similarityScope != null) {
-                similarityScope = Map.copyOf(similarityScope);
-            }
-        }
-    }
-
     public record ToolInvokeRequest(
             @NotBlank String contractVersion,
             @NotNull UUID runId,
@@ -431,25 +403,14 @@ public final class WorkflowContracts {
             @NotBlank @Pattern(regexp = "^[A-Za-z_][A-Za-z0-9_-]{0,63}$") String nodeId,
             @NotNull UUID invocationId,
             @Positive long userId,
+            @Positive Long apiKeyId,
             @Positive long sessionId,
             @NotBlank @Pattern(regexp = "^[a-z][a-z0-9_.-]{1,127}$") String toolName,
             @NotNull RiskLevel riskLevel,
-            @NotNull Map<String, Object> arguments,
-            @Valid ConfirmationGrant confirmation
+            @NotNull Map<String, Object> arguments
     ) {
         public ToolInvokeRequest {
             requireContractVersion(contractVersion);
-            if (riskLevel == RiskLevel.HIGH && confirmation == null) {
-                throw new IllegalArgumentException("high-risk tool requires confirmation");
-            }
-            if (confirmation != null) {
-                if (confirmation.userId() != userId) {
-                    throw new IllegalArgumentException("confirmation user does not match invocation");
-                }
-                if (!confirmation.toolName().equals(toolName)) {
-                    throw new IllegalArgumentException("confirmation tool does not match invocation");
-                }
-            }
             arguments = Map.copyOf(arguments);
         }
     }

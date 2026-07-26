@@ -2,6 +2,7 @@ package com.ylcloud.workflow.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.service.AgentRiskAuthorizationService;
 import com.ylcloud.workflow.contract.WorkflowContracts.ContractError;
 import com.ylcloud.workflow.contract.WorkflowContracts.ContractErrorCode;
 import com.ylcloud.workflow.contract.WorkflowContracts.RiskLevel;
@@ -10,30 +11,33 @@ import com.ylcloud.workflow.contract.WorkflowContracts.ToolInvokeResponse;
 import com.ylcloud.workflow.contract.WorkflowContracts.ToolInvokeResponse.ToolInvokeStatus;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
+import java.util.Objects;
 
 /** Invocation ID 是副作用的唯一幂等键；已落库调用只回放结果，绝不重复执行 handler。 */
 @Service
 public class WorkflowToolInvocationService {
     private final WorkflowToolRegistry registry;
     private final WorkflowToolInvocationMapper mapper;
-    private final WorkflowConfirmationService confirmationService;
+    private final AgentRiskAuthorizationService riskAuthorizationService;
     private final ObjectMapper objectMapper;
     private final ToolArgumentsCanonicalizer canonicalizer;
 
     public WorkflowToolInvocationService(WorkflowToolRegistry registry, WorkflowToolInvocationMapper mapper,
-                                         WorkflowConfirmationService confirmationService, ObjectMapper objectMapper,
+                                         AgentRiskAuthorizationService riskAuthorizationService, ObjectMapper objectMapper,
                                          ToolArgumentsCanonicalizer canonicalizer) {
         this.registry = registry;
         this.mapper = mapper;
-        this.confirmationService = confirmationService;
+        this.riskAuthorizationService = riskAuthorizationService;
         this.objectMapper = objectMapper;
         this.canonicalizer = canonicalizer;
     }
 
     public WorkflowToolHandler requireHandler(String name) { return registry.require(name); }
 
+    @Transactional
     public ToolInvokeResponse invoke(ToolInvokeRequest request) {
         WorkflowToolHandler handler = registry.require(request.toolName());
         if (handler.riskLevel() != request.riskLevel()) throw new BaseException(409, "Tool 风险等级不匹配");
@@ -41,9 +45,9 @@ public class WorkflowToolInvocationService {
         WorkflowToolInvocationRecord existing = mapper.get(request.invocationId().toString());
         if (existing != null) return replay(existing, request, argumentsHash);
         ToolInvocationContext context = new ToolInvocationContext(request.runId(), request.executionId(),
-                request.nodeId(), request.invocationId(), request.userId(), request.sessionId());
+                request.nodeId(), request.invocationId(), request.userId(), request.apiKeyId(), request.sessionId());
         if (handler.riskLevel() == RiskLevel.HIGH) {
-            confirmationService.authorize(request.confirmation(), context, handler.name(), argumentsHash, request.arguments());
+            riskAuthorizationService.authorizeHighRisk(request.userId(),request.apiKeyId(),request.invocationId().toString());
         }
         WorkflowToolInvocationRecord record = record(request, argumentsHash);
         try {
@@ -78,6 +82,7 @@ public class WorkflowToolInvocationService {
         if (!existing.getRunId().equals(request.runId().toString())
                 || !existing.getExecutionId().equals(request.executionId().toString())
                 || !existing.getNodeId().equals(request.nodeId()) || existing.getUserId() != request.userId()
+                || !Objects.equals(existing.getApiKeyId(),request.apiKeyId())
                 || existing.getSessionId() != request.sessionId() || !existing.getToolName().equals(request.toolName())
                 || !existing.getArgumentsHash().equals(hash)) throw new BaseException(409, "invocationId 已绑定其他调用");
         if (!"COMPLETED".equals(existing.getInvocationStatus()) || existing.getResponseJson() == null)
@@ -93,7 +98,7 @@ public class WorkflowToolInvocationService {
         WorkflowToolInvocationRecord value = new WorkflowToolInvocationRecord();
         value.setInvocationId(request.invocationId().toString()); value.setRunId(request.runId().toString());
         value.setExecutionId(request.executionId().toString()); value.setNodeId(request.nodeId());
-        value.setUserId(request.userId()); value.setSessionId(request.sessionId()); value.setToolName(request.toolName());
+        value.setUserId(request.userId()); value.setApiKeyId(request.apiKeyId()); value.setSessionId(request.sessionId()); value.setToolName(request.toolName());
         value.setRiskLevel(request.riskLevel().name()); value.setArgumentsHash(hash); return value;
     }
 

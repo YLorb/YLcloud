@@ -9,6 +9,7 @@ public class WorkflowToolInvocationRecord {
     private String executionId;
     private String nodeId;
     private Long userId;
+    private Long apiKeyId;
     private Long sessionId;
     private String toolName;
     private String riskLevel;

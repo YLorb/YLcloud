@@ -30,7 +30,7 @@ public class InternalWorkflowToolController {
     public ToolInvokeResponse invoke(@RequestHeader("Authorization") String authorization,
                                      @RequestBody @Valid ToolInvokeRequest request) {
         WorkflowToolHandler handler = service.requireHandler(request.toolName());
-        ServiceJwtBinding binding = new ServiceJwtBinding(request.userId(), request.sessionId(), null,
+        ServiceJwtBinding binding = new ServiceJwtBinding(request.userId(), request.apiKeyId(), request.sessionId(), null,
                 request.runId().toString(), request.executionId().toString(), request.nodeId(),
                 request.invocationId().toString());
         try {

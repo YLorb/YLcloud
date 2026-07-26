@@ -557,6 +557,20 @@ export type AsyncTaskDetail = AsyncTask & {
   }>;
 };
 
+export type AgentRiskAuthorization = {
+  id: number;
+  subjectType: "WEB_ACCOUNT" | "API_KEY";
+  apiKeyId?: number | null;
+  mode: "ALLOW_ONCE" | "PERSISTENT";
+  status: "ACTIVE" | "CONSUMED" | "REVOKED" | "EXPIRED";
+  expiresAt?: string | null;
+  consumedInvocationId?: string | null;
+  consumedAt?: string | null;
+  revokedAt?: string | null;
+  createTime: string;
+  updateTime: string;
+};
+
 export type KnowledgeChatSession = {
   id: number;
   userId: number;

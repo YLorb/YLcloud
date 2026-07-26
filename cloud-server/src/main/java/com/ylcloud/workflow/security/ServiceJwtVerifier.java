@@ -156,7 +156,7 @@ public class ServiceJwtVerifier {
 
     private ServiceJwtBinding binding(Claims claims) {
         return new ServiceJwtBinding(
-                number(claims, "userId"), number(claims, "sessionId"), number(claims, "messageId"),
+                number(claims, "userId"), number(claims, "apiKeyId"), number(claims, "sessionId"), number(claims, "messageId"),
                 text(claims, "runId"), text(claims, "executionId"),
                 text(claims, "nodeId"), text(claims, "invocationId")
         );
@@ -179,6 +179,7 @@ public class ServiceJwtVerifier {
     private void requireBindings(ServiceJwtBinding actual, ServiceJwtBinding expected) {
         if (expected == null) return;
         requireEqual(actual.userId(), expected.userId());
+        requireEqual(actual.apiKeyId(), expected.apiKeyId());
         requireEqual(actual.sessionId(), expected.sessionId());
         requireEqual(actual.messageId(), expected.messageId());
         requireEqual(actual.runId(), expected.runId());
