@@ -23,6 +23,7 @@ class WorkflowRunRequestFactoryTest {
         dto.setQuestion("ignored duplicate");
         dto.setSpaceIds(List.of(5L, 5L, 7L));
         dto.setRetrievalMode("balanced");
+        dto.setApiKeyId(23L);
         KnowledgeChatMessage assistant = message(9L, "assistant", "", 8L, 7L);
         assistant.setSourceMessageId(6L);
         assistant.setRequestJson(objectMapper.writeValueAsString(dto));
@@ -39,6 +40,7 @@ class WorkflowRunRequestFactoryTest {
         assertEquals(first.idempotencyKey(), second.idempotencyKey());
         assertEquals("actual question", first.request().question());
         assertEquals(List.of(5L, 7L), first.request().knowledgeScope().selectedSpaceIds());
+        assertEquals(23L,first.request().permissionScope().get("apiKeyId"));
         assertTrue(first.request().knowledgeScope().explicitSelection());
         assertEquals("previous answer", first.request().shortTermContext().get(0).content());
     }

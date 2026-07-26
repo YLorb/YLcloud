@@ -89,6 +89,7 @@ public class KnowledgeChatSessionController {
     public Result<KnowledgeChatMessageVO> submitQuery(@PathVariable Long sessionId,
                                                       @RequestBody @Valid KnowledgeChatQueryCreateDTO dto,
                                                       @RequestHeader(value = "Idempotency-Key", required = false) String requestKey) {
+        dto.setApiKeyId(null);
         return Result.success(queryService.submit(sessionId,BaseContext.getCurrentId(),dto,requestKey));
     }
 

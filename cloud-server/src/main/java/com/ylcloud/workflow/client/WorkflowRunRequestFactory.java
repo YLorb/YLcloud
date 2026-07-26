@@ -65,6 +65,9 @@ public class WorkflowRunRequestFactory {
             permissionScope.put("userId", assistant.getUserId());
             permissionScope.put("sessionId", assistant.getSessionId());
             permissionScope.put("allowedSpaceIds", spaces);
+            if (input.getApiKeyId() != null) {
+                permissionScope.put("apiKeyId", input.getApiKeyId());
+            }
             KnowledgeScopeDecision knowledgeScope = new KnowledgeScopeDecision(
                     true, spaces, List.of()
             );

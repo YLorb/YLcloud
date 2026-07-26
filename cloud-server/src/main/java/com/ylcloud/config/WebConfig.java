@@ -1,6 +1,7 @@
 package com.ylcloud.config;
 
 import com.ylcloud.interceptor.JwtTokenInterceptor;
+import com.ylcloud.interceptor.OpenApiKeyInterceptor;
 import com.ylcloud.interceptor.UserPermissionInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +15,8 @@ public class WebConfig implements WebMvcConfigurer {
     private JwtTokenInterceptor jwtTokenInterceptor;
     @Autowired
     private UserPermissionInterceptor userPermissionInterceptor;
+    @Autowired
+    private OpenApiKeyInterceptor openApiKeyInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -23,10 +26,14 @@ public class WebConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/login")
                 .excludePathPatterns("/api/site/public-settings")
                 .excludePathPatterns("/api/share/**")
+                .excludePathPatterns("/api/v1/**", "/api/open/**")
                 // Internal API 使用独立 audience/scope/binding Service JWT，由各内部 Controller 强制验签。
                 .excludePathPatterns("/internal/**");
         registry.addInterceptor(userPermissionInterceptor)
                 .addPathPatterns("/api/**")
-                .excludePathPatterns("/api/sign", "/api/login", "/api/site/public-settings", "/api/share/**");
+                .excludePathPatterns("/api/sign", "/api/login", "/api/site/public-settings", "/api/share/**",
+                        "/api/v1/**", "/api/open/**");
+        registry.addInterceptor(openApiKeyInterceptor)
+                .addPathPatterns("/api/v1/**", "/api/open/**");
     }
 }

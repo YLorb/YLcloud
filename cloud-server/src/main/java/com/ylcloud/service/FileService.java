@@ -1621,9 +1621,20 @@ public class FileService {
             return toFileVO(userFileDTO);
         }
 
+        String effectiveKey = idempotencyKey == null || idempotencyKey.isBlank() ? UuidUtil.randomUuid() : idempotencyKey;
+        requireValidIdempotencyKey(effectiveKey);
+        String operationKey = CrossStoreOperationService.key("DIRECTORY_CREATE",userId,effectiveKey);
+        AtomicReference<String> resultRef = new AtomicReference<>();
+        CrossStoreOperation operation = crossStoreOperationService.claim(
+                operationKey,"DIRECTORY_CREATE",
+                CrossStoreOperationService.payloadHash(ownerId,parentId,name,"dir"),UuidUtil.randomUuid());
+        if(CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
+            return replayCreatedFile(operation,ownerId,parentId);
+        }
+        crossStoreOperationService.completeAfterCommit(operationKey,resultRef::get);
         requireNoNameConflict(safeName,1,parentId,ownerId,null);
 
-        String uuid = UuidUtil.randomUuid();
+        String uuid = operation.getResourceId();
         File file = File.builder()
                 .fileUuid(uuid)
                 .parentId(parentId)
@@ -1649,6 +1660,8 @@ public class FileService {
                 .build();
         fileInfoMapper.insertFile_User(userFileDTO);
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),getPath(userFileDTO.getId(),ownerId),ownerId);
+        resultRef.set(String.valueOf(userFileDTO.getId()));
+        crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
         return toFileVO(userFileDTO);
     }
 
