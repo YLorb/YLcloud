@@ -37,6 +37,9 @@ mybatis:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  knowledge:
+    quality:
+      auto-activate-threshold: ${YLCLOUD_KNOWLEDGE_AUTO_ACTIVATE_THRESHOLD:75}
   async:
     mq:
       enabled: ${YLCLOUD_ASYNC_MQ_ENABLED:false}

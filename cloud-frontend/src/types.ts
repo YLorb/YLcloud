@@ -310,6 +310,9 @@ export type KnowledgeDocument = {
   indexStatus?: string;
   chunkCount?: number;
   profileStatus?: string;
+  assetState?: string;
+  confidence?: number;
+  conflictReason?: string;
   reviewStatus?: string;
   reviewReason?: string;
   qualityIssueJson?: string;
@@ -373,6 +376,9 @@ export type KnowledgeProfile = {
   profileVersion?: number;
   currentVersionId?: number;
   latestVersionId?: number;
+  latestAssetState?: string;
+  latestConfidence?: number;
+  latestConflictReason?: string;
   sourceFileHash?: string;
   sourceParserVersion?: string;
   profileSchemaVersion?: string;
@@ -394,9 +400,17 @@ export type KnowledgeProfileVersion = {
   promptVersion?: string;
   schemaVersion?: string;
   qualityScore?: number;
+  assetState?: string;
+  confidence?: number;
+  conflictReason?: string;
+  sourceFileHash?: string;
+  sourceParserVersion?: string;
   profileSnapshot?: string;
   changeSummary?: string;
   createdBy?: number;
+  reviewedBy?: number;
+  activatedAt?: string;
+  supersededAt?: string;
   createdTime?: string;
 };
 

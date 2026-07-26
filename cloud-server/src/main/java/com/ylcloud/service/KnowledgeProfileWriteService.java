@@ -34,17 +34,32 @@ public class KnowledgeProfileWriteService {
 
     @Transactional
     public SpaceKnowledgeDocumentProfile saveProfile(SpaceKnowledgeDocumentProfile profile, List<String> questions) {
+        return saveProfile(profile,questions,null,null);
+    }
+
+    @Transactional
+    public SpaceKnowledgeDocumentProfile saveProfile(SpaceKnowledgeDocumentProfile profile,List<String> questions,
+                                                      String modelName,String promptVersion) {
         LocalDateTime now = LocalDateTime.now();
         if(profile.getCreatetime() == null) {
             profile.setCreatetime(now);
         }
         profile.setUpdatetime(now);
-        profileMapper.upsert(profile);
-        questionMapper.deleteByDocumentId(profile.getSpaceId(),profile.getDocumentId());
-        saveQuestions(profile.getSpaceId(),profile.getDocumentId(),questions);
+        SpaceKnowledgeDocumentProfile current = profileMapper.getByDocumentIdForUpdate(profile.getSpaceId(),profile.getDocumentId());
+        boolean active = "VALID".equals(profile.getProfileStatus()) || "SUCCESS".equals(profile.getProfileStatus());
+        if(active || current == null || current.getCurrentVersionId() == null) {
+            profileMapper.upsert(profile);
+        } else {
+            profile.setId(current.getId());
+        }
+        if(active) {
+            questionMapper.deleteByDocumentId(profile.getSpaceId(),profile.getDocumentId());
+            saveQuestions(profile.getSpaceId(),profile.getDocumentId(),questions);
+        }
         SpaceKnowledgeDocumentProfile saved = profileMapper.getByDocumentId(profile.getSpaceId(),profile.getDocumentId());
-        String sourceType = saved.getRepairAttempt() != null && saved.getRepairAttempt() > 0 ? "LOCAL_REPAIRED" : "LLM_GENERATED";
-        assetService.createVersion(saved,questions,sourceType,null,"Pipeline generated profile");
+        profile.setId(saved.getId());
+        String sourceType = profile.getRepairAttempt() != null && profile.getRepairAttempt() > 0 ? "LOCAL_REPAIRED" : "LLM_GENERATED";
+        assetService.createVersion(profile,questions,sourceType,modelName,promptVersion,null,"Pipeline generated profile");
         return profileMapper.getByDocumentId(profile.getSpaceId(),profile.getDocumentId());
     }
 
@@ -58,10 +73,13 @@ public class KnowledgeProfileWriteService {
             profile.setCreatetime(now);
         }
         profile.setUpdatetime(now);
-        profileMapper.upsert(profile);
-        questionMapper.deleteByDocumentId(profile.getSpaceId(),profile.getDocumentId());
-        SpaceKnowledgeDocumentProfile saved = profileMapper.getByDocumentId(profile.getSpaceId(),profile.getDocumentId());
-        assetService.createVersion(saved,List.of(),"PIPELINE_FAILED",null,"Pipeline failed profile");
+        SpaceKnowledgeDocumentProfile current = profileMapper.getByDocumentIdForUpdate(profile.getSpaceId(),profile.getDocumentId());
+        if(current == null || current.getCurrentVersionId() == null) {
+            profileMapper.upsert(profile);
+            current = profileMapper.getByDocumentId(profile.getSpaceId(),profile.getDocumentId());
+        }
+        profile.setId(current.getId());
+        assetService.createVersion(profile,List.of(),"PIPELINE_FAILED",null,"Pipeline failed profile");
     }
 
     @Transactional
@@ -70,7 +88,7 @@ public class KnowledgeProfileWriteService {
                                                        String profileStatus, List<String> questions, Long operatorId) {
         SpaceKnowledgeDocumentProfile before = profileMapper.getByDocumentId(spaceId,documentId);
         String beforeSnapshot = before == null ? null : assetService.snapshot(before,questionsFor(spaceId,documentId));
-        profileMapper.updateManual(spaceId,documentId,title,summary,keywordsJson,tagsJson,category,profileStatus,null,LocalDateTime.now());
+        profileMapper.updateManual(spaceId,documentId,title,summary,keywordsJson,tagsJson,category,"VALID",null,LocalDateTime.now());
         if(questions != null) {
             questionMapper.deleteByDocumentId(spaceId,documentId);
             saveQuestions(spaceId,documentId,questions);

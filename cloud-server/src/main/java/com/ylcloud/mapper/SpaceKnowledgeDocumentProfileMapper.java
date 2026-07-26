@@ -38,10 +38,19 @@ public interface SpaceKnowledgeDocumentProfileMapper {
             "review_status as reviewStatus, review_reason as reviewReason, source_chunk_ids as sourceChunkIds, source_chunk_count as sourceChunkCount, " +
             "source_character_count as sourceCharacterCount, source_snapshot_signature as sourceSnapshotSignature, source_snapshot_revision as sourceSnapshotRevision, " +
             "schema_valid as schemaValid, repair_attempt as repairAttempt, repair_reason as repairReason, " +
-            "profile_version as profileVersion, current_version_id as currentVersionId, latest_version_id as latestVersionId, source_file_hash as sourceFileHash, " +
+            "profile_version as profileVersion, current_version_id as currentVersionId, latest_version_id as latestVersionId, latest_asset_state as latestAssetState, latest_confidence as latestConfidence, latest_conflict_reason as latestConflictReason, source_file_hash as sourceFileHash, " +
             "source_parser_version as sourceParserVersion, profile_schema_version as profileSchemaVersion, error_message as errorMessage, status, createtime, updatetime " +
             "from space_knowledge_document_profile where space_id = #{spaceId} and document_id = #{documentId} and status = 1")
     SpaceKnowledgeDocumentProfile getByDocumentId(@Param("spaceId") Long spaceId, @Param("documentId") Long documentId);
+
+    @Select("select id, space_id as spaceId, document_id as documentId, space_file_id as spaceFileId, title, summary, " +
+            "keywords_json as keywordsJson, tags_json as tagsJson, category, language, document_type as documentType, quality_score as qualityScore, " +
+            "profile_status as profileStatus, review_status as reviewStatus, review_reason as reviewReason, current_version_id as currentVersionId, " +
+            "latest_version_id as latestVersionId, latest_asset_state as latestAssetState, latest_confidence as latestConfidence, latest_conflict_reason as latestConflictReason, " +
+            "source_file_hash as sourceFileHash, source_parser_version as sourceParserVersion, profile_schema_version as profileSchemaVersion, " +
+            "error_message as errorMessage, status, createtime, updatetime from space_knowledge_document_profile " +
+            "where space_id=#{spaceId} and document_id=#{documentId} and status=1 for update")
+    SpaceKnowledgeDocumentProfile getByDocumentIdForUpdate(@Param("spaceId") Long spaceId,@Param("documentId") Long documentId);
 
     @Select("select id, source_chunk_ids as sourceChunkIds, source_chunk_count as sourceChunkCount, " +
             "source_character_count as sourceCharacterCount, source_parser_version as sourceParserVersion, " +
@@ -57,7 +66,7 @@ public interface SpaceKnowledgeDocumentProfileMapper {
             "review_status as reviewStatus, review_reason as reviewReason, source_chunk_ids as sourceChunkIds, source_chunk_count as sourceChunkCount, " +
             "source_character_count as sourceCharacterCount, source_snapshot_signature as sourceSnapshotSignature, source_snapshot_revision as sourceSnapshotRevision, " +
             "schema_valid as schemaValid, repair_attempt as repairAttempt, repair_reason as repairReason, " +
-            "profile_version as profileVersion, current_version_id as currentVersionId, latest_version_id as latestVersionId, source_file_hash as sourceFileHash, " +
+            "profile_version as profileVersion, current_version_id as currentVersionId, latest_version_id as latestVersionId, latest_asset_state as latestAssetState, latest_confidence as latestConfidence, latest_conflict_reason as latestConflictReason, source_file_hash as sourceFileHash, " +
             "source_parser_version as sourceParserVersion, profile_schema_version as profileSchemaVersion, error_message as errorMessage, status, createtime, updatetime " +
             "from space_knowledge_document_profile where space_id = #{spaceId} and status = 1 order by updatetime desc")
     List<SpaceKnowledgeDocumentProfile> listBySpaceId(@Param("spaceId") Long spaceId);
@@ -69,11 +78,11 @@ public interface SpaceKnowledgeDocumentProfileMapper {
             "review_status as reviewStatus, review_reason as reviewReason, source_chunk_ids as sourceChunkIds, source_chunk_count as sourceChunkCount, " +
             "source_character_count as sourceCharacterCount, source_snapshot_signature as sourceSnapshotSignature, source_snapshot_revision as sourceSnapshotRevision, " +
             "schema_valid as schemaValid, repair_attempt as repairAttempt, repair_reason as repairReason, " +
-            "profile_version as profileVersion, current_version_id as currentVersionId, latest_version_id as latestVersionId, source_file_hash as sourceFileHash, " +
+            "profile_version as profileVersion, current_version_id as currentVersionId, latest_version_id as latestVersionId, latest_asset_state as latestAssetState, latest_confidence as latestConfidence, latest_conflict_reason as latestConflictReason, source_file_hash as sourceFileHash, " +
             "source_parser_version as sourceParserVersion, profile_schema_version as profileSchemaVersion, error_message as errorMessage, status, createtime, updatetime " +
             "from space_knowledge_document_profile where space_id = #{spaceId} and status = 1 " +
             "and (#{category} is null or #{category} = '' or category = #{category}) " +
-            "and (#{profileStatus} is null or #{profileStatus} = '' or profile_status = #{profileStatus} " +
+            "and (#{profileStatus} is null or #{profileStatus} = '' or profile_status = #{profileStatus} or latest_asset_state = #{profileStatus} " +
             "or (#{profileStatus} = 'INVALID' and profile_status in ('INVALID','FAILED'))) " +
             "and (#{tag} is null or #{tag} = '' or tags_json like concat('%', #{tag}, '%')) " +
             "order by updatetime desc")
@@ -96,11 +105,18 @@ public interface SpaceKnowledgeDocumentProfileMapper {
                      @Param("errorMessage") String errorMessage,
                      @Param("updateTime") java.time.LocalDateTime updateTime);
 
-    @Update("update space_knowledge_document_profile set current_version_id = #{currentVersionId}, latest_version_id = #{latestVersionId}, updatetime = #{updateTime} where id = #{id}")
-    int updateVersionRefs(@Param("id") Long id,
-                          @Param("currentVersionId") Long currentVersionId,
-                          @Param("latestVersionId") Long latestVersionId,
-                          @Param("updateTime") java.time.LocalDateTime updateTime);
+    @Update("update space_knowledge_document_profile set current_version_id=#{versionId},latest_version_id=#{versionId}," +
+            "latest_asset_state='ACTIVE',latest_confidence=#{confidence},latest_conflict_reason=null,updatetime=#{updateTime} where id=#{id}")
+    int updateActiveVersionRefs(@Param("id") Long id,@Param("versionId") Long versionId,
+                                @Param("confidence") java.math.BigDecimal confidence,
+                                @Param("updateTime") java.time.LocalDateTime updateTime);
+
+    @Update("update space_knowledge_document_profile set latest_version_id=#{versionId},latest_asset_state=#{assetState}," +
+            "latest_confidence=#{confidence},latest_conflict_reason=#{conflictReason},updatetime=#{updateTime} where id=#{id}")
+    int updateLatestVersionRef(@Param("id") Long id,@Param("versionId") Long versionId,
+                               @Param("assetState") String assetState,@Param("confidence") java.math.BigDecimal confidence,
+                               @Param("conflictReason") String conflictReason,
+                               @Param("updateTime") java.time.LocalDateTime updateTime);
 
     /**
      * 同步检索源切片快照，不重建或覆盖知识画像内容。
@@ -126,7 +142,8 @@ public interface SpaceKnowledgeDocumentProfileMapper {
             "quality_detail_json = #{qualityDetailJson}, quality_issue_json = #{qualityIssueJson}, score_before_repair = #{scoreBeforeRepair}, score_after_repair = #{scoreAfterRepair}, " +
             "review_status = #{reviewStatus}, review_reason = #{reviewReason}, schema_valid = #{schemaValid}, repair_attempt = #{repairAttempt}, repair_reason = #{repairReason}, " +
             "source_file_hash = #{sourceFileHash}, source_parser_version = #{sourceParserVersion}, profile_schema_version = #{profileSchemaVersion}, " +
-            "current_version_id = #{currentVersionId}, latest_version_id = #{latestVersionId}, error_message = #{errorMessage}, updatetime = #{updatetime} " +
+            "current_version_id = #{currentVersionId}, latest_version_id = #{latestVersionId}, latest_asset_state=#{latestAssetState}, " +
+            "latest_confidence=#{latestConfidence}, latest_conflict_reason=#{latestConflictReason}, error_message = #{errorMessage}, updatetime = #{updatetime} " +
             "where id = #{id}")
     int restoreFromVersion(SpaceKnowledgeDocumentProfile profile);
 }

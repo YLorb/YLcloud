@@ -324,12 +324,9 @@ public class KnowledgePipelineService {
         vo.setSpaceId(spaceId);
         vo.setDocumentCount(documents.size());
         vo.setIndexedCount((int) documents.stream().filter(document -> SpaceConstant.RAG_INDEX_SUCCESS.equals(document.getIndexStatus())).count());
-        vo.setProfiledCount((int) profiles.stream().filter(profile -> SpaceConstant.KNOWLEDGE_PROFILE_VALID.equals(profile.getProfileStatus())
-                || SpaceConstant.KNOWLEDGE_PROFILE_SUCCESS.equals(profile.getProfileStatus())
-                || SpaceConstant.KNOWLEDGE_PROFILE_NEEDS_REVIEW.equals(profile.getProfileStatus())).count());
-        vo.setFailedProfileCount((int) profiles.stream().filter(profile -> SpaceConstant.KNOWLEDGE_PROFILE_INVALID.equals(profile.getProfileStatus())
-                || SpaceConstant.KNOWLEDGE_PROFILE_FAILED.equals(profile.getProfileStatus())).count());
-        vo.setNeedsReviewCount((int) profiles.stream().filter(profile -> SpaceConstant.KNOWLEDGE_PROFILE_NEEDS_REVIEW.equals(profile.getProfileStatus())).count());
+        vo.setProfiledCount((int) profiles.stream().filter(profile -> profile.getCurrentVersionId() != null).count());
+        vo.setFailedProfileCount((int) profiles.stream().filter(profile -> KnowledgeProfileAssetService.FAILED.equals(profile.getLatestAssetState())).count());
+        vo.setNeedsReviewCount((int) profiles.stream().filter(profile -> KnowledgeProfileAssetService.NEEDS_REVIEW.equals(profile.getLatestAssetState())).count());
         vo.setAverageQualityScore(averageQuality(profiles));
         List<SpaceKnowledgeFacetVO> categories = categoryFacets(profiles);
         List<SpaceKnowledgeFacetVO> tags = tagFacets(profiles);
@@ -396,11 +393,16 @@ public class KnowledgePipelineService {
     }
 
     public SpaceKnowledgeDocumentProfileVO markReviewed(Long spaceId, Long documentId, Long userId) {
-        SpaceKnowledgeProfileUpdateDTO payload = new SpaceKnowledgeProfileUpdateDTO();
-        payload.setProfileStatus(SpaceConstant.KNOWLEDGE_PROFILE_VALID);
-        SpaceKnowledgeDocumentProfileVO profile = updateProfile(spaceId,documentId,payload,userId);
-        knowledgeProfileAssetService.audit(spaceId,userId,"PROFILE_APPROVE","KNOWLEDGE_PROFILE",profile.getId(),null,null);
-        return profile;
+        spacePermissionService.requireAdmin(spaceId,userId);
+        SpaceKnowledgeDocumentProfile current = profileMapper.getByDocumentId(spaceId,documentId);
+        if(current == null || current.getLatestVersionId() == null) throw new BaseException("knowledge review candidate not found");
+        return toProfileVO(knowledgeProfileAssetService.activateVersion(
+                spaceId,documentId,current.getLatestVersionId(),userId));
+    }
+
+    public SpaceKnowledgeDocumentProfileVO activateVersion(Long spaceId,Long documentId,Long versionId,Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        return toProfileVO(knowledgeProfileAssetService.activateVersion(spaceId,documentId,versionId,userId));
     }
 
     public List<SpaceKnowledgeProfileVersionVO> listProfileVersions(Long spaceId, Long documentId, Long userId) {
@@ -585,7 +587,8 @@ public class KnowledgePipelineService {
         profile.setErrorMessage(null);
         profile.setStatus(StatusConstant.ENABLE);
         profile.setCreatetime(LocalDateTime.now());
-        return toProfileVO(knowledgeProfileWriteService.saveProfile(profile,generated.getQuestions()));
+        return toProfileVO(knowledgeProfileWriteService.saveProfile(profile,generated.getQuestions(),
+                ragProperties.getQuery().getModel(),"knowledge-profile-v1"));
     }
 
     private String generateProfileRaw(SpaceRagDocument document, String context) {
@@ -921,6 +924,9 @@ public class KnowledgePipelineService {
         vo.setProfileVersion(profile.getProfileVersion());
         vo.setCurrentVersionId(profile.getCurrentVersionId());
         vo.setLatestVersionId(profile.getLatestVersionId());
+        vo.setLatestAssetState(profile.getLatestAssetState());
+        vo.setLatestConfidence(profile.getLatestConfidence());
+        vo.setLatestConflictReason(profile.getLatestConflictReason());
         vo.setSourceFileHash(profile.getSourceFileHash());
         vo.setSourceParserVersion(profile.getSourceParserVersion());
         vo.setProfileSchemaVersion(profile.getProfileSchemaVersion());
@@ -974,6 +980,9 @@ public class KnowledgePipelineService {
         vo.setUpdatetime(document.getUpdatetime());
         if(profile != null) {
             vo.setProfileStatus(profile.getProfileStatus());
+            vo.setAssetState(profile.getLatestAssetState());
+            vo.setConfidence(profile.getLatestConfidence());
+            vo.setConflictReason(profile.getLatestConflictReason());
             vo.setTitle(profile.getTitle());
             vo.setSummary(profile.getSummary());
             vo.setCategory(profile.getCategory());

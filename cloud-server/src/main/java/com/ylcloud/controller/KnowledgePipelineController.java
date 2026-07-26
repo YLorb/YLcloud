@@ -148,6 +148,14 @@ public class KnowledgePipelineController {
         return Result.success(knowledgePipelineService.listProfileVersions(spaceId,documentId,BaseContext.getCurrentId()));
     }
 
+    @PostMapping("/documents/{documentId}/versions/{versionId}/activate")
+    public Result<SpaceKnowledgeDocumentProfileVO> activateVersion(@PathVariable Long spaceId,
+                                                                   @PathVariable Long documentId,
+                                                                   @PathVariable Long versionId) {
+        return Result.success(knowledgePipelineService.activateVersion(
+                spaceId,documentId,versionId,BaseContext.getCurrentId()));
+    }
+
     @GetMapping("/documents/{documentId}/versions/{versionId}/diff")
     public Result<SpaceKnowledgeProfileDiffVO> diffVersion(@PathVariable Long spaceId,
                                                            @PathVariable Long documentId,

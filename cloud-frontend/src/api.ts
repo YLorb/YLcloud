@@ -507,6 +507,8 @@ export const api = {
     }),
   markKnowledgeProfileReviewed: (spaceId: number, documentId: number) =>
     request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/reviewed`, { method: "POST" }),
+  activateKnowledgeProfileVersion: (spaceId: number, documentId: number, versionId: number) =>
+    request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/versions/${versionId}/activate`, { method: "POST" }),
   listKnowledgeCategories: (spaceId: number) =>
     request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/categories`),
   listKnowledgeTags: (spaceId: number) =>
