@@ -14,6 +14,7 @@ import com.ylcloud.VO.OpenApiEnvelope;
 import com.ylcloud.VO.OpenApiPage;
 import com.ylcloud.VO.SpaceRagQueryVO;
 import com.ylcloud.VO.SpaceVO;
+import com.ylcloud.VO.QuotaUsageVO;
 import com.ylcloud.context.OpenApiContext;
 import com.ylcloud.interceptor.OpenApiKeyInterceptor;
 import com.ylcloud.mapper.FileInfoMapper;
@@ -22,12 +23,14 @@ import com.ylcloud.service.FileService;
 import com.ylcloud.service.KnowledgeChatQueryService;
 import com.ylcloud.service.KnowledgeChatSessionService;
 import com.ylcloud.service.OpenApiVersionPolicyService;
+import com.ylcloud.service.QuotaService;
 import com.ylcloud.service.SpaceRagService;
 import com.ylcloud.service.SpaceService;
 import com.ylcloud.service.UserApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,6 +59,7 @@ public class OpenApiController {
     private final SpaceRagService spaceRagService;
     private final KnowledgeChatSessionService chatSessionService;
     private final KnowledgeChatQueryService chatQueryService;
+    private QuotaService quotas;
 
     @GetMapping("/capabilities")
     public OpenApiEnvelope<Map<String,Object>> capabilities(HttpServletRequest request) {
@@ -63,6 +67,14 @@ public class OpenApiController {
         return success(Map.of("scopes",principal.scopes(),"spaceIds",principal.spaceIds(),
                 "driveRootFileId",principal.driveRootFileId() == null ? 0 : principal.driveRootFileId()),request);
     }
+
+    @GetMapping("/usage")
+    public OpenApiEnvelope<QuotaUsageVO> usage(HttpServletRequest request) {
+        return success(quotas.userUsage(OpenApiContext.require().userId()),request);
+    }
+
+    @Autowired(required=false)
+    public void setQuotaService(QuotaService quotas) { this.quotas=quotas; }
 
     @GetMapping("/files")
     public OpenApiEnvelope<OpenApiPage<FileVO>> files(@RequestParam(required = false) Long parentId,

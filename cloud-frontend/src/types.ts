@@ -616,6 +616,36 @@ export type WebhookSubscriptionCreated = {
   secret: string;
 };
 
+export type QuotaPolicy = {
+  groupId: number;
+  storageBytes: number;
+  maxFileBytes: number;
+  spaceLimit: number;
+  monthlyApiCalls: number;
+  monthlyModelTokens: number;
+  monthlyAgentTasks: number;
+  concurrentAgentTasks: number;
+};
+
+export type QuotaUsage = {
+  accountType: "USER" | "TEAM";
+  referenceId: number;
+  periodStart: string;
+  storageBytes: number;
+  storageLimitBytes: number;
+  fileCount: number;
+  spaceCount: number;
+  spaceLimit: number;
+  apiCalls: number;
+  apiCallLimit: number;
+  modelTokens: number;
+  modelTokenLimit: number;
+  agentTasks: number;
+  agentTaskLimit: number;
+  concurrentAgentTasks: number;
+  concurrentAgentTaskLimit: number;
+};
+
 export type KnowledgeChatSession = {
   id: number;
   userId: number;

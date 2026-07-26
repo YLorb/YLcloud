@@ -44,6 +44,8 @@ import type {
   WebhookEventType,
   WebhookSubscription,
   WebhookSubscriptionCreated,
+  QuotaPolicy,
+  QuotaUsage,
   UserMemory,
   UserMemorySetting,
   UserMemoryStats,
@@ -201,6 +203,12 @@ export const api = {
     request<WebhookSubscriptionCreated>(`/api/webhooks/${subscriptionId}/rotate-secret`, { method: "POST" }),
   disableWebhookSubscription: (subscriptionId: number) =>
     request<boolean>(`/api/webhooks/${subscriptionId}`, { method: "DELETE" }),
+  quotaUsage: () => request<QuotaUsage>("/api/quota/usage"),
+  teamQuotaUsage: (spaceId: number) => request<QuotaUsage>(`/api/quota/teams/${spaceId}`),
+  groupQuota: (groupId: number) => request<QuotaPolicy>(`/api/admin/quota/groups/${groupId}`),
+  updateGroupQuota: (groupId: number, payload: Omit<QuotaPolicy, "groupId">) =>
+    request<QuotaPolicy>(`/api/admin/quota/groups/${groupId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  reconcileQuota: () => request<boolean>("/api/admin/quota/reconcile", { method: "PUT" }),
   publicSettings: () => request<PublicSiteSettings>("/api/site/public-settings"),
   adminSettings: () => request<SiteSetting[]>("/api/admin/settings"),
   updateAdminSettings: (settings: Array<{ key: string; value: string }>) =>

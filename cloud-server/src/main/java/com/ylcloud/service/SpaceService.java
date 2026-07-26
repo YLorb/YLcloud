@@ -22,6 +22,7 @@ import com.ylcloud.mapper.SpaceMapper;
 import com.ylcloud.mapper.SpaceMemberMapper;
 import com.ylcloud.mapper.SpaceRagMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -42,6 +43,7 @@ public class SpaceService {
     private final RagProperties ragProperties;
     private final InitialFileVersionService initialFileVersionService;
     private final SpaceDissolutionOutboxMapper dissolutionOutboxMapper;
+    private QuotaService quotaService;
 
     /**
      * 初始化 SpaceService 对象。
@@ -92,7 +94,9 @@ public class SpaceService {
      */
     @Transactional
     public SpaceVO createSpace(SpaceCreateDTO dto, Long userId) {
+        if(quotaService != null) quotaService.requireSpaceCreation(userId);
         Space space = createSpaceInternal(userId,dto.getName(),dto.getDescription(),SpaceConstant.TYPE_TEAM);
+        if(quotaService != null) quotaService.registerTeam(space.getId(),userId);
         SpaceVO vo = toSpaceVO(space);
         vo.setRole(SpaceConstant.ROLE_OWNER);
         return vo;
@@ -179,8 +183,12 @@ public class SpaceService {
                 || spaceMemberMapper.countActiveOwners(spaceId) != 1) {
             throw new ConflictException("空间所有权转让冲突，请重试");
         }
+        if(quotaService != null) quotaService.transferTeam(spaceId,dto.getTargetUserId());
         return true;
     }
+
+    @Autowired(required=false)
+    public void setQuotaService(QuotaService quotaService) { this.quotaService=quotaService; }
 
     @Transactional
     public Boolean leaveSpace(Long spaceId, SpaceLeaveDTO dto, Long userId) {

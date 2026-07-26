@@ -43,6 +43,7 @@ public class KnowledgeChatQueryService {
     private final Executor executor;
     private final WorkflowMessageLifecycleService workflowLifecycle;
     private WebhookEventService webhookEventService;
+    private QuotaService quotaService;
 
     @Autowired
     public KnowledgeChatQueryService(KnowledgeChatSessionMapper sessionMapper,
@@ -82,6 +83,7 @@ public class KnowledgeChatQueryService {
         if(existing != null) {
             return toVO(existing);
         }
+        if(quotaService != null) quotaService.reserveAgentTask(userId);
 
         LocalDateTime now = LocalDateTime.now();
         long firstSequence = session.getNextSequenceNo() == null ? 1 : session.getNextSequenceNo();
@@ -175,6 +177,7 @@ public class KnowledgeChatQueryService {
             ragRequest.setRetrievalMode(request.getRetrievalMode());
             ragRequest.setHistory(context.history());
             KnowledgeRagQueryVO result = ragQueryService.query(ragRequest,message.getUserId());
+            if(quotaService != null) quotaService.consumeModelTokens(message.getUserId(),context.totalTokens());
             contextService.finalizeRetrieval(message,context,result.getCitations() == null ? List.of() : result.getCitations().stream()
                     .map(citation -> citation.getChunkId()).filter(java.util.Objects::nonNull).distinct().toList());
             String answer = result.getAnswer() == null || result.getAnswer().isBlank()
@@ -188,6 +191,8 @@ public class KnowledgeChatQueryService {
             if(messageMapper.markFailed(messageId,errorSummary(exception)) > 0) {
                 emitAgent(message,request,"AGENT_TASK_FAILED",null);
             }
+        } finally {
+            if(quotaService != null) quotaService.releaseAgentTask(message.getUserId());
         }
     }
 
@@ -195,6 +200,9 @@ public class KnowledgeChatQueryService {
     public void setWebhookEventService(WebhookEventService webhookEventService) {
         this.webhookEventService = webhookEventService;
     }
+
+    @Autowired(required=false)
+    public void setQuotaService(QuotaService quotaService) { this.quotaService=quotaService; }
 
     private void emitAgent(KnowledgeChatMessage message,KnowledgeChatQueryCreateDTO request,String eventType,String answer) {
         if(webhookEventService == null || message == null) return;

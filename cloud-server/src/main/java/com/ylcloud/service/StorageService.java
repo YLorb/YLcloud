@@ -1,11 +1,13 @@
 package com.ylcloud.service;
 
 import com.ylcloud.VO.StorageQuotaVO;
+import com.ylcloud.VO.QuotaUsageVO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.entity.User;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.LoginMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 public class StorageService {
@@ -15,6 +17,7 @@ public class StorageService {
     private final FileInfoMapper fileInfoMapper;
     private final LoginMapper loginMapper;
     private final SiteSettingService siteSettingService;
+    private QuotaService quotaService;
 
     public StorageService(FileInfoMapper fileInfoMapper, LoginMapper loginMapper, SiteSettingService siteSettingService) {
         this.fileInfoMapper = fileInfoMapper;
@@ -23,6 +26,18 @@ public class StorageService {
     }
 
     public StorageQuotaVO quota(Long userId) {
+        if(quotaService != null) {
+            QuotaUsageVO measured = quotaService.userUsage(userId);
+            StorageQuotaVO vo = new StorageQuotaVO();
+            vo.setUsedBytes(measured.getStorageBytes());
+            vo.setTotalBytes(measured.getStorageLimitBytes());
+            vo.setAvailableBytes(Math.max(0,measured.getStorageLimitBytes()-measured.getStorageBytes()));
+            vo.setUsagePercent(measured.getStorageLimitBytes() <= 0 ? 0.0 :
+                    Math.min(100.0,measured.getStorageBytes()*100.0/measured.getStorageLimitBytes()));
+            vo.setFileCount(Math.toIntExact(measured.getFileCount()));
+            vo.setPolicyName("group-quota");
+            return vo;
+        }
         long used = safeLong(fileInfoMapper.sumUserStorageBytes(userId));
         User user = loginMapper.getById(userId);
         long total = totalBytes(user);
@@ -40,6 +55,10 @@ public class StorageService {
         if(additionalBytes <= 0) {
             return;
         }
+        if(quotaService != null) {
+            quotaService.requireUserStorage(userId,additionalBytes);
+            return;
+        }
         if(loginMapper.lockUserId(userId) == null) {
             throw new BaseException("用户不存在，无法校验存储配额");
         }
@@ -52,6 +71,7 @@ public class StorageService {
     }
 
     public long additionalBytes(Long userId, String fileUuid, long fileSize) {
+        if(quotaService != null) return quotaService.additionalUserBytes(userId,fileUuid,fileSize);
         Integer activeReferences = fileUuid == null ? 0 : fileInfoMapper.countUserActiveByFileUuid(userId,fileUuid);
         if(activeReferences != null && activeReferences > 0) {
             return 0L;
@@ -60,6 +80,7 @@ public class StorageService {
     }
 
     public long totalBytes(User user) {
+        if(quotaService != null && user != null) return quotaService.storageLimitForUser(user.getId());
         if(isAdmin(user)) {
             return siteSettingService.getLong(SiteSettingService.STORAGE_ADMIN_QUOTA_BYTES,DEFAULT_ADMIN_TOTAL_BYTES);
         }
@@ -67,6 +88,9 @@ public class StorageService {
                 SiteSettingService.STORAGE_DEFAULT_USER_QUOTA_BYTES,DEFAULT_USER_TOTAL_BYTES);
         return siteSettingService.getLong(SiteSettingService.STORAGE_USER_QUOTA_BYTES,legacyFallback);
     }
+
+    @Autowired(required=false)
+    public void setQuotaService(QuotaService quotaService) { this.quotaService=quotaService; }
 
     private boolean isAdmin(User user) {
         return user != null && "ADMIN".equalsIgnoreCase(user.getRole());

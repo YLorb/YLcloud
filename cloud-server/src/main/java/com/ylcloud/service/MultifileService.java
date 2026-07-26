@@ -69,6 +69,9 @@ public class MultifileService {
     @Autowired
     private StorageService storageService;
 
+    @Autowired(required=false)
+    private QuotaService quotaService;
+
     @Autowired
     private ChunkUploadLeaseService chunkUploadLeaseService;
 
@@ -554,6 +557,7 @@ public class MultifileService {
             throw new BaseException("文件引用计数更新失败");
         }
         fileInfoMapper.insertFile_User(userFileDTO);
+        if(quotaService != null) quotaService.recordUserFile(userFileDTO.getId(),userId,userFileDTO.getFileUuid());
         userFileDTO.setPath(buildPath(userFileDTO,userId));
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),userFileDTO.getPath(),userId);
         return toFileVO(existingFile,userFileDTO);
@@ -598,6 +602,7 @@ public class MultifileService {
                 .updatetime(now)
                 .build();
         fileInfoMapper.insertFile_User(userFileDTO);
+        if(quotaService != null) quotaService.recordUserFile(userFileDTO.getId(),userId,userFileDTO.getFileUuid());
         userFileDTO.setPath(buildPath(userFileDTO,userId));
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),userFileDTO.getPath(),userId);
         return toFileVO(file,userFileDTO);

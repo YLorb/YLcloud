@@ -79,6 +79,8 @@ public class FileService {
     private AuthorizationService authorizationService;
     @Autowired
     private SpaceFileLifecycleService spaceFileLifecycleService;
+    @Autowired(required=false)
+    private QuotaService quotaService;
     private WebhookEventService webhookEventService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
@@ -626,6 +628,7 @@ public class FileService {
 
             // 回填 user_file
             fileInfoMapper.insertFile_User(file_user);
+            recordUserQuotaReference(file_user);
             spaceFileLifecycleService.personalFileAdded(file_user);
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
@@ -661,6 +664,7 @@ public class FileService {
 
             // 鎻掑叆 user_file
             fileInfoMapper.insertFile_User(file_user);
+            recordUserQuotaReference(file_user);
             spaceFileLifecycleService.personalFileAdded(file_user);
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
@@ -1344,6 +1348,7 @@ public class FileService {
         if(rows == 0) {
             throw new BaseException("文件移入回收站失败");
         }
+        if(quotaService != null && userFileDTO.getDir() == 0) quotaService.releaseReference("USER_FILE",userFileDTO.getId());
     }
 
     /**
@@ -1437,7 +1442,8 @@ public class FileService {
                 if(active == null || active == 0) {
                     File physical = fileInfoMapper.getFileByFileUuid(current.getFileUuid(),current.getUserId());
                     if(physical != null && physical.getSize() != null) {
-                        additional = Math.addExact(additional,Math.max(0L,physical.getSize()));
+                        additional = Math.addExact(additional,storageService.additionalBytes(
+                                current.getUserId(),current.getFileUuid(),physical.getSize()));
                     }
                 }
             }
@@ -1467,6 +1473,7 @@ public class FileService {
         if(rows == 0) {
             throw new BaseException("文件恢复失败");
         }
+        recordUserQuotaReference(userFileDTO);
         List<UserFileDTO> children = listChildrenActiveOrRecycle(userFileDTO.getId(),userFileDTO.getUserId());
         children.forEach(child -> {
             if(child.getStatus() == StatusConstant.RECYCLE) {
@@ -1627,6 +1634,7 @@ public class FileService {
                 log.warn("新建文件失败");
                 throw new BaseException("新建文件失败");
             }
+            recordUserQuotaReference(userFileDTO);
             spaceFileLifecycleService.personalFileAdded(userFileDTO);
             resultRef.set(String.valueOf(userFileDTO.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
@@ -1765,6 +1773,12 @@ public class FileService {
         webhookEventService.publish(file.getUserId(),eventType,"FILE",String.valueOf(file.getId()),version,
                 file.getId(),null,Map.of("fileId",file.getId(),"isDir",file.getDir() == 1),
                 Map.of("name",file.getFileName(),"parentId",file.getParentId() == null ? 0 : file.getParentId()));
+    }
+
+    private void recordUserQuotaReference(UserFileDTO file) {
+        if(quotaService != null && file != null && file.getDir() == 0 && file.getId() != null && file.getFileUuid() != null) {
+            quotaService.recordUserFile(file.getId(),file.getUserId(),file.getFileUuid());
+        }
     }
 
     /**
@@ -1918,6 +1932,7 @@ public class FileService {
             log.warn("复制文件节点失败");
             throw new BaseException("复制失败");
         }
+        recordUserQuotaReference(copied);
         copied.setPath(getPath(copied.getId(),userId));
         fileInfoMapper.updatePath(copied.getId(),copied.getFileUuid(),copied.getPath(),userId);
 

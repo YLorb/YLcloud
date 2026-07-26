@@ -8,10 +8,12 @@ import com.ylcloud.context.BaseContext;
 import com.ylcloud.context.OpenApiContext;
 import com.ylcloud.security.ApiKeyPrincipal;
 import com.ylcloud.service.OpenApiVersionPolicyService;
+import com.ylcloud.service.QuotaService;
 import com.ylcloud.service.UserApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -28,6 +30,7 @@ public class OpenApiKeyInterceptor implements HandlerInterceptor {
     private final UserApiKeyService apiKeyService;
     private final OpenApiVersionPolicyService versionPolicy;
     private final ObjectMapper objectMapper;
+    private QuotaService quotas;
 
     @Override
     public boolean preHandle(HttpServletRequest request,HttpServletResponse response,Object handler) throws Exception {
@@ -45,6 +48,7 @@ public class OpenApiKeyInterceptor implements HandlerInterceptor {
             String plaintext = authorization != null && authorization.startsWith("Bearer ")
                     ? authorization.substring(7).trim() : null;
             ApiKeyPrincipal principal = apiKeyService.authenticate(plaintext);
+            if(quotas != null) quotas.consumeApiCall(principal.userId());
             OpenApiContext.set(principal);
             BaseContext.setCurrentId(principal.userId());
             if(!Set.of("GET","HEAD","OPTIONS").contains(request.getMethod())) versionPolicy.requireWriteAllowed("v1");
@@ -60,6 +64,9 @@ public class OpenApiKeyInterceptor implements HandlerInterceptor {
             return false;
         }
     }
+
+    @Autowired(required=false)
+    public void setQuotaService(QuotaService quotas) { this.quotas=quotas; }
 
     @Override
     public void afterCompletion(HttpServletRequest request,HttpServletResponse response,Object handler,Exception ex) {
