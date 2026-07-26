@@ -45,6 +45,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -78,6 +79,7 @@ public class FileService {
     private AuthorizationService authorizationService;
     @Autowired
     private SpaceFileLifecycleService spaceFileLifecycleService;
+    private WebhookEventService webhookEventService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -630,6 +632,7 @@ public class FileService {
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
             resultRef.set(String.valueOf(file_user.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            emitFileEvent("FILE_CREATED",file_user);
             return toFileVO(file_user);
         }
         else {
@@ -664,6 +667,7 @@ public class FileService {
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
             resultRef.set(String.valueOf(file_user.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            emitFileEvent("FILE_CREATED",file_user);
             return toFileVO(file_user);
         }
     }
@@ -673,6 +677,11 @@ public class FileService {
     @Autowired
     public void setCrossStoreOperationService(CrossStoreOperationService crossStoreOperationService) {
         this.crossStoreOperationService = crossStoreOperationService;
+    }
+
+    @Autowired(required = false)
+    public void setWebhookEventService(WebhookEventService webhookEventService) {
+        this.webhookEventService = webhookEventService;
     }
 
     private FileVO replayPersonalUpload(CrossStoreOperation operation, Long ownerId, Long parentId) {
@@ -1293,6 +1302,7 @@ public class FileService {
         if(rows == 0) {throw new BaseException("重命名失败");}
         userFileDTO.setFileName(newName);
         userFileDTO.setUpdatetime(LocalDateTime.now());
+        emitFileEvent("FILE_UPDATED",userFileDTO);
         return toFileVO(userFileDTO);
     }
 
@@ -1347,6 +1357,8 @@ public class FileService {
     public boolean deleteFiles(String fileUuid,Long parentId) {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.DELETE);
         softDeleteTree(userFileDTO);
+        userFileDTO.setUpdatetime(LocalDateTime.now());
+        emitFileEvent("FILE_DELETED",userFileDTO);
         return StatusConstant.SUCCESS;
     }
 
@@ -1618,6 +1630,7 @@ public class FileService {
             spaceFileLifecycleService.personalFileAdded(userFileDTO);
             resultRef.set(String.valueOf(userFileDTO.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            emitFileEvent("FILE_CREATED",userFileDTO);
             return toFileVO(userFileDTO);
         }
 
@@ -1662,6 +1675,7 @@ public class FileService {
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),getPath(userFileDTO.getId(),ownerId),ownerId);
         resultRef.set(String.valueOf(userFileDTO.getId()));
         crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+        emitFileEvent("FILE_CREATED",userFileDTO);
         return toFileVO(userFileDTO);
     }
 
@@ -1715,6 +1729,8 @@ public class FileService {
             log.info("文件移动成功");
             files.setPath(getPath(files.getId(),files.getUserId()));
             fileInfoMapper.updatePath(files.getId(),files.getFileUuid(),files.getPath(),files.getUserId());
+            files.setUpdatetime(LocalDateTime.now());
+            emitFileEvent("FILE_UPDATED",files);
             return true;
         }
         else {
@@ -1737,7 +1753,18 @@ public class FileService {
                 fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),userFileDTO.getPath(),files.getUserId());
             }
         }
+        files.setUpdatetime(LocalDateTime.now());
+        emitFileEvent("FILE_UPDATED",files);
         return true;
+    }
+
+    private void emitFileEvent(String eventType,UserFileDTO file) {
+        if(webhookEventService == null || file == null || file.getId() == null || file.getUserId() == null) return;
+        LocalDateTime updated = file.getUpdatetime() == null ? LocalDateTime.now() : file.getUpdatetime();
+        long version = Math.max(1,updated.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+        webhookEventService.publish(file.getUserId(),eventType,"FILE",String.valueOf(file.getId()),version,
+                file.getId(),null,Map.of("fileId",file.getId(),"isDir",file.getDir() == 1),
+                Map.of("name",file.getFileName(),"parentId",file.getParentId() == null ? 0 : file.getParentId()));
     }
 
     /**

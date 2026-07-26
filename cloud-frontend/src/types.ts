@@ -593,6 +593,29 @@ export type UserApiKeyCreated = {
   plaintext: string;
 };
 
+export type WebhookEventType =
+  | "FILE_CREATED" | "FILE_UPDATED" | "FILE_DELETED"
+  | "KNOWLEDGE_INDEXED" | "KNOWLEDGE_REMOVED" | "KNOWLEDGE_FAILED"
+  | "AGENT_TASK_COMPLETED" | "AGENT_TASK_FAILED" | "SPACE_MEMBER_CHANGED";
+
+export type WebhookSubscription = {
+  id: number;
+  name: string;
+  targetUrl: string;
+  apiKeyId: number;
+  eventTypes: WebhookEventType[];
+  includeContent: boolean;
+  status: "ACTIVE" | "DISABLED";
+  previousSecretValidUntil?: string | null;
+  lastDeliveryAt?: string | null;
+  createTime: string;
+};
+
+export type WebhookSubscriptionCreated = {
+  subscription: WebhookSubscription;
+  secret: string;
+};
+
 export type KnowledgeChatSession = {
   id: number;
   userId: number;

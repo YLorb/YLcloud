@@ -31,6 +31,9 @@ public interface UserApiKeyMapper {
     @Select("select " + COLUMNS + " from user_api_key where key_id=#{keyId} for update")
     UserApiKey lockById(@Param("keyId") Long keyId);
 
+    @Select("select " + COLUMNS + " from user_api_key where key_id=#{keyId}")
+    UserApiKey getById(@Param("keyId") Long keyId);
+
     @Select("select " + COLUMNS + " from user_api_key where user_id=#{userId} " +
             "order by createtime desc,key_id desc")
     List<UserApiKey> listByUser(@Param("userId") Long userId);

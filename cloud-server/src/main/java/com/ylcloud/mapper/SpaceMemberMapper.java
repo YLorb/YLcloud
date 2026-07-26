@@ -48,6 +48,9 @@ public interface SpaceMemberMapper {
             "from space_member where space_id = #{spaceId} and status = 1 order by role, createtime")
     List<SpaceMemberVO> listBySpaceId(@Param("spaceId") Long spaceId);
 
+    @Select("select user_id from space_member where space_id=#{spaceId} and status=1 order by user_id")
+    List<Long> listActiveUserIds(@Param("spaceId") Long spaceId);
+
     /**
      * 更新 updateRole 相关逻辑。
      * @return 影响行数

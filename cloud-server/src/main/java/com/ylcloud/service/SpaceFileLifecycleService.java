@@ -8,6 +8,7 @@ import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.mapper.SpaceFileLifecycleMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -19,6 +20,7 @@ public class SpaceFileLifecycleService {
     public static final String REMOVAL_REQUESTED = "REMOVAL_REQUESTED";
     private final SpaceFileLifecycleMapper mapper;
     private final ObjectMapper objectMapper;
+    private WebhookEventService webhookEventService;
 
     public SpaceFileLifecycleService(SpaceFileLifecycleMapper mapper,ObjectMapper objectMapper) {
         this.mapper = mapper;
@@ -63,27 +65,34 @@ public class SpaceFileLifecycleService {
         mapper.markIndexing(spaceId,fileId,now);
     }
 
+    @Transactional
     public void indexSucceeded(Long spaceId,Long fileId) {
         SpaceFile current = mapper.getAny(spaceId,fileId);
         if(current == null || mapper.markReady(spaceId,fileId,LocalDateTime.now()) != 1) return;
         mapper.completeEvent(fileId,INDEX_REQUESTED,current.getKnowledgeVersion(),LocalDateTime.now());
+        emit(current,"KNOWLEDGE_INDEXED","READY",null);
     }
 
+    @Transactional
     public void indexFailed(Long spaceId,Long fileId,String error) {
         SpaceFile current = mapper.getAny(spaceId,fileId);
         if(current == null) return;
         String safe = safe(error);
         if(mapper.markFailed(spaceId,fileId,safe,LocalDateTime.now()) == 1) {
             mapper.failEvent(fileId,INDEX_REQUESTED,current.getKnowledgeVersion(),safe,LocalDateTime.now());
+            emit(current,"KNOWLEDGE_FAILED","FAILED",null);
         }
     }
 
+    @Transactional
     public void removalSucceeded(Long spaceId,Long fileId) {
         SpaceFile current = mapper.getAny(spaceId,fileId);
         if(current == null || mapper.markRemoved(spaceId,fileId,LocalDateTime.now()) != 1) return;
         mapper.completeEvent(fileId,REMOVAL_REQUESTED,current.getKnowledgeVersion(),LocalDateTime.now());
+        emit(current,"KNOWLEDGE_REMOVED","REMOVED",null);
     }
 
+    @Transactional
     public void removalFailed(Long spaceId,Long fileId,String error) {
         SpaceFile current = mapper.getAny(spaceId,fileId);
         if(current != null) {
@@ -95,6 +104,19 @@ public class SpaceFileLifecycleService {
 
     public int activeReferences(String fileUuid) {
         return mapper.countActiveReferences(fileUuid);
+    }
+
+    @Autowired(required = false)
+    public void setWebhookEventService(WebhookEventService webhookEventService) {
+        this.webhookEventService = webhookEventService;
+    }
+
+    private void emit(SpaceFile file,String eventType,String state,String detail) {
+        if(webhookEventService == null || file == null) return;
+        webhookEventService.publishSpaceMembers(eventType,file.getSpaceId(),"KNOWLEDGE_FILE",
+                String.valueOf(file.getId()),Math.max(1,file.getKnowledgeVersion()),file.getId(),
+                Map.of("spaceId",file.getSpaceId(),"spaceFileId",file.getId(),"state",state),
+                detail == null ? Map.of("fileUuid",file.getFileUuid()) : Map.of("detail",detail));
     }
 
     public void personalFileAdded(UserFileDTO file) {

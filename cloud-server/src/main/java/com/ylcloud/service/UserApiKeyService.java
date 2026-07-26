@@ -161,6 +161,19 @@ public class UserApiKeyService {
         riskAuthorizationService.authorizeHighRisk(principal.userId(),principal.keyId(),invocationId);
     }
 
+    public ApiKeyPrincipal requireOwnedActivePrincipal(Long userId,Long keyId) {
+        requireApiKeysEnabled();
+        requireAccountActive(userId);
+        UserApiKey key = mapper.getById(keyId);
+        LocalDateTime now = LocalDateTime.now();
+        if(key == null || !userId.equals(key.getUserId()) || !"ACTIVE".equals(key.getKeyStatus())
+                || (key.getExpiresAt() != null && !key.getExpiresAt().isAfter(now))) {
+            throw new BaseException(403,"API Key 不存在、已过期或已撤销");
+        }
+        return new ApiKeyPrincipal(key.getId(),key.getUserId(),key.getKeyPrefix(),key.getDriveAccess(),
+                key.getDriveRootFileId(),Set.copyOf(mapper.listScopes(key.getId())),Set.copyOf(mapper.listSpaceIds(key.getId())));
+    }
+
     private LocalDateTime validateExpiry(UserApiKeyCreateDTO dto,LocalDateTime now) {
         if(dto.isNeverExpires() == (dto.getExpiresAt() != null)) {
             throw new BaseException("必须且只能选择到期时间或永不过期");

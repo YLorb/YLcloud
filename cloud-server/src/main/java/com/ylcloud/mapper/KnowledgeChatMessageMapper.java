@@ -197,6 +197,15 @@ public interface KnowledgeChatMessageMapper {
             "and role='assistant' and task_status='QUEUED' and status=1 order by id asc limit #{limit}")
     List<KnowledgeChatMessage> listWorkflowUnaccepted(@Param("limit") int limit);
 
+    @Select("select " + SELECT_COLUMNS + " from knowledge_chat_message message where message.role='assistant' " +
+            "and message.task_status in ('SUCCESS','FAILED') and message.status=1 " +
+            "and json_unquote(json_extract(case when json_valid(message.request_json) then message.request_json else '{}' end,'$.apiKeyId')) is not null " +
+            "and not exists (select 1 from webhook_event event where event.resource_type='AGENT_TASK' " +
+            "and cast(event.resource_id as unsigned)=message.id and event.resource_version=coalesce(message.retry_count,0)+1 " +
+            "and event.event_type=case when message.task_status='SUCCESS' then 'AGENT_TASK_COMPLETED' else 'AGENT_TASK_FAILED' end) " +
+            "order by message.updatetime asc limit #{limit}")
+    List<KnowledgeChatMessage> listMissingAgentWebhookEvents(@Param("limit") int limit);
+
     @Select("select count(1) from knowledge_chat_message where session_id = #{sessionId} and status = 1")
     Integer countBySessionId(@Param("sessionId") Long sessionId);
 

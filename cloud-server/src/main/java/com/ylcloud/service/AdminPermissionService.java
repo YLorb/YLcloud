@@ -25,4 +25,13 @@ public class AdminPermissionService {
             throw new ForbiddenException("无管理员权限");
         }
     }
+
+    public void requireDeploymentOwner() {
+        Long userId = BaseContext.getCurrentId();
+        if(userId == null) throw new UnauthorizedException("请先登录");
+        User user = loginMapper.getById(userId);
+        if(user == null || !Boolean.TRUE.equals(user.getDeploymentOwner())) {
+            throw new ForbiddenException("仅部署所有者可以执行此操作");
+        }
+    }
 }

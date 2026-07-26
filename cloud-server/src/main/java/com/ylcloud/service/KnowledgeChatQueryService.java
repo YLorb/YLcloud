@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
@@ -41,6 +42,7 @@ public class KnowledgeChatQueryService {
     private final ObjectMapper objectMapper;
     private final Executor executor;
     private final WorkflowMessageLifecycleService workflowLifecycle;
+    private WebhookEventService webhookEventService;
 
     @Autowired
     public KnowledgeChatQueryService(KnowledgeChatSessionMapper sessionMapper,
@@ -163,8 +165,9 @@ public class KnowledgeChatQueryService {
         if(message == null) {
             return;
         }
+        KnowledgeChatQueryCreateDTO request = null;
         try {
-            KnowledgeChatQueryCreateDTO request = objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class);
+            request = objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class);
             ConversationContextSnapshot context = contextService.resolve(message);
             KnowledgeRagQueryDTO ragRequest = new KnowledgeRagQueryDTO();
             ragRequest.setQuestion(request.getQuestion());
@@ -179,9 +182,34 @@ public class KnowledgeChatQueryService {
             String citations = objectMapper.writeValueAsString(result.getCitations() == null ? List.of() : result.getCitations());
             if(messageMapper.markSuccess(messageId,answer,citations) > 0) {
                 if(memoryExtractionService != null) memoryExtractionService.enqueue(message);
+                emitAgent(message,request,"AGENT_TASK_COMPLETED",answer);
             }
         } catch(Exception exception) {
-            messageMapper.markFailed(messageId,errorSummary(exception));
+            if(messageMapper.markFailed(messageId,errorSummary(exception)) > 0) {
+                emitAgent(message,request,"AGENT_TASK_FAILED",null);
+            }
+        }
+    }
+
+    @Autowired(required = false)
+    public void setWebhookEventService(WebhookEventService webhookEventService) {
+        this.webhookEventService = webhookEventService;
+    }
+
+    private void emitAgent(KnowledgeChatMessage message,KnowledgeChatQueryCreateDTO request,String eventType,String answer) {
+        if(webhookEventService == null || message == null) return;
+        try {
+            KnowledgeChatQueryCreateDTO effective = request == null
+                    ? objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class) : request;
+            if(effective.getApiKeyId() == null || effective.getSpaceIds() == null || effective.getSpaceIds().isEmpty()) return;
+            Long spaceId = effective.getSpaceIds().get(0);
+            long version = Math.max(1,(message.getRetryCount() == null ? 0 : message.getRetryCount()) + 1L);
+            webhookEventService.publish(message.getUserId(),eventType,"AGENT_TASK",String.valueOf(message.getId()),
+                    version,null,spaceId,Map.of("messageId",message.getId(),"sessionId",message.getSessionId(),
+                            "status",eventType.endsWith("COMPLETED") ? "COMPLETED" : "FAILED"),
+                    answer == null ? Map.of() : Map.of("answer",answer));
+        } catch(Exception ignored) {
+            // 主回答状态已经落库；Webhook Outbox 可由后续对账补偿，不能反向改写回答状态。
         }
     }
 
@@ -191,6 +219,15 @@ public class KnowledgeChatQueryService {
         if(workflowLifecycle != null && workflowLifecycle.isEnabled()) return;
         messageMapper.requeueStale(LocalDateTime.now().minusMinutes(10));
         messageMapper.listQueued(100).forEach(message -> executor.execute(() -> execute(message.getId())));
+    }
+
+    @Scheduled(fixedDelayString = "${ylcloud.webhook.agent-reconcile-delay-ms:30000}",
+            initialDelayString = "${ylcloud.webhook.agent-reconcile-initial-delay-ms:15000}")
+    public void reconcileAgentWebhookEvents() {
+        if(webhookEventService == null) return;
+        messageMapper.listMissingAgentWebhookEvents(100).forEach(message -> emitAgent(message,null,
+                "SUCCESS".equals(message.getTaskStatus()) ? "AGENT_TASK_COMPLETED" : "AGENT_TASK_FAILED",
+                "SUCCESS".equals(message.getTaskStatus()) ? message.getContent() : null));
     }
 
     private KnowledgeChatMessage findQueuedTask(Long messageId) {

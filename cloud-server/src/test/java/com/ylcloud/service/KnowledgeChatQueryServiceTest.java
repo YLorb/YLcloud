@@ -87,5 +87,23 @@ class KnowledgeChatQueryServiceTest {
         verify(messageMapper,never()).retryFailed(11L);
     }
 
+    @Test
+    void reconcilesMissingTerminalAgentWebhookEvent() throws Exception {
+        WebhookEventService events = mock(WebhookEventService.class);
+        KnowledgeChatMessage message = new KnowledgeChatMessage();
+        message.setId(11L); message.setSessionId(3L); message.setUserId(7L);
+        message.setTaskStatus("SUCCESS"); message.setContent("answer"); message.setRetryCount(1);
+        KnowledgeChatQueryCreateDTO request = request();
+        request.setApiKeyId(19L);
+        message.setRequestJson(new ObjectMapper().writeValueAsString(request));
+        when(messageMapper.listMissingAgentWebhookEvents(100)).thenReturn(List.of(message));
+        service.setWebhookEventService(events);
+
+        service.reconcileAgentWebhookEvents();
+
+        verify(events).publish(eq(7L),eq("AGENT_TASK_COMPLETED"),eq("AGENT_TASK"),eq("11"),eq(2L),
+                eq(null),eq(5L),any(),eq(java.util.Map.of("answer","answer")));
+    }
+
     private KnowledgeChatQueryCreateDTO request() { KnowledgeChatQueryCreateDTO dto = new KnowledgeChatQueryCreateDTO(); dto.setQuestion("question"); dto.setSpaceIds(List.of(5L)); dto.setRetrievalMode("balanced"); return dto; }
 }

@@ -12,9 +12,11 @@ import com.ylcloud.mapper.SpaceMapper;
 import com.ylcloud.mapper.SpaceMemberMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 空间成员业务服务。
@@ -24,6 +26,7 @@ public class SpaceMemberService {
     private final SpaceMemberMapper spaceMemberMapper;
     private final SpacePermissionService spacePermissionService;
     private final SpaceMapper spaceMapper;
+    private WebhookEventService webhookEventService;
 
     /**
      * 初始化 SpaceMemberService 对象。
@@ -76,6 +79,7 @@ public class SpaceMemberService {
 
         LocalDateTime now = LocalDateTime.now();
         spaceMemberMapper.activate(spaceId,dto.getUserId(),role,now);
+        emit(spaceId,dto.getUserId(),"ADDED",role,now);
         return true;
     }
 
@@ -107,6 +111,7 @@ public class SpaceMemberService {
         if(rows == 0) {
             throw new BaseException("角色更新失败");
         }
+        emit(spaceId,targetUserId,"ROLE_UPDATED",role,LocalDateTime.now());
         return true;
     }
 
@@ -136,7 +141,21 @@ public class SpaceMemberService {
         if(rows == 0) {
             throw new BaseException("成员移除失败");
         }
+        emit(spaceId,targetUserId,"REMOVED",target.getRole(),LocalDateTime.now());
         return true;
+    }
+
+    @Autowired(required = false)
+    public void setWebhookEventService(WebhookEventService webhookEventService) {
+        this.webhookEventService = webhookEventService;
+    }
+
+    private void emit(Long spaceId,Long targetUserId,String change,String role,LocalDateTime now) {
+        if(webhookEventService == null) return;
+        long version = Math.max(1,now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+        webhookEventService.publishSpaceMembers("SPACE_MEMBER_CHANGED",spaceId,"SPACE",String.valueOf(spaceId),
+                version,null,Map.of("spaceId",spaceId,"change",change),
+                Map.of("targetUserId",targetUserId,"role",role));
     }
 
     private void requireTeam(Long spaceId) {

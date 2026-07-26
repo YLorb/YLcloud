@@ -41,6 +41,9 @@ import type {
   User,
   UserApiKey,
   UserApiKeyCreated,
+  WebhookEventType,
+  WebhookSubscription,
+  WebhookSubscriptionCreated,
   UserMemory,
   UserMemorySetting,
   UserMemoryStats,
@@ -185,6 +188,19 @@ export const api = {
     riskAcknowledged: boolean;
   }) => request<UserApiKeyCreated>("/api/api-keys", { method: "POST", body: JSON.stringify(payload) }),
   revokeUserApiKey: (keyId: number) => request<boolean>(`/api/api-keys/${keyId}`, { method: "DELETE" }),
+  webhookEventTypes: () => request<WebhookEventType[]>("/api/webhooks/event-types"),
+  webhookSubscriptions: () => request<WebhookSubscription[]>("/api/webhooks"),
+  createWebhookSubscription: (payload: {
+    name: string;
+    targetUrl: string;
+    apiKeyId: number;
+    eventTypes: WebhookEventType[];
+    includeContent: boolean;
+  }) => request<WebhookSubscriptionCreated>("/api/webhooks", { method: "POST", body: JSON.stringify(payload) }),
+  rotateWebhookSecret: (subscriptionId: number) =>
+    request<WebhookSubscriptionCreated>(`/api/webhooks/${subscriptionId}/rotate-secret`, { method: "POST" }),
+  disableWebhookSubscription: (subscriptionId: number) =>
+    request<boolean>(`/api/webhooks/${subscriptionId}`, { method: "DELETE" }),
   publicSettings: () => request<PublicSiteSettings>("/api/site/public-settings"),
   adminSettings: () => request<SiteSetting[]>("/api/admin/settings"),
   updateAdminSettings: (settings: Array<{ key: string; value: string }>) =>
