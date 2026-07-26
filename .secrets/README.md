@@ -20,5 +20,6 @@ Optional platform AI secrets:
 - `ark_api_key`: Ark/OpenAI-compatible fallback used by generation and VLM.
 - `rag_query_api_key`: optional query-generation override; an empty file falls back to `ark_api_key`.
 - `vlm_api_key`: optional VLM override; an empty file falls back to `ark_api_key`.
+- `rabbitmq_password`: RabbitMQ application user password; use a distinct long random value.
 
 Account passwords are not stored here. They are accepted only over HTTPS and stored as BCrypt hashes. Future user-owned provider keys must use encrypted backend storage, not these global platform secret files.

@@ -14,6 +14,7 @@ public class AsyncTaskVO {
     private Long spaceId;
     private Long documentId;
     private String source;
+    private String taskDomain;
     private String type;
     private String title;
     private String status;

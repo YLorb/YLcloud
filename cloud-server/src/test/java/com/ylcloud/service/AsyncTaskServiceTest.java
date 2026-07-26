@@ -20,7 +20,14 @@ import static org.mockito.Mockito.when;
 class AsyncTaskServiceTest {
     private final SpaceRagTaskMapper rag = mock(SpaceRagTaskMapper.class);
     private final SpaceKnowledgePipelineTaskMapper knowledge = mock(SpaceKnowledgePipelineTaskMapper.class);
-    private final AsyncTaskService service = new AsyncTaskService(rag,knowledge);
+    private final AsyncTaskService service = new AsyncTaskService(
+            rag,
+            knowledge,
+            mock(com.ylcloud.async.task.UnifiedTaskQueryMapper.class),
+            mock(com.ylcloud.async.task.UnifiedAsyncTaskMapper.class),
+            mock(com.ylcloud.async.task.UnifiedTaskCenterService.class),
+            mock(com.ylcloud.async.task.TaskAuthorizationService.class)
+    );
 
     @Test
     void returnsOwnedRagTaskCompletionDetails() {

@@ -8,6 +8,14 @@ import com.ylcloud.entity.SpaceKnowledgePipelineTask;
 import com.ylcloud.entity.SpaceRagTask;
 import com.ylcloud.mapper.SpaceKnowledgePipelineTaskMapper;
 import com.ylcloud.mapper.SpaceRagTaskMapper;
+import com.ylcloud.async.task.TaskAuthorizationService;
+import com.ylcloud.async.task.UnifiedAsyncTaskMapper;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
+import com.ylcloud.async.task.UnifiedTaskQueryMapper;
+import com.ylcloud.VO.AsyncTaskAttemptVO;
+import com.ylcloud.VO.AsyncTaskPageVO;
+import com.ylcloud.entity.UnifiedAsyncTask;
+import com.ylcloud.entity.UnifiedTaskAttempt;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -27,11 +35,23 @@ public class AsyncTaskService {
 
     private final SpaceRagTaskMapper ragTaskMapper;
     private final SpaceKnowledgePipelineTaskMapper knowledgeTaskMapper;
+    private final UnifiedTaskQueryMapper unifiedQueryMapper;
+    private final UnifiedAsyncTaskMapper unifiedTaskMapper;
+    private final UnifiedTaskCenterService taskCenterService;
+    private final TaskAuthorizationService taskAuthorizationService;
 
     public AsyncTaskService(SpaceRagTaskMapper ragTaskMapper,
-                            SpaceKnowledgePipelineTaskMapper knowledgeTaskMapper) {
+                            SpaceKnowledgePipelineTaskMapper knowledgeTaskMapper,
+                            UnifiedTaskQueryMapper unifiedQueryMapper,
+                            UnifiedAsyncTaskMapper unifiedTaskMapper,
+                            UnifiedTaskCenterService taskCenterService,
+                            TaskAuthorizationService taskAuthorizationService) {
         this.ragTaskMapper = ragTaskMapper;
         this.knowledgeTaskMapper = knowledgeTaskMapper;
+        this.unifiedQueryMapper = unifiedQueryMapper;
+        this.unifiedTaskMapper = unifiedTaskMapper;
+        this.taskCenterService = taskCenterService;
+        this.taskAuthorizationService = taskAuthorizationService;
     }
 
     public List<AsyncTaskVO> listUserTasks(Long userId, Long spaceId) {
@@ -59,7 +79,67 @@ public class AsyncTaskService {
             if(task == null || !userId.equals(task.getCreatedBy())) throw new NotFoundException("后台任务不存在");
             return detailFromKnowledge(task);
         }
+        if("unified".equalsIgnoreCase(source)) {
+            return detailFromUnified(taskCenterService.requireVisible(taskId,userId),userId);
+        }
         throw new BaseException("不支持的后台任务来源");
+    }
+
+    public AsyncTaskPageVO pageUserTasks(Long userId, Long spaceId, String status, String domain,
+                                         String type, int page, int pageSize) {
+        int safePage = Math.max(1,page);
+        int safeSize = Math.max(1,Math.min(100,pageSize));
+        List<AsyncTaskVO> records = unifiedQueryMapper.listMerged(userId,spaceId,blank(status),blank(domain),
+                blank(type),safeSize,(safePage - 1) * safeSize);
+        long total = unifiedQueryMapper.countMerged(userId,spaceId,blank(status),blank(domain),blank(type));
+        return new AsyncTaskPageVO(records,total,safePage,safeSize);
+    }
+
+    private AsyncTaskDetailVO detailFromUnified(UnifiedAsyncTask task, Long userId) {
+        AsyncTaskVO base = base("unified",task.getId(),task.getSpaceId(),null,task.getTaskType(),
+                task.getTaskType(),task.getStatus(),safeError(task.getLastErrorMessage()),
+                task.getCreatedAt(),task.getUpdatedAt());
+        base.setTaskDomain(task.getTaskDomain());
+        base.setPhase(task.getStatus());
+        base.setProgress("SUCCESS".equals(task.getStatus()) ? 100 : "RUNNING".equals(task.getStatus()) ? 50 : 0);
+        base.setRetryable("FAILED".equals(task.getStatus()));
+        AsyncTaskDetailVO detail = detailBase(base,null,null,task.getStartedAt(),task.getFinishedAt());
+        detail.setTaskDomain(task.getTaskDomain());
+        detail.setResourceKey(task.getResourceKey());
+        detail.setResourceVersion(task.getResourceVersion());
+        detail.setAttemptVersion(task.getAttemptVersion());
+        detail.setNextRetryAt(task.getNextRetryAt());
+        detail.setLastHeartbeatAt(task.getLastHeartbeatAt());
+        detail.setErrorMessage(safeError(task.getLastErrorMessage()));
+        detail.setTerminalStage(task.getStatus());
+        detail.setTerminalReason(safeError(task.getLastErrorMessage()));
+        detail.setLegacy(false);
+        boolean canOperate = canOperate(task,userId);
+        detail.setCanRetry(canOperate && "FAILED".equals(task.getStatus()));
+        detail.setCanCancel(canOperate && List.of("PENDING_PUBLISH","PENDING","RUNNING","RETRY_WAIT").contains(task.getStatus()));
+        detail.setAttempts(unifiedTaskMapper.listAttempts(task.getId()).stream().map(this::attemptVO).toList());
+        return detail;
+    }
+
+    private boolean canOperate(UnifiedAsyncTask task, Long userId) {
+        try {
+            taskAuthorizationService.requireOperate(task,userId);
+            return true;
+        } catch(RuntimeException denied) {
+            return false;
+        }
+    }
+
+    private AsyncTaskAttemptVO attemptVO(UnifiedTaskAttempt attempt) {
+        AsyncTaskAttemptVO vo = new AsyncTaskAttemptVO();
+        org.springframework.beans.BeanUtils.copyProperties(attempt,vo);
+        String token = attempt.getLeaseToken();
+        vo.setLeaseTokenMasked(token == null ? null : token.substring(0,Math.min(8,token.length())) + "…");
+        return vo;
+    }
+
+    private String blank(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private AsyncTaskVO fromRag(SpaceRagTask task) {

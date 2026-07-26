@@ -343,7 +343,17 @@ progress::-webkit-progress-value { background: var(--confirm); border-radius: 99
 .task-detail__facts dd { margin: 0; color: var(--text); font-size: 13px; overflow-wrap: anywhere; }
 .task-detail__error { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border)); border-radius: 9px; background: var(--danger-soft); color: var(--danger); }
 .task-detail__error p { margin: 4px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
-.task-detail__actions { display: flex; justify-content: flex-end; }
+.task-detail__timeline { display: grid; gap: 10px; }
+.task-detail__timeline h4 { margin: 0; font-size: 13px; }
+.task-detail__timeline ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.task-detail__timeline li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; min-height: 58px; }
+.task-detail__timeline li > span { position: relative; width: 10px; height: 10px; margin-top: 5px; border: 2px solid var(--info); border-radius: 50%; background: var(--surface); }
+.task-detail__timeline li:not(:last-child) > span::after { position: absolute; top: 9px; left: 2px; width: 2px; height: calc(100% + 38px); background: var(--border); content: ""; }
+.task-detail__timeline li > div { min-width: 0; padding-bottom: 13px; }
+.task-detail__timeline header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.task-detail__timeline p { margin: 5px 0 3px; color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+.task-detail__timeline small { color: var(--muted); font-size: 10px; }
+.task-detail__actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .admin-security-note { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-color: color-mix(in srgb, var(--confirm) 25%, var(--border)); background: var(--confirm-soft); }
 .admin-security-note > svg { flex: 0 0 auto; color: var(--confirm); }

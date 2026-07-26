@@ -184,9 +184,13 @@ export const api = {
     request<PermissionGroup>(`/api/admin/permission-groups/${groupId}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePermissionGroup: (groupId: number) => request<boolean>(`/api/admin/permission-groups/${groupId}`, { method: "DELETE" }),
   listAsyncTasks: (spaceId?: number) => request<AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }>(
-    `/api/async${spaceId ? `?spaceId=${spaceId}` : ""}`
+    `/api/async/page?${params({ spaceId, page: 1, pageSize: 100 })}`
   ),
-  getAsyncTask: (source: "rag" | "knowledge", taskId: number) => request<AsyncTaskDetail>(`/api/async/${source}/${taskId}`),
+  getAsyncTask: (source: "rag" | "knowledge" | "unified", taskId: number) => request<AsyncTaskDetail>(`/api/async/${source}/${taskId}`),
+  retryUnifiedTask: (taskId: number, reason?: string) =>
+    request<boolean>(`/api/async/${taskId}/retry`, { method: "POST", body: JSON.stringify({ reason }) }),
+  cancelUnifiedTask: (taskId: number, reason?: string) =>
+    request<boolean>(`/api/async/${taskId}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
   currentUser: () => request<number>("/api/user/current"),
   storageQuota: () => request<StorageQuota>("/api/storage/quota"),
   listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`).then(normalizeFileItems),

@@ -1,4 +1,36 @@
 services:
+  rabbitmq:
+    image: rabbitmq:4.3.4-management
+    container_name: ylcloud-rabbitmq
+    restart: unless-stopped
+    hostname: ylcloud-rabbitmq
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        umask 077
+        printf 'default_user = %s\ndefault_pass = %s\ndefault_vhost = %s\n' \
+          "$$YLCLOUD_RABBITMQ_BOOTSTRAP_USER" "$$(cat /run/secrets/rabbitmq_password)" \
+          "$$YLCLOUD_RABBITMQ_BOOTSTRAP_VHOST" > /tmp/rabbitmq.conf
+        chown rabbitmq:rabbitmq /tmp/rabbitmq.conf
+        export RABBITMQ_CONFIG_FILE=/tmp/rabbitmq
+        exec docker-entrypoint.sh rabbitmq-server
+    secrets:
+      - rabbitmq_password
+    environment:
+      YLCLOUD_RABBITMQ_BOOTSTRAP_USER: ${YLCLOUD_RABBITMQ_USERNAME:-ylcloud_app}
+      YLCLOUD_RABBITMQ_BOOTSTRAP_VHOST: ${YLCLOUD_RABBITMQ_VHOST:-/ylcloud}
+    ports:
+      - "127.0.0.1:${YLCLOUD_RABBITMQ_AMQP_HOST_PORT:-5672}:5672"
+      - "127.0.0.1:${YLCLOUD_RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   mysql:
     image: mysql:8.3
     container_name: ylcloud-mysql
@@ -135,7 +167,10 @@ services:
       - ark_api_key
       - rag_query_api_key
       - vlm_api_key
+      - rabbitmq_password
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       mysql:
         condition: service_healthy
       minio:
@@ -157,6 +192,12 @@ services:
       YLCLOUD_ARK_API_KEY_FILE: /run/secrets/ark_api_key
       YLCLOUD_RAG_QUERY_API_KEY_FILE: /run/secrets/rag_query_api_key
       YLCLOUD_VLM_API_KEY_FILE: /run/secrets/vlm_api_key
+      YLCLOUD_RABBITMQ_HOST: rabbitmq
+      YLCLOUD_RABBITMQ_PORT: 5672
+      YLCLOUD_RABBITMQ_VHOST: ${YLCLOUD_RABBITMQ_VHOST:-/ylcloud}
+      YLCLOUD_RABBITMQ_USERNAME: ${YLCLOUD_RABBITMQ_USERNAME:-ylcloud_app}
+      YLCLOUD_RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password
+      YLCLOUD_ASYNC_MQ_ENABLED: ${YLCLOUD_ASYNC_MQ_ENABLED:-true}
       YLCLOUD_MINIO_ENDPOINT: http://minio:9000
       YLCLOUD_MINIO_ACCESS_KEY: ${YLCLOUD_MINIO_ACCESS_KEY:-ylcloud_minio}
       YLCLOUD_MINIO_SECRET_KEY: ${YLCLOUD_MINIO_SECRET_KEY:-ylcloud_minio_pwd}
@@ -213,8 +254,11 @@ volumes:
   minio-data:
   qdrant-data:
   model-cache:
+  rabbitmq-data:
 
 secrets:
+  rabbitmq_password:
+    file: ./.secrets/rabbitmq_password
   jwt_secret:
     file: ./.secrets/jwt_secret
   service_jwt_active_secret:

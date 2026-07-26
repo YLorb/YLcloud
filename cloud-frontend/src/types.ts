@@ -429,7 +429,8 @@ export type AsyncTask = {
   updateTime?: string;
   createdAt?: string;
   updatedAt?: string;
-  source?: "rag" | "knowledge";
+  source?: "rag" | "knowledge" | "unified";
+  taskDomain?: string;
   spaceId?: number;
   documentId?: number;
   retryable?: boolean;
@@ -511,6 +512,30 @@ export type AsyncTaskDetail = AsyncTask & {
   terminalStage?: string;
   terminalReason?: string;
   completionSummary?: string;
+  resourceKey?: string;
+  resourceVersion?: number;
+  attemptVersion?: number;
+  nextRetryAt?: string;
+  lastHeartbeatAt?: string;
+  canRetry?: boolean;
+  canCancel?: boolean;
+  operationReason?: string;
+  legacy?: boolean;
+  attempts?: Array<{
+    attemptVersion?: number;
+    triggerType?: string;
+    workerId?: string;
+    leaseTokenMasked?: string;
+    status?: string;
+    startedAt?: string;
+    lastHeartbeatAt?: string;
+    finishedAt?: string;
+    failureCode?: string;
+    failureMessage?: string;
+    retryable?: boolean;
+    nextRetryAt?: string;
+    durationMs?: number;
+  }>;
 };
 
 export type KnowledgeChatSession = {

@@ -28,7 +28,8 @@ public class SecretFileEnvironmentPostProcessor implements EnvironmentPostProces
             "YLCLOUD_LLM_API_KEY",
             "YLCLOUD_ARK_API_KEY",
             "YLCLOUD_RAG_QUERY_API_KEY",
-            "YLCLOUD_VLM_API_KEY"
+            "YLCLOUD_VLM_API_KEY",
+            "YLCLOUD_RABBITMQ_PASSWORD"
     );
 
     @Override

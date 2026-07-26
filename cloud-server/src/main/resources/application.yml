@@ -16,12 +16,45 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     validate-on-migrate: true
+  rabbitmq:
+    host: ${YLCLOUD_RABBITMQ_HOST:127.0.0.1}
+    port: ${YLCLOUD_RABBITMQ_PORT:5672}
+    virtual-host: ${YLCLOUD_RABBITMQ_VHOST:/ylcloud}
+    username: ${YLCLOUD_RABBITMQ_USERNAME:ylcloud_app}
+    password: ${YLCLOUD_RABBITMQ_PASSWORD:ylcloud_rabbit_local}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: ${YLCLOUD_ASYNC_MQ_PREFETCH:1}
+        default-requeue-rejected: false
 
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  async:
+    mq:
+      enabled: ${YLCLOUD_ASYNC_MQ_ENABLED:false}
+      publisher-delay-ms: ${YLCLOUD_ASYNC_MQ_PUBLISHER_DELAY_MS:1000}
+      publisher-batch-size: ${YLCLOUD_ASYNC_MQ_PUBLISHER_BATCH_SIZE:50}
+      publish-lease-seconds: ${YLCLOUD_ASYNC_MQ_PUBLISH_LEASE_SECONDS:30}
+      retry-seconds: ${YLCLOUD_ASYNC_MQ_RETRY_SECONDS:60}
+      max-attempts: ${YLCLOUD_ASYNC_MQ_MAX_ATTEMPTS:4}
+      lease-seconds: ${YLCLOUD_ASYNC_MQ_LEASE_SECONDS:120}
+      heartbeat-seconds: ${YLCLOUD_ASYNC_MQ_HEARTBEAT_SECONDS:30}
+      retention-days: ${YLCLOUD_ASYNC_MQ_RETENTION_DAYS:3}
+      retry-queue-ttl-ms: ${YLCLOUD_ASYNC_MQ_RETRY_QUEUE_TTL_MS:60000}
+      cleanup-concurrency: ${YLCLOUD_ASYNC_MQ_CLEANUP_CONCURRENCY:1}
+      maintenance-concurrency: ${YLCLOUD_ASYNC_MQ_MAINTENANCE_CONCURRENCY:1}
+      memory-concurrency: ${YLCLOUD_ASYNC_MQ_MEMORY_CONCURRENCY:2}
+      chat-concurrency: ${YLCLOUD_ASYNC_MQ_CHAT_CONCURRENCY:3}
+      knowledge-concurrency: ${YLCLOUD_ASYNC_MQ_KNOWLEDGE_CONCURRENCY:2}
+      rag-concurrency: ${YLCLOUD_ASYNC_MQ_RAG_CONCURRENCY:2}
   workflow:
     client:
       enabled: ${YLCLOUD_WORKFLOW_ENABLED:false}
