@@ -51,6 +51,20 @@ class UnifiedTaskCenterServiceTest {
     }
 
     @Test
+    void createsCleanupDomainTaskWithIdOnlyPayload() {
+        doAnswer(invocation -> { UnifiedAsyncTask task=invocation.getArgument(0); task.setId(12L); return 1; })
+                .when(mapper).insertTask(any());
+
+        UnifiedAsyncTask task=service.createTask(new TaskCreateCommand(
+                "cleanup:12:1","cleanup","PHYSICAL_FILE_CLEANUP",new DomainTaskPayload(12L),
+                null,null,"physical-file:file-1",1));
+
+        assertEquals("cleanup",task.getTaskDomain());
+        assertEquals("{\"resourceId\":12}",task.getPayloadJson());
+        verify(mapper).insertOutbox(anyString(),eq(12L),eq(0),anyString(),eq("task.cleanup"),anyString(),any(),any());
+    }
+
+    @Test
     void claimCasIncrementsOnlyWhenMapperWinsAndCreatesAttempt() {
         UnifiedAsyncTask claimed = task("PENDING",0);
         claimed.setAttemptVersion(1);

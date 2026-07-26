@@ -48,7 +48,7 @@ public interface SpaceRagDocumentMapper {
     SpaceRagDocument getById(@Param("id") Long id);
 
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
-            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, chunk_count as chunkCount, " +
+            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
             "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +
             "from space_rag_document where id = #{id}")
     SpaceRagDocument getAnyById(@Param("id") Long id);
@@ -80,7 +80,7 @@ public interface SpaceRagDocumentMapper {
      * 更新 updateIndexResult 相关逻辑。
      * @return 影响行数
      */
-    @Update("update space_rag_document set index_status = #{indexStatus}, " +
+    @Update("update space_rag_document set index_status = #{indexStatus}, consistency_version=consistency_version+1, consistency_async_task_id=null, " +
             "vector_state = case when #{indexStatus} = 'SUCCESS' then 'ACTIVE' when #{indexStatus} = 'INDEXING' then 'BUILDING' else 'CLEANUP_PENDING' end, " +
             "chunk_count = #{chunkCount}, error_message = #{errorMessage}, updatetime = #{updateTime} where id = #{id} and status = 1")
     int updateIndexResult(@Param("id") Long id,
@@ -93,7 +93,7 @@ public interface SpaceRagDocumentMapper {
      * 更新 updateFileMeta 相关逻辑。
      * @return 影响行数
      */
-    @Update("update space_rag_document set file_name = #{fileName}, file_hash = #{fileHash}, file_type = #{fileType}, updatetime = #{updateTime} " +
+    @Update("update space_rag_document set file_name = #{fileName}, file_hash = #{fileHash}, file_type = #{fileType}, consistency_version=consistency_version+1, consistency_async_task_id=null, updatetime = #{updateTime} " +
             "where id = #{id} and status = 1")
     int updateFileMeta(@Param("id") Long id,
                        @Param("fileName") String fileName,
@@ -105,7 +105,7 @@ public interface SpaceRagDocumentMapper {
      * 执行 disableBySpaceFileId 函数的业务处理。
      * @return 影响行数
      */
-    @Update("update space_rag_document set status = 0, index_status = #{indexStatus}, vector_state = 'CLEANUP_PENDING', error_message = #{errorMessage}, updatetime = #{updateTime} " +
+    @Update("update space_rag_document set status = 0, index_status = #{indexStatus}, vector_state = 'CLEANUP_PENDING', consistency_version=consistency_version+1, consistency_async_task_id=null, error_message = #{errorMessage}, updatetime = #{updateTime} " +
             "where space_id = #{spaceId} and space_file_id = #{spaceFileId} and status = 1")
     int disableBySpaceFileId(@Param("spaceId") Long spaceId,
                              @Param("spaceFileId") Long spaceFileId,
@@ -153,7 +153,7 @@ public interface SpaceRagDocumentMapper {
      * 将空间中超时仍处于索引中的文档标记为失败。
      * @return 影响行数
      */
-    @Update("update space_rag_document set index_status = 'FAILED', vector_state = 'CLEANUP_PENDING', chunk_count = 0, error_message = #{errorMessage}, updatetime = #{updateTime} " +
+    @Update("update space_rag_document set index_status = 'FAILED', vector_state = 'CLEANUP_PENDING', consistency_version=consistency_version+1, consistency_async_task_id=null, chunk_count = 0, error_message = #{errorMessage}, updatetime = #{updateTime} " +
             "where space_id = #{spaceId} and status = 1 and index_status = 'INDEXING' and updatetime <= #{cutoff}")
     int failStaleIndexingDocuments(@Param("spaceId") Long spaceId,
                                    @Param("cutoff") LocalDateTime cutoff,
@@ -161,25 +161,25 @@ public interface SpaceRagDocumentMapper {
                                    @Param("updateTime") LocalDateTime updateTime);
 
     @Update("update space_rag_document d join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
-            "set d.index_status = 'INDEXING', d.vector_state = 'BUILDING', d.chunk_count = 0, d.error_message = null, d.updatetime = #{updateTime} " +
+            "set d.index_status = 'INDEXING', d.vector_state = 'BUILDING', d.consistency_version=d.consistency_version+1, d.consistency_async_task_id=null, d.chunk_count = 0, d.error_message = null, d.updatetime = #{updateTime} " +
             "where d.id = #{id} and d.status = 1 and sf.status = 1 and d.vector_state in ('CLEAN', 'ACTIVE')")
     int beginIndex(@Param("id") Long id, @Param("updateTime") LocalDateTime updateTime);
 
     @Update("update space_rag_document d join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
-            "set d.index_status = 'SUCCESS', d.vector_state = 'ACTIVE', d.chunk_count = #{chunkCount}, d.error_message = null, d.updatetime = #{updateTime} " +
+            "set d.index_status = 'SUCCESS', d.vector_state = 'ACTIVE', d.consistency_version=d.consistency_version+1, d.consistency_async_task_id=null, d.chunk_count = #{chunkCount}, d.error_message = null, d.updatetime = #{updateTime} " +
             "where d.id = #{id} and d.status = 1 and sf.status = 1 and d.index_status = 'INDEXING' and d.vector_state = 'BUILDING'")
     int commitIndex(@Param("id") Long id,
                     @Param("chunkCount") Integer chunkCount,
                     @Param("updateTime") LocalDateTime updateTime);
 
-    @Update("update space_rag_document set index_status = 'FAILED', vector_state = 'CLEANUP_PENDING', chunk_count = 0, " +
+    @Update("update space_rag_document set index_status = 'FAILED', vector_state = 'CLEANUP_PENDING', consistency_version=consistency_version+1, consistency_async_task_id=null, chunk_count = 0, " +
             "error_message = #{errorMessage}, updatetime = #{updateTime} " +
             "where id = #{id} and status = 1 and index_status = 'INDEXING' and vector_state = 'BUILDING'")
     int failIfBuilding(@Param("id") Long id,
                        @Param("errorMessage") String errorMessage,
                        @Param("updateTime") LocalDateTime updateTime);
 
-    @Update("update space_rag_document set index_status = 'FAILED', vector_state = 'CLEANUP_PENDING', chunk_count = 0, " +
+    @Update("update space_rag_document set index_status = 'FAILED', vector_state = 'CLEANUP_PENDING', consistency_version=consistency_version+1, consistency_async_task_id=null, chunk_count = 0, " +
             "error_message = #{errorMessage}, updatetime = #{updateTime} " +
             "where id = #{id} and status = 1 and index_status = 'SUCCESS' and vector_state = 'ACTIVE'")
     int failIfActive(@Param("id") Long id,
@@ -190,7 +190,7 @@ public interface SpaceRagDocumentMapper {
             "where id = #{id} and vector_state = 'CLEANUP_PENDING' and index_status <> 'SUCCESS'")
     int claimCleanup(@Param("id") Long id, @Param("updateTime") LocalDateTime updateTime);
 
-    @Update("update space_rag_document set vector_state = 'CLEAN', updatetime = #{updateTime} " +
+    @Update("update space_rag_document set vector_state = 'CLEAN', consistency_version=consistency_version+1, consistency_async_task_id=null, updatetime = #{updateTime} " +
             "where id = #{id} and vector_state = 'CLEANING' and index_status <> 'SUCCESS'")
     int completeCleanup(@Param("id") Long id, @Param("updateTime") LocalDateTime updateTime);
 
@@ -199,16 +199,26 @@ public interface SpaceRagDocumentMapper {
     int releaseCleanup(@Param("id") Long id, @Param("updateTime") LocalDateTime updateTime);
 
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
-            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, chunk_count as chunkCount, " +
+            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
             "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +
             "from space_rag_document where vector_state = 'CLEANUP_PENDING' order by updatetime asc limit #{limit}")
     List<SpaceRagDocument> listCleanupPending(@Param("limit") Integer limit);
 
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
-            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, chunk_count as chunkCount, " +
+            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
             "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +
             "from space_rag_document where status = 1 and index_status = 'SUCCESS' and vector_state = 'ACTIVE' " +
             "order by updatetime asc")
     List<SpaceRagDocument> listActiveVectorDocuments();
+
+    @Update("update space_rag_document set consistency_async_task_id=#{asyncTaskId} where id=#{id} " +
+            "and consistency_version=#{version} and (consistency_async_task_id is null or consistency_async_task_id=#{asyncTaskId})")
+    int bindConsistencyTask(@Param("id") Long id,@Param("version") Long version,@Param("asyncTaskId") Long asyncTaskId);
+
+    @Update("update space_rag_document set consistency_version=consistency_version+1,consistency_async_task_id=null " +
+            "where id=#{id} and consistency_version=#{version} and consistency_async_task_id=#{asyncTaskId} " +
+            "and status=1 and index_status='SUCCESS' and vector_state='ACTIVE'")
+    int completeConsistencyValidation(@Param("id") Long id,@Param("version") Long version,
+                                      @Param("asyncTaskId") Long asyncTaskId);
 
 }

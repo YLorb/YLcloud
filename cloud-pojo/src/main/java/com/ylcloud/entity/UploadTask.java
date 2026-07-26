@@ -88,6 +88,7 @@ public class UploadTask {
 
     /** 临时分片清理尝试次数。 */
     private Integer cleanupAttemptCount;
+    private Long cleanupAsyncTaskId;
 
     /**
      * 创建时间。

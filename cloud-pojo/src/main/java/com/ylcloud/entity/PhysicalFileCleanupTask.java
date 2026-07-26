@@ -11,6 +11,8 @@ public class PhysicalFileCleanupTask {
     private String taskStatus;
     private Integer retryCount;
     private String errorMessage;
+    private Long asyncTaskId;
+    private Long resourceVersion;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;
 }

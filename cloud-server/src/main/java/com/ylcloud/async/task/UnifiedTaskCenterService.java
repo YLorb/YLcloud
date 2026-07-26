@@ -75,11 +75,51 @@ public class UnifiedTaskCenterService {
         }
     }
 
+    @Transactional
+    public UnifiedAsyncTask createTask(TaskCreateCommand command) {
+        if(command == null || command.taskKey() == null || command.taskKey().isBlank()
+                || command.taskType() == null || command.taskType().isBlank()
+                || command.resourceKey() == null || command.resourceKey().isBlank()
+                || command.resourceVersion() < 1) {
+            throw new BaseException("统一任务参数不完整");
+        }
+        routingKey(command.taskDomain());
+        UnifiedAsyncTask task = new UnifiedAsyncTask();
+        task.setTaskKey(command.taskKey());
+        task.setTaskDomain(command.taskDomain());
+        task.setTaskType(command.taskType());
+        task.setPayloadJson(writeJson(command.payload()));
+        task.setCreatedBy(command.createdBy());
+        task.setSpaceId(command.spaceId());
+        task.setResourceKey(command.resourceKey());
+        task.setResourceVersion(command.resourceVersion());
+        task.setStatus("PENDING_PUBLISH");
+        task.setAttemptVersion(0);
+        task.setNextTriggerType("INITIAL");
+        task.setMaxAttempts(properties.getMaxAttempts());
+        LocalDateTime now = LocalDateTime.now();
+        task.setCreatedAt(now);
+        task.setUpdatedAt(now);
+        try {
+            mapper.insertTask(task);
+            enqueue(task,now);
+            return task;
+        } catch(DuplicateKeyException duplicate) {
+            return mapper.getByTaskKey(command.taskKey());
+        }
+    }
+
     public UnifiedAsyncTask requireVisible(Long taskId, Long userId) {
         UnifiedAsyncTask task = mapper.getById(taskId);
         if(task == null) throw new NotFoundException("统一任务不存在");
         authorizationService.requireView(task,userId);
         return task;
+    }
+
+    public boolean isActive(Long taskId) {
+        if(taskId == null) return false;
+        UnifiedAsyncTask task = mapper.getById(taskId);
+        return task != null && !TERMINAL.contains(task.getStatus());
     }
 
     @Transactional

@@ -44,9 +44,19 @@ public class UnifiedTaskConsumer {
         this.meterRegistry = meterRegistry;
     }
 
+    @RabbitListener(queues = RabbitTaskTopology.CLEANUP_QUEUE,
+            concurrency = "${ylcloud.async.mq.cleanup-concurrency:1}")
+    public void consumeCleanup(Message message, Channel channel) throws Exception {
+        consume(message,channel);
+    }
+
     @RabbitListener(queues = RabbitTaskTopology.MAINTENANCE_QUEUE,
             concurrency = "${ylcloud.async.mq.maintenance-concurrency:1}")
-    public void consume(Message message, Channel channel) throws Exception {
+    public void consumeMaintenance(Message message, Channel channel) throws Exception {
+        consume(message,channel);
+    }
+
+    private void consume(Message message, Channel channel) throws Exception {
         long tag = message.getMessageProperties().getDeliveryTag();
         TaskDispatchEnvelope envelope;
         try {

@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "ylcloud.async.mq")
 public class AsyncMqProperties {
     private boolean enabled;
+    private boolean cleanup;
+    private boolean maintenance;
     private long publisherDelayMs = 1000;
     private int publisherBatchSize = 50;
     private int publishLeaseSeconds = 30;

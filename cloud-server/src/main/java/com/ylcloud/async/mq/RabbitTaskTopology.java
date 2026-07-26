@@ -16,6 +16,7 @@ public class RabbitTaskTopology {
     public static final String TASK_EXCHANGE = "ylcloud.task.exchange";
     public static final String RETRY_EXCHANGE = "ylcloud.task.retry.exchange";
     public static final String DLX = "ylcloud.task.dlx";
+    public static final String CLEANUP_QUEUE = "ylcloud.task.cleanup.q";
     public static final String MAINTENANCE_QUEUE = "ylcloud.task.maintenance.q";
 
     @Bean
