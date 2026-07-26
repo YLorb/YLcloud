@@ -76,6 +76,8 @@ public class FileService {
     private CrossStoreFileWriteService crossStoreFileWriteService;
     @Autowired
     private AuthorizationService authorizationService;
+    @Autowired
+    private SpaceFileLifecycleService spaceFileLifecycleService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -622,6 +624,7 @@ public class FileService {
 
             // 回填 user_file
             fileInfoMapper.insertFile_User(file_user);
+            spaceFileLifecycleService.personalFileAdded(file_user);
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
@@ -655,6 +658,7 @@ public class FileService {
 
             // 鎻掑叆 user_file
             fileInfoMapper.insertFile_User(file_user);
+            spaceFileLifecycleService.personalFileAdded(file_user);
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
@@ -1522,6 +1526,7 @@ public class FileService {
             throw new BaseException("文件元数据不存在");
         }
         hardDeleteUserFile(userFileDTO);
+        spaceFileLifecycleService.personalFileRemoved(userFileDTO);
         if(fileInfoMapper.updateFileCount(userFileDTO.getFileUuid(),-1) == 0) {
             throw new BaseException("文件引用计数更新失败");
         }
@@ -1610,6 +1615,7 @@ public class FileService {
                 log.warn("新建文件失败");
                 throw new BaseException("新建文件失败");
             }
+            spaceFileLifecycleService.personalFileAdded(userFileDTO);
             resultRef.set(String.valueOf(userFileDTO.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
             return toFileVO(userFileDTO);
@@ -1876,6 +1882,7 @@ public class FileService {
         fileInfoMapper.updatePath(copied.getId(),copied.getFileUuid(),copied.getPath(),userId);
 
         if(source.getDir() == 0) {
+            spaceFileLifecycleService.personalFileAdded(copied);
             if(fileInfoMapper.updateFileCount(source.getFileUuid(),1) == 0) {
                 throw new BaseException("文件引用计数更新失败");
             }

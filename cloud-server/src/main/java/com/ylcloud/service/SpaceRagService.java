@@ -109,6 +109,7 @@ public class SpaceRagService {
     private final SiteSettingService siteSettingService;
     private final RagIndexTransactionService ragIndexTransactionService;
     private final RagIndexConsistencyService ragIndexConsistencyService;
+    private final SpaceFileLifecycleService fileLifecycleService;
 
     /**
      * 初始化 SpaceRagService 对象。
@@ -154,7 +155,8 @@ public class SpaceRagService {
                            KnowledgePipelineExecutorService knowledgePipelineExecutorService,
                            SiteSettingService siteSettingService,
                            RagIndexTransactionService ragIndexTransactionService,
-                           RagIndexConsistencyService ragIndexConsistencyService) {
+                           RagIndexConsistencyService ragIndexConsistencyService,
+                           SpaceFileLifecycleService fileLifecycleService) {
         this.spaceRagMapper = spaceRagMapper;
         this.spaceRagDocumentMapper = spaceRagDocumentMapper;
         this.fileRagChunkMapper = fileRagChunkMapper;
@@ -179,6 +181,7 @@ public class SpaceRagService {
         this.siteSettingService = siteSettingService;
         this.ragIndexTransactionService = ragIndexTransactionService;
         this.ragIndexConsistencyService = ragIndexConsistencyService;
+        this.fileLifecycleService = fileLifecycleService;
     }
 
     /**
@@ -634,9 +637,11 @@ public class SpaceRagService {
         try {
             updateTaskProgress(taskId,1,0,0);
             qdrantVectorStoreService.deleteBySpaceFileStrict(spaceId,spaceFileId);
+            fileLifecycleService.removalSucceeded(spaceId,spaceFileId);
             updateTaskProgress(taskId,1,1,0);
             finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
         } catch (Throwable ex) {
+            fileLifecycleService.removalFailed(spaceId,spaceFileId,ex.getMessage());
             updateTaskProgress(taskId,1,0,1);
             finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
         }
@@ -650,6 +655,7 @@ public class SpaceRagService {
      */
     private void rebuildDocument(SpaceRagDocument document, Long userId, boolean submitDocumentProfile) {
         SpaceFile spaceFile = requireFile(document.getSpaceId(),document.getSpaceFileId());
+        fileLifecycleService.indexing(document.getSpaceId(),document.getSpaceFileId());
         SpaceRagConfig config = requireConfig(document.getSpaceId());
         LocalDateTime now = LocalDateTime.now();
         File currentFile = fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
@@ -677,7 +683,9 @@ public class SpaceRagService {
             }
             ragIndexTransactionService.commitIndex(
                     document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
+            fileLifecycleService.indexSucceeded(document.getSpaceId(),document.getSpaceFileId());
         } catch (Throwable ex) {
+            fileLifecycleService.indexFailed(document.getSpaceId(),document.getSpaceFileId(),ex.getMessage());
             try {
                 ragIndexTransactionService.failBuildingIndex(document.getId(),truncate(ex.getMessage(),1000));
             } catch (Throwable databaseCleanupError) {

@@ -89,7 +89,8 @@ class SpaceRagQueryEvidenceTest {
                 mock(KnowledgePipelineExecutorService.class),
                 siteSettingService,
                 mock(RagIndexTransactionService.class),
-                mock(RagIndexConsistencyService.class)
+                mock(RagIndexConsistencyService.class),
+                mock(SpaceFileLifecycleService.class)
         );
 
         SpaceRagConfig config = new SpaceRagConfig();

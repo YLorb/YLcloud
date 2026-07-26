@@ -10,6 +10,7 @@ import com.ylcloud.mapper.SpaceRagDocumentMapper;
 import com.ylcloud.mapper.SpaceRagChunkRefMapper;
 import com.ylcloud.mapper.SpaceKnowledgePipelineTaskMapper;
 import com.ylcloud.mapper.FileRagChunkMapper;
+import com.ylcloud.mapper.SpaceFileLifecycleMapper;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -37,7 +38,8 @@ class MapperSqlContractTest {
             SpaceRagDocumentMapper.class,
             SpaceRagChunkRefMapper.class,
             SpaceKnowledgePipelineTaskMapper.class,
-            FileRagChunkMapper.class
+            FileRagChunkMapper.class,
+            SpaceFileLifecycleMapper.class
     );
 
     @Test

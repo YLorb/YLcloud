@@ -63,7 +63,7 @@ public interface SpaceRagDocumentMapper {
             "from space_rag_document d join space_rag_chunk_ref r on r.document_id = d.id " +
             "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
             "where r.space_id = #{spaceId} and r.file_chunk_id = #{chunkId} and r.status = 1 " +
-            "and d.status = 1 and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' and sf.status = 1 limit 1")
+            "and d.status = 1 and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' and sf.status = 1 and sf.searchable = 1 limit 1")
     SpaceRagDocument getBySpaceAndChunkId(@Param("spaceId") Long spaceId, @Param("chunkId") Long chunkId);
 
     /**

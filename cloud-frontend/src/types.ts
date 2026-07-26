@@ -168,6 +168,11 @@ export type SpaceFile = {
   size?: number;
   versionEnabled?: number | null;
   effectiveVersionEnabled?: boolean;
+  knowledgeState?: "NOT_APPLICABLE" | "INDEX_PENDING" | "INDEXING" | "READY" | "FAILED" | "REMOVAL_PENDING" | "REMOVED";
+  knowledgeVersion?: number;
+  searchable?: boolean;
+  lastKnowledgeError?: string;
+  removedAt?: string;
   createtime?: string;
   updatetime?: string;
   children?: SpaceFile[];

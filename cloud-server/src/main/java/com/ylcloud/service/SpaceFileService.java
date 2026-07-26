@@ -64,6 +64,7 @@ public class SpaceFileService {
     private final InitialFileVersionService initialFileVersionService;
     private final CrossStoreFileWriteService crossStoreFileWriteService;
     private final CrossStoreOperationService crossStoreOperationService;
+    private final SpaceFileLifecycleService lifecycleService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -91,7 +92,8 @@ public class SpaceFileService {
                             PhysicalFileCleanupService physicalFileCleanupService,
                             InitialFileVersionService initialFileVersionService,
                             CrossStoreFileWriteService crossStoreFileWriteService,
-                            CrossStoreOperationService crossStoreOperationService) {
+                            CrossStoreOperationService crossStoreOperationService,
+                            SpaceFileLifecycleService lifecycleService) {
         this.spaceFileMapper = spaceFileMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceService = spaceService;
@@ -103,6 +105,7 @@ public class SpaceFileService {
         this.initialFileVersionService = initialFileVersionService;
         this.crossStoreFileWriteService = crossStoreFileWriteService;
         this.crossStoreOperationService = crossStoreOperationService;
+        this.lifecycleService = lifecycleService;
     }
 
     /**
@@ -206,8 +209,9 @@ public class SpaceFileService {
             throw new BaseException("文件引用计数更新失败");
         }
         ensureInitialVersionIfEnabled(spaceFile,userId);
+        lifecycleService.fileAdded(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
-        return toVO(spaceFile);
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
     }
 
     /**
@@ -260,10 +264,11 @@ public class SpaceFileService {
                 operation.getResourceId());
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
         ensureInitialVersionIfEnabled(spaceFile,userId);
+        lifecycleService.fileAdded(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         resultRef.set(String.valueOf(spaceFile.getId()));
         crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
-        return toVO(spaceFile);
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
     }
 
     /**
@@ -299,10 +304,11 @@ public class SpaceFileService {
                 fileName,content,"text/markdown;charset=UTF-8",operation.getResourceId());
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
         ensureInitialVersionIfEnabled(spaceFile,userId);
+        lifecycleService.fileAdded(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         resultRef.set(String.valueOf(spaceFile.getId()));
         crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
-        return toVO(spaceFile);
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
     }
 
     /**
@@ -332,6 +338,9 @@ public class SpaceFileService {
             for(SpaceFile child : spaceFileMapper.listByParentId(spaceId,file.getId())) {
                 removeTree(spaceId,child,userId);
             }
+        }
+        if(file.getDir() == 0 && file.getFileUuid() != null) {
+            lifecycleService.fileRemovalStarted(file);
         }
         int rows = spaceFileMapper.disable(spaceId,file.getId(),LocalDateTime.now());
         if(rows == 0) {
@@ -654,6 +663,11 @@ public class SpaceFileService {
         vo.setPath(spaceFile.getPath());
         vo.setVersionEnabled(spaceFile.getVersionEnabled());
         vo.setEffectiveVersionEnabled(resolveEffectiveVersionEnabled(spaceFile));
+        vo.setKnowledgeState(spaceFile.getKnowledgeState());
+        vo.setKnowledgeVersion(spaceFile.getKnowledgeVersion());
+        vo.setSearchable(Integer.valueOf(1).equals(spaceFile.getSearchable()));
+        vo.setLastKnowledgeError(spaceFile.getLastKnowledgeError());
+        vo.setRemovedAt(spaceFile.getRemovedAt());
         vo.setCreatetime(spaceFile.getCreatetime());
         vo.setUpdatetime(spaceFile.getUpdatetime());
         if(spaceFile.getDir() == 0 && spaceFile.getFileUuid() != null) {
