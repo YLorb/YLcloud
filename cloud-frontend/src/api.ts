@@ -39,6 +39,8 @@ import type {
   SiteSetting,
   StorageQuota,
   User,
+  UserApiKey,
+  UserApiKeyCreated,
   UserMemory,
   UserMemorySetting,
   UserMemoryStats,
@@ -168,6 +170,21 @@ export const api = {
     request<AgentRiskAuthorization>("/api/agent-risk-authorizations", { method: "POST", body: JSON.stringify(payload) }),
   revokeAgentRiskAuthorization: (authorizationId: number) =>
     request<boolean>(`/api/agent-risk-authorizations/${authorizationId}`, { method: "DELETE" }),
+  userApiKeys: () => request<UserApiKey[]>("/api/api-keys"),
+  createUserApiKey: (payload: {
+    name: string;
+    driveAccess: "NONE" | "READ" | "WRITE";
+    driveRootFileId?: number;
+    knowledgeRetrieve: boolean;
+    knowledgeAgent: boolean;
+    selectAllVisibleSpaces: boolean;
+    spaceIds: number[];
+    expiresAt?: string;
+    neverExpires: boolean;
+    allowHighRisk: boolean;
+    riskAcknowledged: boolean;
+  }) => request<UserApiKeyCreated>("/api/api-keys", { method: "POST", body: JSON.stringify(payload) }),
+  revokeUserApiKey: (keyId: number) => request<boolean>(`/api/api-keys/${keyId}`, { method: "DELETE" }),
   publicSettings: () => request<PublicSiteSettings>("/api/site/public-settings"),
   adminSettings: () => request<SiteSetting[]>("/api/admin/settings"),
   updateAdminSettings: (settings: Array<{ key: string; value: string }>) =>

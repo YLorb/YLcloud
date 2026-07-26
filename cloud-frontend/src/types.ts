@@ -571,6 +571,28 @@ export type AgentRiskAuthorization = {
   updateTime: string;
 };
 
+export type UserApiKey = {
+  id: number;
+  name: string;
+  prefix: string;
+  driveAccess: "NONE" | "READ" | "WRITE";
+  driveRootFileId?: number | null;
+  scopes: Array<"DRIVE_READ" | "DRIVE_WRITE" | "KNOWLEDGE_RETRIEVE" | "KNOWLEDGE_AGENT">;
+  spaceIds: number[];
+  highRiskEnabled: boolean;
+  status: "ACTIVE" | "REVOKED" | "EXPIRED";
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  createTime: string;
+  updateTime: string;
+};
+
+export type UserApiKeyCreated = {
+  apiKey: UserApiKey;
+  plaintext: string;
+};
+
 export type KnowledgeChatSession = {
   id: number;
   userId: number;

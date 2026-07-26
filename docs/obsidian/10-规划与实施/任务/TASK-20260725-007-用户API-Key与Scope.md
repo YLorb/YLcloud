@@ -1,11 +1,11 @@
 ---
 id: TASK-20260725-007
 type: implementation-task
-status: pending
+status: completed
 priority: P0
 created: 2026-07-25
-updated: 2026-07-25
-owner: unassigned
+updated: 2026-07-26
+owner: codex
 version: 1
 tags: [api-key, scope, security]
 ---
@@ -17,5 +17,5 @@ tags: [api-key, scope, security]
 - 验收：实际权限为 Key Scope、用户实时权限和站点策略交集；全选不包含未来 Space；目录移动不能扩大授权；明文无法再次查询。
 - 测试/通过：哈希、过期、撤销、目录逃逸、Space 权限撤销、数量限制和高风险隔离通过。
 - 风险/回滚：Key 泄露；限流、审计、即时撤销；回滚时禁用 Key 认证入口。
-- 回写：记录 Key 格式、Scope 语义和安全证据。
+- 回写：V39 已实现 `ylk_<12字符前缀>_<43字符随机密钥>`，创建时仅返回一次明文，服务端只保存前缀和 BCrypt；Scope 为 `DRIVE_READ/WRITE`、`KNOWLEDGE_RETRIEVE/AGENT`，云盘绑定稳定目录 ID，Space 为创建时可见快照。每次认证/使用与账号状态、站点策略、当前目录归属和 Space 成员权限取交集；Key 撤销同步撤销 TASK-006 高风险能力。详见 [[10-规划与实施/测试/TEST-20260725-009-TASK-007-用户API-Key与Scope测试记录]]。
 - 测试：[[10-规划与实施/测试/TEST-20260725-001-统一知识平台实施测试要求]]

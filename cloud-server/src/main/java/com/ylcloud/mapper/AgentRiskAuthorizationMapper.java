@@ -48,4 +48,8 @@ public interface AgentRiskAuthorizationMapper {
     @Select("select " + COLUMNS + " from agent_risk_authorization where user_id=#{userId} " +
             "order by createtime desc,authorization_id desc")
     List<AgentRiskAuthorization> listByUser(@Param("userId") Long userId);
+
+    @Select("select count(1) from agent_risk_authorization where user_id=#{userId} and api_key_id=#{apiKeyId} " +
+            "and authorization_status='ACTIVE' and (expires_at is null or expires_at>now())")
+    int countActiveForApiKey(@Param("userId") Long userId,@Param("apiKeyId") Long apiKeyId);
 }
