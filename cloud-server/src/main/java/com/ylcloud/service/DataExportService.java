@@ -77,6 +77,12 @@ public class DataExportService {
     @Value("${ylcloud.export.master-key:}")
     private String masterKeyBase64;
 
+    @Value("${ylcloud.export.master-key-file:}")
+    private String masterKeyFile;
+
+    /** 缓存的 master key，整个 JVM 生命周期内只解析一次，避免 wrap/unwrap 使用不同密钥。 */
+    private volatile SecretKey cachedMasterKey;
+
     public DataExportService(DataExportJobMapper jobMapper,
                              UnifiedTaskCenterService taskCenter,
                              MinioclientUtil minioUtil,
@@ -200,9 +206,6 @@ public class DataExportService {
             LocalDateTime expiresAt = LocalDateTime.now().plusHours(downloadExpiryHours);
             String downloadUrl = minioUtil.getPresignedObjectUrl(objectName, downloadExpiryHours * 3600);
 
-            // 解密凭据：数据密钥明文 + IV，base64 编码后供用户解密使用
-            String decryptionKey = Base64.getEncoder().encodeToString(dataKey.getEncoded());
-
             // 标记完成
             jobMapper.markCompleted(jobId, objectName, (long) encryptedData.length, fileHash,
                     downloadUrl, expiresAt, LocalDateTime.now());
@@ -213,7 +216,9 @@ public class DataExportService {
                     "exportedScope", scope,
                     "fileSize", encryptedData.length,
                     "downloadExpiresAt", expiresAt.toString(),
-                    "decryptionKey", decryptionKey
+                    "keyId", keyId
+                    // 注意：decryptionKey 不写入任务结果，避免明文密钥泄露在统一任务存储中
+                    // 用户通过 getExport() 接口安全获取解密凭据
             );
 
         } catch (Exception e) {
@@ -396,21 +401,49 @@ public class DataExportService {
     /**
      * 解析服务端主密钥。优先使用配置的 base64 编码密钥，否则生成临时密钥并警告。
      * 生产环境必须通过环境变量 YLCLOUD_EXPORT_MASTER_KEY 配置固定的主密钥。
+     * 使用 volatile 缓存确保同一 JVM 生命周期内 wrap 和 unwrap 使用同一密钥。
      */
     private SecretKey resolveMasterKey() {
-        if (masterKeyBase64 != null && !masterKeyBase64.isBlank()) {
-            byte[] keyBytes = Base64.getDecoder().decode(masterKeyBase64);
-            if (keyBytes.length == 32) {
-                return new SecretKeySpec(keyBytes, "AES");
+        SecretKey cached = cachedMasterKey;
+        if (cached != null) return cached;
+
+        synchronized (this) {
+            if (cachedMasterKey != null) return cachedMasterKey;
+
+            // 优先从文件读取（Docker secret 挂载路径）
+            if (masterKeyFile != null && !masterKeyFile.isBlank()) {
+                try {
+                    String fileContent = java.nio.file.Files.readString(java.nio.file.Path.of(masterKeyFile)).trim();
+                    if (!fileContent.isBlank()) {
+                        byte[] keyBytes = Base64.getDecoder().decode(fileContent);
+                        if (keyBytes.length == 32) {
+                            cachedMasterKey = new SecretKeySpec(keyBytes, "AES");
+                            log.info("Export master key loaded from file: {}", masterKeyFile);
+                            return cachedMasterKey;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to read master key from file {}: {}", masterKeyFile, e.getMessage());
+                }
             }
-            log.warn("Configured master key is not 32 bytes, generating temporary key");
-        }
-        log.error("!!! No ylcloud.export.master-key configured — data export keys will NOT survive restarts. " +
-                "Set YLCLOUD_EXPORT_MASTER_KEY env var with a base64-encoded 256-bit AES key.");
-        try {
-            return generateAesKey();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to generate fallback master key", e);
+
+            if (masterKeyBase64 != null && !masterKeyBase64.isBlank()) {
+                byte[] keyBytes = Base64.getDecoder().decode(masterKeyBase64);
+                if (keyBytes.length == 32) {
+                    cachedMasterKey = new SecretKeySpec(keyBytes, "AES");
+                    log.info("Export master key loaded from configuration");
+                    return cachedMasterKey;
+                }
+                log.warn("Configured master key is not 32 bytes, generating temporary key");
+            }
+            log.error("!!! No ylcloud.export.master-key configured — data export keys will NOT survive restarts. " +
+                    "Set YLCLOUD_EXPORT_MASTER_KEY env var with a base64-encoded 256-bit AES key.");
+            try {
+                cachedMasterKey = generateAesKey();
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to generate fallback master key", e);
+            }
+            return cachedMasterKey;
         }
     }
 

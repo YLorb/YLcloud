@@ -64,6 +64,15 @@ public class BackupController {
     }
 
     /**
+     * 获取备份的最新恢复验证状态（用于升级门禁）。
+     */
+    @GetMapping("/{backupId}/restore-verification")
+    public Result<Map<String, Object>> getRestoreVerification(@PathVariable Long backupId) {
+        adminPermissionService.requireAdmin();
+        return Result.success(backupService.getLatestRestoreVerification(backupId));
+    }
+
+    /**
      * 记录备份完成（由外部脚本调用）。
      */
     @PostMapping("/record")

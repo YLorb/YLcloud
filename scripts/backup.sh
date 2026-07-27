@@ -9,12 +9,14 @@ ENCRYPTION_KEY_FILE="${YLCLOUD_BACKUP_KEY_FILE:-/var/lib/ylcloud-backup/.encrypt
 COMPOSE_FILE="${YLCLOUD_DEPLOY_COMPOSE_FILE:-docker-compose.hub.yml}"
 ENV_FILE="${YLCLOUD_DEPLOY_ENV_FILE:-.env.server}"
 PROJECT="${YLCLOUD_DEPLOY_PROJECT:-ylcloud}"
-MYSQL_CONTAINER="${YLCLOUD_MYSQL_CONTAINER:-mysql}"
-MINIO_CONTAINER="${YLCLOUD_MINIO_CONTAINER:-minio}"
-QDRANT_CONTAINER="${YLCLOUD_QDRANT_CONTAINER:-qdrant}"
+MYSQL_CONTAINER="${YLCLOUD_MYSQL_CONTAINER:-ylcloud-mysql}"
+MINIO_CONTAINER="${YLCLOUD_MINIO_CONTAINER:-ylcloud-minio}"
+QDRANT_CONTAINER="${YLCLOUD_QDRANT_CONTAINER:-ylcloud-qdrant}"
 BACKUP_RETENTION_COUNT="${YLCLOUD_BACKUP_RETENTION_COUNT:-1}"
 LOCK_FILE="${YLCLOUD_BACKUP_LOCK_FILE:-/var/lock/ylcloud-backup.lock}"
 LOG_ROOT="${YLCLOUD_BACKUP_LOG_ROOT:-/var/log/ylcloud-backup}"
+BACKEND_URL="${YLCLOUD_DEPLOY_BACKEND_URL:-http://127.0.0.1:8080}"
+AUTH_TOKEN="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$BACKUP_ROOT/$STAMP"
@@ -72,8 +74,8 @@ backup_mysql() {
     local dump_file="$BACKUP_DIR/mysql-dump.sql"
 
     docker exec "$MYSQL_CONTAINER" mysqldump \
-        -u"${MYSQL_USER:-root}" \
-        -p"${MYSQL_PASSWORD:-}" \
+        -u"${YLCLOUD_MYSQL_USER:-root}" \
+        -p"${YLCLOUD_MYSQL_PASSWORD:-}" \
         --all-databases \
         --single-transaction \
         --routines \
@@ -288,6 +290,38 @@ rotate_backups() {
     log "Rotation completed: $count backups found, kept $BACKUP_RETENTION_COUNT"
 }
 
+# Record backup completion to backend database
+# This makes the backup discoverable by deploy.sh check_backup_gate via API query
+record_backup_to_db() {
+    local archive="$1" hash="$2" size="$3" manifest="$4"
+
+    if [[ -z "$AUTH_TOKEN" ]]; then
+        log "WARNING: YLCLOUD_DEPLOY_AUTH_TOKEN not set, skipping DB record"
+        return 0
+    fi
+
+    log "Recording backup to database..."
+    local http_code response
+    response="$(curl --silent --show-error --write-out '\n%{http_code}' \
+        -X POST \
+        -H "Authorization: Bearer $AUTH_TOKEN" \
+        -F "runKey=$STAMP" \
+        -F "archivePath=$archive" \
+        -F "archiveSize=$size" \
+        -F "archiveHash=$hash" \
+        -F "manifestJson=$manifest" \
+        "$BACKEND_URL/api/admin/backup/record" 2>/dev/null || true)"
+    http_code="$(echo "$response" | tail -1)"
+
+    if [[ "$http_code" == "200" ]]; then
+        log "Backup recorded to database successfully"
+        return 0
+    else
+        log "WARNING: Failed to record backup to database (HTTP $http_code)"
+        return 0  # non-fatal: backup files are still valid
+    fi
+}
+
 # Main backup flow
 main() {
     log "=== Starting backup: $STAMP ==="
@@ -305,6 +339,10 @@ main() {
     backup_config
     create_manifest
 
+    # Save manifest before create_archive cleans up BACKUP_DIR
+    local manifest_json
+    manifest_json="$(cat "$MANIFEST_FILE" 2>/dev/null || echo '{}')"
+
     # Create and verify archive
     local archive_result
     archive_result="$(create_archive)"
@@ -314,6 +352,9 @@ main() {
     size="$(echo "$archive_result" | sed -n '3p')"
 
     verify_archive "$archive" "$hash"
+
+    # Record backup completion to database for deploy.sh gate
+    record_backup_to_db "$archive" "$hash" "$size" "$manifest_json"
 
     # Rotate old backups
     rotate_backups

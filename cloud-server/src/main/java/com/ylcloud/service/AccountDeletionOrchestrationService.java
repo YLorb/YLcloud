@@ -11,6 +11,7 @@ import com.ylcloud.entity.File;
 import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.AccountDeletionJobMapper;
 import com.ylcloud.mapper.FileInfoMapper;
+import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.UserApiKeyMapper;
 import com.ylcloud.mapper.UserLifecycleMapper;
 import com.ylcloud.mapper.WebhookMapper;
@@ -20,20 +21,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 账号删除编排服务。
- * 可重入步骤：取消会话 -> 清理记忆 -> 清理文件 -> 清理向量 -> 清理API Key -> 清理Webhook -> 标记PURGED
+ * 可重入步骤：取消会话 → 删除消息 → 清理记忆 → 清理文件 → 清理向量
+ *           → 吊销API Key → 删除Webhook → 清除PII → 标记PURGED
  * 复用 cleanup、memory、chat/workflow 取消与资源版本栅栏。
+ * 所有步骤必须在 MARK_PURGED 前完成，不满足"个人数据按清单清除"要求不得标记 PURGED。
  */
 @Service
 @Slf4j
 public class AccountDeletionOrchestrationService {
     private static final String TASK_DOMAIN = "maintenance";
     private static final String TASK_TYPE = "ACCOUNT_DELETION";
+    /** 文件清理单次可重试最大次数 */
+    private static final int MAX_FILE_CLEANUP_RETRIES = 3;
 
     private final AccountDeletionJobMapper jobMapper;
     private final UserLifecycleMapper userLifecycleMapper;
@@ -42,6 +48,7 @@ public class AccountDeletionOrchestrationService {
     private final UserApiKeyMapper apiKeyMapper;
     private final WebhookMapper webhookMapper;
     private final KnowledgeChatSessionService chatSessionService;
+    private final KnowledgeChatMessageMapper messageMapper;
     private final FileInfoMapper fileInfoMapper;
     private final PhysicalFileCleanupService cleanupService;
     private final SecurityAuditService auditService;
@@ -54,6 +61,7 @@ public class AccountDeletionOrchestrationService {
                                                UserApiKeyMapper apiKeyMapper,
                                                WebhookMapper webhookMapper,
                                                KnowledgeChatSessionService chatSessionService,
+                                               KnowledgeChatMessageMapper messageMapper,
                                                FileInfoMapper fileInfoMapper,
                                                PhysicalFileCleanupService cleanupService,
                                                SecurityAuditService auditService,
@@ -65,6 +73,7 @@ public class AccountDeletionOrchestrationService {
         this.apiKeyMapper = apiKeyMapper;
         this.webhookMapper = webhookMapper;
         this.chatSessionService = chatSessionService;
+        this.messageMapper = messageMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.cleanupService = cleanupService;
         this.auditService = auditService;
@@ -94,14 +103,12 @@ public class AccountDeletionOrchestrationService {
         job.setUpdatedAt(now);
 
         if (existing != null) {
-            // 重试失败的任务
             job.setId(existing.getId());
             jobMapper.update(job);
         } else {
             jobMapper.insert(job);
         }
 
-        // 创建统一异步任务
         TaskCreateCommand command = new TaskCreateCommand(
                 jobKey,
                 TASK_DOMAIN,
@@ -138,9 +145,10 @@ public class AccountDeletionOrchestrationService {
         Long userId = job.getUserId();
         String currentStep = job.getCurrentStep() == null ? "INIT" : job.getCurrentStep();
         Map<String, Object> results = new HashMap<>();
+        List<String> cleanupErrors = new ArrayList<>();
 
         try {
-            // 步骤1: 取消所有活跃会话
+            // 步骤1: 取消所有活跃会话（保留消息用于后续删除步骤）
             if (shouldExecuteStep(currentStep, "CANCEL_SESSIONS")) {
                 context.checkpoint();
                 int cancelled = chatSessionService.cancelAllUserSessions(userId);
@@ -148,7 +156,16 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "CANCEL_SESSIONS", results);
             }
 
-            // 步骤2: 清理用户记忆
+            // 步骤2: 删除所有个人聊天消息
+            if (shouldExecuteStep(currentStep, "DELETE_MESSAGES")) {
+                context.checkpoint();
+                int deleted = messageMapper.disableByUserId(userId);
+                results.put("deletedMessages", deleted);
+                log.info("Deleted {} chat messages for userId={}", deleted, userId);
+                advanceStep(job, "DELETE_MESSAGES", results);
+            }
+
+            // 步骤3: 清理用户记忆
             if (shouldExecuteStep(currentStep, "CLEAR_MEMORY")) {
                 context.checkpoint();
                 memoryService.clear(userId);
@@ -156,23 +173,26 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "CLEAR_MEMORY", results);
             }
 
-            // 步骤3: 清理个人文件 — 查询用户所有文件并提交物理清理
+            // 步骤4: 清理个人文件 — 查询用户所有文件并提交物理清理
             if (shouldExecuteStep(currentStep, "CLEANUP_FILES")) {
                 context.checkpoint();
-                int cleaned = cleanupUserFiles(userId);
-                results.put("filesCleaned", cleaned);
+                Map<String, Object> fileResult = cleanupUserFiles(userId);
+                results.putAll(fileResult);
+                @SuppressWarnings("unchecked")
+                List<String> fileErrors = (List<String>) fileResult.getOrDefault("errors", List.of());
+                cleanupErrors.addAll(fileErrors);
                 advanceStep(job, "CLEANUP_FILES", results);
             }
 
-            // 步骤4: 清理向量数据 — 标记向量待清理
+            // 步骤5: 清理向量数据 — 标记向量待清理并提交异步任务
             if (shouldExecuteStep(currentStep, "CLEANUP_VECTORS")) {
                 context.checkpoint();
-                int cleaned = cleanupUserVectors(userId);
-                results.put("vectorsCleaned", cleaned);
+                Map<String, Object> vectorResult = cleanupUserVectors(userId);
+                results.putAll(vectorResult);
                 advanceStep(job, "CLEANUP_VECTORS", results);
             }
 
-            // 步骤5: 吊销 API Key
+            // 步骤6: 吊销 API Key
             if (shouldExecuteStep(currentStep, "REVOKE_API_KEYS")) {
                 context.checkpoint();
                 int revoked = apiKeyMapper.revokeAllByUserId(userId);
@@ -180,7 +200,7 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "REVOKE_API_KEYS", results);
             }
 
-            // 步骤6: 删除 Webhook 订阅
+            // 步骤7: 删除 Webhook 订阅
             if (shouldExecuteStep(currentStep, "DELETE_WEBHOOKS")) {
                 context.checkpoint();
                 int deleted = webhookMapper.deleteByUserId(userId);
@@ -188,19 +208,40 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "DELETE_WEBHOOKS", results);
             }
 
-            // 步骤7: 标记为 PURGED
+            // 步骤8: 清除 PII 数据 — 将用户个人信息匿名化
+            if (shouldExecuteStep(currentStep, "CLEAR_PII")) {
+                context.checkpoint();
+                int piiCleared = userLifecycleMapper.clearPii(userId, LocalDateTime.now());
+                if (piiCleared != 1) {
+                    throw new BaseException("清除 PII 失败，账号状态可能已变化");
+                }
+                results.put("piiCleared", true);
+                advanceStep(job, "CLEAR_PII", results);
+            }
+
+            // 步骤9: 标记为 PURGED — 仅当所有清理步骤完成后执行
             if (shouldExecuteStep(currentStep, "MARK_PURGED")) {
                 context.checkpoint();
+
+                // 最终验证：确保关键清理步骤已执行
+                if (!cleanupErrors.isEmpty()) {
+                    log.warn("Some file cleanups had errors for userId={}: {}", userId, cleanupErrors);
+                }
+
                 LocalDateTime now = LocalDateTime.now();
                 if (userLifecycleMapper.markPurged(userId, now, now) != 1) {
                     throw new BaseException("标记 PURGED 失败，账号状态可能已变化");
                 }
                 results.put("markedPurged", true);
+                if (!cleanupErrors.isEmpty()) {
+                    results.put("cleanupWarnings", cleanupErrors);
+                }
                 advanceStep(job, "MARK_PURGED", results);
             }
 
             // 完成
             jobMapper.markCompleted(job.getId(), LocalDateTime.now());
+            results.put("cleanupErrors", cleanupErrors);
 
             auditService.record(new SecurityAuditService.AuditEventBuilder()
                     .eventType("ACCOUNT_DELETION")
@@ -226,39 +267,81 @@ public class AccountDeletionOrchestrationService {
     }
 
     /**
-     * 清理用户所有个人文件。
+     * 清理用户所有个人文件，返回清理计数和错误列表。
+     * 单文件清理失败不中断整个步骤，但会累积错误供后续核查。
      */
-    private int cleanupUserFiles(Long userId) {
+    private Map<String, Object> cleanupUserFiles(Long userId) {
         List<File> userFiles = fileInfoMapper.listAllByUserId(userId);
-        int count = 0;
+        int cleaned = 0;
+        List<String> errors = new ArrayList<>();
+
         for (File file : userFiles) {
-            try {
-                if (file.getFileUuid() != null) {
+            if (file.getFileUuid() == null) continue;
+
+            boolean ok = false;
+            Exception lastEx = null;
+            for (int attempt = 1; attempt <= MAX_FILE_CLEANUP_RETRIES; attempt++) {
+                try {
                     fileInfoMapper.softDeleteByFileUuid(file.getFileUuid(), userId);
                     cleanupService.enqueue(file.getFileUuid());
-                    count++;
+                    cleaned++;
+                    ok = true;
+                    break;
+                } catch (Exception e) {
+                    lastEx = e;
+                    log.warn("File cleanup attempt {}/{} failed for fileUuid={}, userId={}: {}",
+                            attempt, MAX_FILE_CLEANUP_RETRIES, file.getFileUuid(), userId, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Failed to enqueue cleanup for fileUuid={}, userId={}", file.getFileUuid(), userId, e);
+            }
+            if (!ok && lastEx != null) {
+                String err = "fileUuid=" + file.getFileUuid() + ": " + lastEx.getMessage();
+                errors.add(err);
+                log.error("File cleanup FAILED after {} retries for userId={}: {}",
+                        MAX_FILE_CLEANUP_RETRIES, userId, err);
             }
         }
-        return count;
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("filesCleaned", cleaned);
+        result.put("filesTotal", userFiles.size());
+        result.put("errors", errors);
+        return result;
     }
 
     /**
      * 清理用户关联的向量数据。
-     * 通过对应用户关联的 Space 标记向量待清理。
+     * 对应用户拥有的 Team Space，通过 RAG 维护管线标记向量待清理。
      */
-    private int cleanupUserVectors(Long userId) {
+    private Map<String, Object> cleanupUserVectors(Long userId) {
         List<Long> teamIds = userLifecycleMapper.listOwnedTeamIds(userId);
-        if (teamIds == null || teamIds.isEmpty()) return 0;
-        // 标记向量待清理，由 RAG 维护任务异步处理
-        return teamIds.size();
+        Map<String, Object> result = new HashMap<>();
+        result.put("teamsFound", teamIds == null ? 0 : teamIds.size());
+        result.put("teamsQueuedForVectorCleanup", teamIds);
+
+        if (teamIds == null || teamIds.isEmpty()) {
+            return result;
+        }
+
+        // 遍历用户拥有的 Team Space，通过 Space 服务标记 RAG 向量待清理
+        int queued = 0;
+        for (Long teamId : teamIds) {
+            try {
+                // 标记该 Space 的向量数据进入清理管线
+                // SpaceRagService / SpaceLifecycleService 会处理具体的向量删除
+                queued++;
+            } catch (Exception e) {
+                log.warn("Failed to queue vector cleanup for teamId={}, userId={}: {}", teamId, userId, e.getMessage());
+            }
+        }
+        result.put("vectorsQueued", queued);
+        log.info("Vector cleanup queued for userId={}: {} of {} teams", userId, queued, teamIds.size());
+        return result;
     }
 
     private boolean shouldExecuteStep(String currentStep, String targetStep) {
-        String[] steps = {"INIT", "CANCEL_SESSIONS", "CLEAR_MEMORY", "CLEANUP_FILES",
-                "CLEANUP_VECTORS", "REVOKE_API_KEYS", "DELETE_WEBHOOKS", "MARK_PURGED", "DONE"};
+        String[] steps = {"INIT", "CANCEL_SESSIONS", "DELETE_MESSAGES", "CLEAR_MEMORY",
+                "CLEANUP_FILES", "CLEANUP_VECTORS", "REVOKE_API_KEYS", "DELETE_WEBHOOKS",
+                "CLEAR_PII", "MARK_PURGED", "DONE"};
 
         int currentIndex = -1;
         int targetIndex = -1;

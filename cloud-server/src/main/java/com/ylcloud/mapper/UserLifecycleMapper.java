@@ -69,4 +69,13 @@ public interface UserLifecycleMapper {
 
     @Select("select count(1) from space_member where user_id = #{userId} and status = 1")
     int countSpaceMemberships(@Param("userId") Long userId);
+
+    /**
+     * 清除用户 PII 数据（用于账号删除的最后阶段）。
+     * 保留 user_id 和 account_status 用于审计追溯，其余字段匿名化。
+     */
+    @Update("update users set username = concat('deleted_', user_id), password = '', nickname = '已删除用户', " +
+            "email = '', avatar = '', status = 0, update_time = #{updateTime} " +
+            "where user_id = #{userId} and account_status = 'PURGING'")
+    int clearPii(@Param("userId") Long userId, @Param("updateTime") LocalDateTime updateTime);
 }

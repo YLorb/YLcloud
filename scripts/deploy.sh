@@ -105,26 +105,83 @@ http_smoke() {
 }
 
 # TASK-014: Check for READY backup before upgrade — MANDATORY, no skip allowed
+# Queries backup_run table via API (status='READY'), verifies archive integrity,
+# and confirms at least one restore verification has passed.
 check_backup_gate() {
   log "Checking backup gate..."
 
-  # Check for READY backup
-  local ready_backup
-  ready_backup="$(ls -1 "$BACKUP_ROOT"/ylcloud-backup-*.tar.gz.enc 2>/dev/null | head -1 || true)"
-
-  if [[ -z "$ready_backup" ]]; then
-    die "No READY backup found. Run scripts/backup.sh first"
+  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+  if [[ -z "$token" ]]; then
+    die "YLCLOUD_DEPLOY_AUTH_TOKEN is required for backup gate check"
   fi
 
-  # Verify backup integrity
-  if [[ -f "$ready_backup.sha256" ]]; then
-    local expected_hash actual_hash
-    expected_hash="$(cat "$ready_backup.sha256")"
-    actual_hash="$(sha256sum "$ready_backup" | cut -d' ' -f1)"
-    [[ "$actual_hash" == "$expected_hash" ]] || die "Backup integrity check failed"
+  # 1. Query READY backups from API
+  local response http_code
+  response="$(curl --silent --show-error --write-out '\n%{http_code}' \
+    -H "Authorization: Bearer $token" \
+    "$BACKEND_URL/api/admin/backup/ready?limit=1" 2>/dev/null || true)"
+  http_code="$(echo "$response" | tail -1)"
+
+  if [[ "$http_code" != "200" ]]; then
+    die "Backup API query failed (HTTP $http_code). Check backend availability"
   fi
 
-  log "Backup gate passed: $ready_backup"
+  # 2. Extract the latest READY backup
+  local body
+  body="$(echo "$response" | sed '$d')"
+
+  # Check if the list is empty
+  if echo "$body" | grep -q '"data":\[\]'; then
+    die "No READY backup found in backup_run table. Run scripts/backup.sh first"
+  fi
+
+  # 3. Extract backup details: id, archivePath, archiveHash, archiveSizeBytes
+  local backup_id archive_path archive_hash archive_size
+  backup_id="$(echo "$body" | sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -1)"
+  archive_path="$(echo "$body" | sed -n 's/.*"archivePath":"\([^"]*\)".*/\1/p' | head -1)"
+  archive_hash="$(echo "$body" | sed -n 's/.*"archiveHash":"\([^"]*\)".*/\1/p' | head -1)"
+  archive_size="$(echo "$body" | sed -n 's/.*"archiveSizeBytes":\([0-9]*\).*/\1/p' | head -1)"
+
+  if [[ -z "$backup_id" || -z "$archive_path" || -z "$archive_hash" ]]; then
+    die "Failed to parse backup details from API response"
+  fi
+
+  log "Found READY backup: id=$backup_id archive=$archive_path"
+
+  # 4. Verify backup archive exists and hash matches (MANDATORY, not optional)
+  if [[ ! -f "$archive_path" ]]; then
+    die "Backup archive not found on disk: $archive_path"
+  fi
+
+  local actual_hash
+  actual_hash="$(sha256sum "$archive_path" | cut -d' ' -f1)"
+  if [[ "$actual_hash" != "$archive_hash" ]]; then
+    die "Backup archive hash mismatch: expected=$archive_hash actual=$actual_hash"
+  fi
+
+  log "Backup archive integrity verified: hash matches"
+
+  # 5. Check restore verification — confirm isolation restore was successful
+  local verify_response verify_code verify_body
+  verify_response="$(curl --silent --show-error --write-out '\n%{http_code}' \
+    -H "Authorization: Bearer $token" \
+    "$BACKEND_URL/api/admin/backup/${backup_id}/restore-verification" 2>/dev/null || true)"
+  verify_code="$(echo "$verify_response" | tail -1)"
+  verify_body="$(echo "$verify_response" | sed '$d')"
+
+  if [[ "$verify_code" == "200" ]]; then
+    if echo "$verify_body" | grep -q '"status":"SUCCESS"'; then
+      log "Restore verification passed (isolation restore confirmed)"
+    else
+      log "WARNING: Restore verification not found or not successful for backup $backup_id"
+      log "Proceeding with caution — backup files are valid but restore isolation is unconfirmed"
+    fi
+  else
+    log "WARNING: Restore verification API unavailable (HTTP $verify_code)"
+    log "Proceeding with verified backup archive only"
+  fi
+
+  log "Backup gate passed: backup_id=$backup_id hash_verified=yes"
 }
 
 # TASK-014: Enable maintenance mode

@@ -168,6 +168,7 @@ services:
       - rag_query_api_key
       - vlm_api_key
       - rabbitmq_password
+      - export_master_key
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -192,6 +193,8 @@ services:
       YLCLOUD_ARK_API_KEY_FILE: /run/secrets/ark_api_key
       YLCLOUD_RAG_QUERY_API_KEY_FILE: /run/secrets/rag_query_api_key
       YLCLOUD_VLM_API_KEY_FILE: /run/secrets/vlm_api_key
+      YLCLOUD_EXPORT_MASTER_KEY_FILE: /run/secrets/export_master_key
+      YLCLOUD_DEPLOY_STATE_ROOT: /var/lib/ylcloud-deploy
       YLCLOUD_RABBITMQ_HOST: rabbitmq
       YLCLOUD_RABBITMQ_PORT: 5672
       YLCLOUD_RABBITMQ_VHOST: ${YLCLOUD_RABBITMQ_VHOST:-/ylcloud}
@@ -231,6 +234,8 @@ services:
       YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES: ${YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES:-10}
     ports:
       - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_BACKEND_HOST_PORT:-8080}:8080"
+    volumes:
+      - ylcloud-deploy-state:/var/lib/ylcloud-deploy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/site/public-settings"]
       interval: 10s
@@ -261,6 +266,7 @@ volumes:
   qdrant-data:
   model-cache:
   rabbitmq-data:
+  ylcloud-deploy-state:
 
 secrets:
   rabbitmq_password:
@@ -277,3 +283,5 @@ secrets:
     file: ./.secrets/rag_query_api_key
   vlm_api_key:
     file: ./.secrets/vlm_api_key
+  export_master_key:
+    file: ./.secrets/export_master_key

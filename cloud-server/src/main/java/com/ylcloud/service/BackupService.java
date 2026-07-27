@@ -2,12 +2,15 @@ package com.ylcloud.service;
 
 import com.ylcloud.VO.BackupRunVO;
 import com.ylcloud.entity.BackupRun;
+import com.ylcloud.entity.RestoreVerification;
 import com.ylcloud.mapper.BackupMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * TASK-013: 备份管理服务。
@@ -129,6 +132,31 @@ public class BackupService {
                 "publishedAt", latest.getPublishedAt() != null ? latest.getPublishedAt().toString() : "N/A",
                 "sizeBytes", latest.getArchiveSizeBytes() != null ? latest.getArchiveSizeBytes() : 0
         );
+    }
+
+    /**
+     * 获取备份的最新恢复验证结果，用于升级门禁确认隔离恢复成功。
+     */
+    public Map<String, Object> getLatestRestoreVerification(Long backupId) {
+        List<RestoreVerification> verifications = backupMapper.listVerificationsByBackup(backupId, 1);
+        if (verifications.isEmpty()) {
+            return Map.of("exists", false);
+        }
+        RestoreVerification v = verifications.get(0);
+        Map<String, Object> result = new HashMap<>();
+        result.put("exists", true);
+        result.put("id", v.getId());
+        result.put("backupRunId", v.getBackupRunId());
+        result.put("verificationKey", v.getVerificationKey());
+        result.put("status", v.getStatus() != null ? v.getStatus() : "N/A");
+        result.put("restoreEnvironment", v.getRestoreEnvironment() != null ? v.getRestoreEnvironment() : "N/A");
+        result.put("mysqlRestored", v.getMysqlRestored() != null ? v.getMysqlRestored() : false);
+        result.put("minioRestored", v.getMinioRestored() != null ? v.getMinioRestored() : false);
+        result.put("qdrantRestored", v.getQdrantRestored() != null ? v.getQdrantRestored() : false);
+        result.put("configRestored", v.getConfigRestored() != null ? v.getConfigRestored() : false);
+        result.put("businessSampleCheck", v.getBusinessSampleCheck() != null ? v.getBusinessSampleCheck() : false);
+        result.put("finishedAt", v.getFinishedAt() != null ? v.getFinishedAt().toString() : null);
+        return result;
     }
 
     private BackupRunVO toVO(BackupRun backup) {
