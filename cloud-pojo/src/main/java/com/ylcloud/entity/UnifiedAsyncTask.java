@@ -13,6 +13,7 @@ public class UnifiedAsyncTask {
     private String resultJson;
     private Long createdBy;
     private Long spaceId;
+    private Long parentTaskId;
     private String resourceKey;
     private Long resourceVersion;
     private String status;

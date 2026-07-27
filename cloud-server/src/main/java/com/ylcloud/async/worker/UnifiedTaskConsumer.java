@@ -74,6 +74,12 @@ public class UnifiedTaskConsumer {
         consume(message,channel);
     }
 
+    @RabbitListener(queues = RabbitTaskTopology.RAG_QUEUE,
+            concurrency = "${ylcloud.async.mq.rag-concurrency:2}")
+    public void consumeRag(Message message,Channel channel) throws Exception {
+        consume(message,channel);
+    }
+
     private void consume(Message message, Channel channel) throws Exception {
         long tag = message.getMessageProperties().getDeliveryTag();
         TaskDispatchEnvelope envelope;
@@ -112,6 +118,8 @@ public class UnifiedTaskConsumer {
             } catch(StaleWorkerException staleWorker) {
                 log.info("Stale worker stopped: taskId={}, attempt={}",task.getId(),task.getAttemptVersion());
             } catch(Exception businessError) {
+                log.warn("Task execution failed: taskId={}, taskType={}, attempt={}",
+                        task.getId(),task.getTaskType(),task.getAttemptVersion(),businessError);
                 taskCenter.fail(task,leaseToken,classifier.classify(businessError));
             }
             mapper.finishInbox(envelope.messageId(),"PROCESSED","任务消息已处理",LocalDateTime.now());

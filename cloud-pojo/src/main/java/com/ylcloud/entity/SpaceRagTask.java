@@ -13,12 +13,17 @@ public class SpaceRagTask {
     private Long spaceId;
     private Long spaceFileId;
     private Long documentId;
+    private Long parentTaskId;
     private String taskType;
     private String taskStatus;
     private Integer totalCount;
     private Integer successCount;
     private Integer failedCount;
     private String errorMessage;
+    private Long asyncTaskId;
+    private Long resourceVersion;
+    private Boolean clearVectors;
+    private Long fanoutCursor;
     private Long createdBy;
     private LocalDateTime startedTime;
     private LocalDateTime finishedTime;

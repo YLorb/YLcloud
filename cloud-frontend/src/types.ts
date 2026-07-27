@@ -433,6 +433,7 @@ export type KnowledgeProfileDiff = {
 export type AsyncTask = {
   id?: string | number;
   taskId?: string | number;
+  parentTaskId?: string | number;
   name?: string;
   title?: string;
   type?: string;

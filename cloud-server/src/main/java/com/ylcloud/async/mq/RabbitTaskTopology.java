@@ -21,6 +21,7 @@ public class RabbitTaskTopology {
     public static final String MEMORY_QUEUE = "ylcloud.task.memory.q";
     public static final String CHAT_QUEUE = "ylcloud.task.chat.q";
     public static final String KNOWLEDGE_QUEUE = "ylcloud.task.knowledge.q";
+    public static final String RAG_QUEUE = "ylcloud.task.rag.q";
 
     @Bean
     public Declarables taskTopology(AsyncMqProperties properties) {

@@ -100,6 +100,7 @@ public class AsyncTaskService {
                 task.getTaskType(),task.getStatus(),safeError(task.getLastErrorMessage()),
                 task.getCreatedAt(),task.getUpdatedAt());
         base.setTaskDomain(task.getTaskDomain());
+        base.setParentTaskId(task.getParentTaskId());
         base.setPhase(task.getStatus());
         base.setProgress("SUCCESS".equals(task.getStatus()) ? 100 : "RUNNING".equals(task.getStatus()) ? 50 : 0);
         base.setRetryable("FAILED".equals(task.getStatus()));
@@ -154,6 +155,7 @@ public class AsyncTaskService {
         vo.setPhase(task.getTaskStatus());
         vo.setMessage(ragMessage(task,current,total));
         vo.setRetryable("FAILED".equalsIgnoreCase(task.getTaskStatus()));
+        vo.setParentTaskId(task.getParentTaskId());
         return vo;
     }
 
@@ -168,6 +170,7 @@ public class AsyncTaskService {
         vo.setMessage(safeError(firstNonBlank(task.getTerminalReason(),task.getIncrementalDetail(),vo.getPhase())));
         vo.setRetryable("FAILED".equalsIgnoreCase(task.getTaskStatus()) ||
                 "PARTIAL_SUCCESS".equalsIgnoreCase(task.getTaskStatus()));
+        vo.setParentTaskId(task.getParentTaskId());
         return vo;
     }
 

@@ -91,12 +91,13 @@ public class UnifiedTaskCenterService {
         task.setPayloadJson(writeJson(command.payload()));
         task.setCreatedBy(command.createdBy());
         task.setSpaceId(command.spaceId());
+        task.setParentTaskId(command.parentTaskId());
         task.setResourceKey(command.resourceKey());
         task.setResourceVersion(command.resourceVersion());
         task.setStatus("PENDING_PUBLISH");
         task.setAttemptVersion(0);
         task.setNextTriggerType("INITIAL");
-        task.setMaxAttempts(properties.getMaxAttempts());
+        task.setMaxAttempts(command.maxAttempts() == null ? properties.getMaxAttempts() : Math.max(1,command.maxAttempts()));
         LocalDateTime now = LocalDateTime.now();
         task.setCreatedAt(now);
         task.setUpdatedAt(now);

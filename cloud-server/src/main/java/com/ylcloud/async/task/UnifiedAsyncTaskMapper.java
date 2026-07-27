@@ -11,8 +11,8 @@ import java.util.List;
 @Mapper
 public interface UnifiedAsyncTaskMapper {
     @Options(useGeneratedKeys = true,keyProperty = "id")
-    @Insert("insert into async_task(task_key,task_domain,task_type,payload_json,created_by,space_id,resource_key,resource_version,status,attempt_version,next_trigger_type,max_attempts,created_at,updated_at) " +
-            "values(#{taskKey},#{taskDomain},#{taskType},#{payloadJson},#{createdBy},#{spaceId},#{resourceKey},#{resourceVersion},#{status},#{attemptVersion},#{nextTriggerType},#{maxAttempts},#{createdAt},#{updatedAt})")
+    @Insert("insert into async_task(task_key,task_domain,task_type,payload_json,created_by,space_id,parent_task_id,resource_key,resource_version,status,attempt_version,next_trigger_type,max_attempts,created_at,updated_at) " +
+            "values(#{taskKey},#{taskDomain},#{taskType},#{payloadJson},#{createdBy},#{spaceId},#{parentTaskId},#{resourceKey},#{resourceVersion},#{status},#{attemptVersion},#{nextTriggerType},#{maxAttempts},#{createdAt},#{updatedAt})")
     int insertTask(UnifiedAsyncTask task);
 
     @Select("select * from async_task where task_key=#{taskKey}")

@@ -11,7 +11,7 @@ import java.util.List;
 public interface UnifiedTaskQueryMapper {
     String MERGED = """
         select * from (
-          select concat('unified-',t.id) id,t.id taskId,t.space_id spaceId,null documentId,
+          select concat('unified-',t.id) id,t.id taskId,t.parent_task_id parentTaskId,t.space_id spaceId,null documentId,
                  'unified' source,t.task_type type,t.task_type title,t.status status,t.status phase,
                  case when t.status='SUCCESS' then 100 when t.status='RUNNING' then 50 else 0 end progress,
                  null total,null current,coalesce(t.last_error_message,t.status) message,
@@ -22,15 +22,15 @@ public interface UnifiedTaskQueryMapper {
               select 1 from space_member sm where sm.space_id=t.space_id and sm.user_id=#{userId} and sm.status=1
           ))
           union all
-          select concat('rag-',r.id),r.id,r.space_id,r.document_id,'rag',r.task_type,
+          select concat('rag-',r.id),r.id,r.parent_task_id,r.space_id,r.document_id,'rag',r.task_type,
                  'RAG 索引',r.task_status,r.task_status,
                  case when r.task_status='SUCCESS' then 100 when r.task_status='RUNNING' then 50 else 0 end,
                  r.total_count,coalesce(r.success_count,0)+coalesce(r.failed_count,0),
                  coalesce(r.error_message,r.task_status),r.error_message,(r.task_status='FAILED'),
                  r.createtime,r.updatetime,'rag'
-          from space_rag_task r where r.created_by=#{userId} and (#{spaceId} is null or r.space_id=#{spaceId})
+          from space_rag_task r where r.async_task_id is null and r.created_by=#{userId} and (#{spaceId} is null or r.space_id=#{spaceId})
           union all
-          select concat('knowledge-',k.id),k.id,k.space_id,k.document_id,'knowledge',k.task_type,
+          select concat('knowledge-',k.id),k.id,k.parent_task_id,k.space_id,k.document_id,'knowledge',k.task_type,
                  '知识流水线',k.task_status,coalesce(k.terminal_stage,k.stage,k.task_status),
                  coalesce(k.progress,case when k.task_status='SUCCESS' then 100 else 0 end),
                  k.total_count,coalesce(k.success_count,0)+coalesce(k.failed_count,0),

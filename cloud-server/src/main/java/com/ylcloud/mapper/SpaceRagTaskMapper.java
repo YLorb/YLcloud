@@ -17,17 +17,18 @@ import java.util.List;
 @Mapper
 public interface SpaceRagTaskMapper {
 
-    String TASK_COLUMNS = "id, space_id as spaceId, space_file_id as spaceFileId, document_id as documentId, task_type as taskType, " +
+    String TASK_COLUMNS = "id, space_id as spaceId, space_file_id as spaceFileId, document_id as documentId, parent_task_id as parentTaskId, task_type as taskType, " +
             "task_status as taskStatus, total_count as totalCount, success_count as successCount, failed_count as failedCount, " +
-            "error_message as errorMessage, created_by as createdBy, started_time as startedTime, finished_time as finishedTime, createtime, updatetime";
+            "error_message as errorMessage, async_task_id as asyncTaskId, resource_version as resourceVersion, clear_vectors as clearVectors, fanout_cursor as fanoutCursor, " +
+            "created_by as createdBy, started_time as startedTime, finished_time as finishedTime, createtime, updatetime";
 
     /**
      * 新增 insert 相关逻辑。
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    @Insert("insert ignore into space_rag_task(space_id, space_file_id, document_id, task_type, task_status, total_count, success_count, failed_count, error_message, created_by, started_time, finished_time, createtime, updatetime) " +
-            "values(#{spaceId}, #{spaceFileId}, #{documentId}, #{taskType}, #{taskStatus}, #{totalCount}, #{successCount}, #{failedCount}, #{errorMessage}, #{createdBy}, #{startedTime}, #{finishedTime}, #{createtime}, #{updatetime})")
+    @Insert("insert ignore into space_rag_task(space_id, space_file_id, document_id, parent_task_id, task_type, task_status, total_count, success_count, failed_count, error_message, async_task_id, resource_version, clear_vectors, fanout_cursor, created_by, started_time, finished_time, createtime, updatetime) " +
+            "values(#{spaceId}, #{spaceFileId}, #{documentId}, #{parentTaskId}, #{taskType}, #{taskStatus}, #{totalCount}, #{successCount}, #{failedCount}, #{errorMessage}, #{asyncTaskId}, coalesce(#{resourceVersion},1), #{clearVectors}, coalesce(#{fanoutCursor},0), #{createdBy}, #{startedTime}, #{finishedTime}, #{createtime}, #{updatetime})")
     int insert(SpaceRagTask task);
 
     /**
@@ -36,6 +37,61 @@ public interface SpaceRagTaskMapper {
      */
     @Select("select " + TASK_COLUMNS + " from space_rag_task where id = #{id}")
     SpaceRagTask getById(@Param("id") Long id);
+
+    @Select("select " + TASK_COLUMNS + " from space_rag_task where id=#{id} for update")
+    SpaceRagTask getByIdForUpdate(@Param("id") Long id);
+
+    @Select("select " + TASK_COLUMNS + " from space_rag_task where parent_task_id=#{parentId} and space_file_id=#{spaceFileId} and task_type=#{taskType} limit 1")
+    SpaceRagTask getByParentFileType(@Param("parentId") Long parentId,@Param("spaceFileId") Long spaceFileId,
+                                     @Param("taskType") String taskType);
+
+    @Select("select " + TASK_COLUMNS + " from space_rag_task where parent_task_id=#{parentId} order by id")
+    List<SpaceRagTask> listByParent(@Param("parentId") Long parentId);
+
+    @Update("update space_rag_task set async_task_id=#{asyncTaskId},updatetime=#{now} where id=#{id} and resource_version=#{version} " +
+            "and task_status in ('PENDING','RUNNING') and (async_task_id is null or async_task_id=#{asyncTaskId})")
+    int bindAsyncTask(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                      @Param("now") LocalDateTime now);
+
+    @Update("update space_rag_task set task_status='RUNNING',error_message=null,started_time=coalesce(started_time,#{now})," +
+            "finished_time=null,updatetime=#{now} where id=#{id} and resource_version=#{version} and async_task_id=#{asyncTaskId} " +
+            "and task_status in ('PENDING','RUNNING')")
+    int claimAsync(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                   @Param("now") LocalDateTime now);
+
+    @Update("update space_rag_task set task_status=#{status},total_count=#{total},success_count=#{success},failed_count=#{failed}," +
+            "error_message=#{error},finished_time=#{now},updatetime=#{now} where id=#{id} and resource_version=#{version} " +
+            "and async_task_id=#{asyncTaskId} and task_status='RUNNING'")
+    int finishAsync(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                    @Param("status") String status,@Param("total") int total,@Param("success") int success,
+                    @Param("failed") int failed,@Param("error") String error,@Param("now") LocalDateTime now);
+
+    @Update("update space_rag_task set task_status='CANCELED',error_message='RAG task canceled',finished_time=#{now},updatetime=#{now} " +
+            "where id=#{id} and resource_version=#{version} and async_task_id=#{asyncTaskId} and task_status in ('PENDING','RUNNING')")
+    int cancelAsync(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                    @Param("now") LocalDateTime now);
+
+    @Update("update space_rag_task set task_status='SKIPPED',error_message=#{reason},finished_time=#{now},updatetime=#{now} " +
+            "where id=#{id} and resource_version=#{version} and async_task_id=#{asyncTaskId} and task_status in ('PENDING','RUNNING')")
+    int skipAsync(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                  @Param("reason") String reason,@Param("now") LocalDateTime now);
+
+    @Update("update space_rag_task set task_status='SKIPPED',error_message=#{reason},finished_time=#{now},updatetime=#{now} " +
+            "where space_id=#{spaceId} and space_file_id=#{spaceFileId} and task_type in ('INDEX_FILE','REBUILD_FILE') " +
+            "and task_status in ('PENDING','RUNNING')")
+    int skipActiveFileIndexTasks(@Param("spaceId") Long spaceId,@Param("spaceFileId") Long spaceFileId,
+                                 @Param("reason") String reason,@Param("now") LocalDateTime now);
+
+    @Update("update space_rag_task set task_status='PENDING',success_count=0,failed_count=0,error_message=null," +
+            "started_time=null,finished_time=null,updatetime=#{now} where id=#{id} and resource_version=#{version} " +
+            "and async_task_id=#{asyncTaskId} and task_status='FAILED'")
+    int prepareAsyncRetry(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                          @Param("now") LocalDateTime now);
+
+    @Update("update space_rag_task set fanout_cursor=#{cursor},total_count=#{total},updatetime=#{now} " +
+            "where id=#{id} and resource_version=#{version} and async_task_id=#{asyncTaskId} and task_status='RUNNING'")
+    int advanceFanout(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                      @Param("cursor") long cursor,@Param("total") int total,@Param("now") LocalDateTime now);
 
     /**
      * 查询 listBySpaceId 相关逻辑。

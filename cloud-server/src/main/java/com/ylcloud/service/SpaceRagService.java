@@ -16,6 +16,16 @@ import com.ylcloud.VO.SpaceRagDocumentVO;
 import com.ylcloud.VO.SpaceRagQueryVO;
 import com.ylcloud.VO.SpaceRagTaskVO;
 import com.ylcloud.config.RagProperties;
+import com.ylcloud.async.mq.AsyncMqProperties;
+import com.ylcloud.async.task.DomainTaskPayload;
+import com.ylcloud.async.task.FatalTaskException;
+import com.ylcloud.async.task.RetryableTaskException;
+import com.ylcloud.async.task.StaleTaskException;
+import com.ylcloud.async.task.TaskCreateCommand;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
+import com.ylcloud.async.worker.StaleWorkerException;
+import com.ylcloud.async.worker.TaskCanceledException;
+import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.constant.SpaceConstant;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.File;
@@ -49,12 +59,15 @@ import com.ylcloud.service.rag.query.QueryPlan;
 import com.ylcloud.service.rag.query.QueryRewriteService;
 import com.ylcloud.service.rag.retriever.RagMultiRouteRetriever;
 import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -67,6 +80,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -110,6 +124,12 @@ public class SpaceRagService {
     private final RagIndexTransactionService ragIndexTransactionService;
     private final RagIndexConsistencyService ragIndexConsistencyService;
     private final SpaceFileLifecycleService fileLifecycleService;
+    private UnifiedTaskCenterService taskCenter;
+    private AsyncMqProperties mqProperties;
+    private TransactionTemplate transactionTemplate;
+
+    private static final int RAG_FANOUT_BATCH_SIZE=100;
+    private static final int RAG_PARENT_MAX_ATTEMPTS=100;
 
     /**
      * 初始化 SpaceRagService 对象。
@@ -182,6 +202,17 @@ public class SpaceRagService {
         this.ragIndexTransactionService = ragIndexTransactionService;
         this.ragIndexConsistencyService = ragIndexConsistencyService;
         this.fileLifecycleService = fileLifecycleService;
+    }
+
+    @Autowired(required = false)
+    public void setAsyncTaskInfrastructure(UnifiedTaskCenterService taskCenter,AsyncMqProperties mqProperties) {
+        this.taskCenter=taskCenter;
+        this.mqProperties=mqProperties;
+    }
+
+    @Autowired(required = false)
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.transactionTemplate=new TransactionTemplate(transactionManager);
     }
 
     /**
@@ -336,6 +367,14 @@ public class SpaceRagService {
         if(!SpaceConstant.RAG_TASK_FAILED.equals(failedTask.getTaskStatus())) {
             throw new BaseException("只有失败的 RAG 任务可以重试");
         }
+        if(mqRagEnabled() && failedTask.getAsyncTaskId()!=null) {
+            long version=resourceVersion(failedTask);
+            if(spaceRagTaskMapper.prepareAsyncRetry(failedTask.getId(),version,failedTask.getAsyncTaskId(),LocalDateTime.now())!=1) {
+                throw new StaleTaskException("RAG task retry was rejected by the resource fence");
+            }
+            taskCenter.retry(failedTask.getAsyncTaskId(),userId,"Retry RAG task");
+            return true;
+        }
         if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(failedTask.getTaskType())) {
             return rebuildSpace(spaceId,userId);
         }
@@ -379,8 +418,8 @@ public class SpaceRagService {
         if(runningTask != null) {
             return true;
         }
-        SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId);
-        dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceRepairTask(task.getId(),spaceId,userId));
+        SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId,null,true);
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceRepairTask(task.getId(),spaceId,userId));
         return true;
     }
 
@@ -472,7 +511,7 @@ public class SpaceRagService {
             return true;
         }
         SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId);
-        dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceTask(task.getId(),spaceId,userId));
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceTask(task.getId(),spaceId,userId));
         return true;
     }
 
@@ -496,9 +535,10 @@ public class SpaceRagService {
         if(document == null) {
             document = createDocument(requireFile(spaceId,spaceFileId),userId);
         }
+        if(mqRagEnabled()) document=refreshDocumentMetadata(document);
         SpaceRagTask task = createTask(spaceId,spaceFileId,document.getId(),SpaceConstant.RAG_TASK_REBUILD_FILE,userId);
         Long documentId = document.getId();
-        dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),documentId,userId));
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),documentId,userId));
         return true;
     }
 
@@ -520,7 +560,7 @@ public class SpaceRagService {
             return;
         }
         SpaceRagTask task = createTask(spaceFile.getSpaceId(),spaceFile.getId(),document.getId(),SpaceConstant.RAG_TASK_INDEX_FILE,userId);
-        dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),document.getId(),userId));
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),document.getId(),userId));
     }
 
     /**
@@ -623,10 +663,11 @@ public class SpaceRagService {
     @Transactional
     public void handleFileRemoved(Long spaceId, Long spaceFileId, Long userId) {
         SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceFileId(spaceId,spaceFileId);
-        SpaceRagTask task = createTask(spaceId,spaceFileId,document == null ? null : document.getId(),SpaceConstant.RAG_TASK_DELETE_FILE,userId);
         spaceRagChunkRefMapper.disableBySpaceFileId(spaceId,spaceFileId,LocalDateTime.now());
         spaceRagDocumentMapper.disableBySpaceFileId(spaceId,spaceFileId,SpaceConstant.RAG_INDEX_FAILED,"空间文件已删除",LocalDateTime.now());
-        dispatchAfterCommit(() -> ragTaskExecutorService.runDeleteFileTask(task.getId(),spaceId,spaceFileId));
+        spaceRagTaskMapper.skipActiveFileIndexTasks(spaceId,spaceFileId,"Superseded by logical file deletion",LocalDateTime.now());
+        SpaceRagTask task = createTask(spaceId,spaceFileId,document == null ? null : document.getId(),SpaceConstant.RAG_TASK_DELETE_FILE,userId);
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runDeleteFileTask(task.getId(),spaceId,spaceFileId));
     }
 
     public void executeDeleteFileRagTask(Long taskId, Long spaceId, Long spaceFileId) {
@@ -646,6 +687,246 @@ public class SpaceRagService {
             finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
         }
     }
+
+    /** Executes one file index/rebuild through the unified leased worker. */
+    public RagFileAsyncResult executeFileAsync(Long ragTaskId,Long asyncTaskId,long expectedVersion,
+                                               int attemptVersion,boolean finalAttempt,
+                                               TaskExecutionContext executionContext,String expectedType) {
+        SpaceRagTask task=requireAsyncTask(ragTaskId,asyncTaskId,expectedVersion,expectedType);
+        if(spaceRagTaskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG file task cannot be claimed");
+        }
+        boolean committed=false;
+        try {
+            SpaceRagDocument document=spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+            if(document==null || document.getStatus()==null || document.getStatus()!=StatusConstant.ENABLE
+                    || !task.getSpaceId().equals(document.getSpaceId())
+                    || !task.getSpaceFileId().equals(document.getSpaceFileId())) {
+                finishAsync(task,asyncTaskId,"SKIPPED",1,0,0,null);
+                throw new StaleTaskException("RAG logical file was removed or replaced");
+            }
+            long current=document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+            committed=current==expectedVersion+1 && SpaceConstant.RAG_INDEX_SUCCESS.equals(document.getIndexStatus())
+                    && "ACTIVE".equals(document.getVectorState());
+            if(!committed && current!=expectedVersion) {
+                finishAsync(task,asyncTaskId,"SKIPPED",1,0,0,null);
+                throw new StaleTaskException("RAG document version is stale");
+            }
+            SpaceFile spaceFile=requireFile(task.getSpaceId(),task.getSpaceFileId());
+            SpaceRagConfig config=requireConfig(task.getSpaceId());
+            executionContext.checkpoint();
+            List<FileRagChunk> chunks=ensureFileChunks(spaceFile,config);
+            if(!committed) {
+                fileLifecycleService.indexing(task.getSpaceId(),task.getSpaceFileId());
+                ragIndexTransactionService.beginIndexFenced(document.getId(),expectedVersion,asyncTaskId);
+                executionContext.checkpoint();
+                int staged=qdrantVectorStoreService.stageSpaceChunks(
+                        task.getSpaceId(),task.getSpaceFileId(),document.getId(),chunks);
+                if(staged!=chunks.size()) throw new RetryableTaskException("RAG staged vector count mismatch");
+                executionContext.checkpoint();
+                ragIndexTransactionService.commitIndexFenced(task.getSpaceId(),task.getSpaceFileId(),document.getId(),chunks,
+                        task.getId(),asyncTaskId,expectedVersion,attemptVersion);
+                committed=true;
+                fileLifecycleService.indexSucceeded(task.getSpaceId(),task.getSpaceFileId());
+            }
+            executionContext.checkpoint();
+            qdrantVectorStoreService.cleanupObsoleteSpaceFilePoints(task.getSpaceId(),task.getSpaceFileId(),chunks);
+            executionContext.checkpoint();
+            if(spaceRagTaskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,
+                    SpaceConstant.RAG_TASK_SUCCESS,1,1,0,null,LocalDateTime.now())!=1) {
+                throw new StaleWorkerException();
+            }
+            submitKnowledgeProfileTask(task.getSpaceId(),document.getId(),task.getCreatedBy());
+            return new RagFileAsyncResult(task.getId(),document.getId(),chunks.size());
+        } catch(TaskCanceledException canceled) {
+            spaceRagTaskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,"RAG task canceled");
+            throw canceled;
+        } catch(StaleTaskException stale) {
+            spaceRagTaskMapper.skipAsync(task.getId(),expectedVersion,asyncTaskId,safeError(stale),LocalDateTime.now());
+            SpaceRagDocument latest=spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+            if(latest==null || latest.getStatus()==null || latest.getStatus()==StatusConstant.DISABLE) {
+                try {
+                    qdrantVectorStoreService.deleteBySpaceFileStrict(task.getSpaceId(),task.getSpaceFileId());
+                } catch(RuntimeException cleanupFailure) {
+                    stale.addSuppressed(cleanupFailure);
+                }
+            }
+            throw stale;
+        } catch(StaleWorkerException stale) {
+            throw stale;
+        } catch(FatalTaskException fatal) {
+            if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,safeError(fatal));
+            finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(fatal));
+            throw fatal;
+        } catch(BaseException deterministic) {
+            if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,safeError(deterministic));
+            finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(deterministic));
+            throw new FatalTaskException(safeError(deterministic));
+        } catch(Exception temporary) {
+            if(finalAttempt) {
+                if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,safeError(temporary));
+                finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(temporary));
+            }
+            throw new RetryableTaskException(safeError(temporary),temporary);
+        }
+    }
+
+    /** Executes logical-file vector removal through the unified leased worker. */
+    public RagDeleteAsyncResult executeDeleteAsync(Long ragTaskId,Long asyncTaskId,long expectedVersion,
+                                                   boolean finalAttempt,TaskExecutionContext executionContext) {
+        SpaceRagTask task=requireAsyncTask(ragTaskId,asyncTaskId,expectedVersion,"RAG_DELETE_FILE");
+        if(spaceRagTaskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG delete task cannot be claimed");
+        }
+        try {
+            SpaceRagDocument document=task.getDocumentId()==null ? null : spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+            if(document!=null) {
+                long current=document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+                if(current!=expectedVersion || document.getStatus()==null || document.getStatus()!=StatusConstant.DISABLE) {
+                    finishAsync(task,asyncTaskId,"SKIPPED",1,0,0,null);
+                    throw new StaleTaskException("RAG delete version is stale");
+                }
+            }
+            executionContext.checkpoint();
+            qdrantVectorStoreService.deleteBySpaceFileStrict(task.getSpaceId(),task.getSpaceFileId());
+            executionContext.checkpoint();
+            fileLifecycleService.removalSucceeded(task.getSpaceId(),task.getSpaceFileId());
+            if(spaceRagTaskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,
+                    SpaceConstant.RAG_TASK_SUCCESS,1,1,0,null,LocalDateTime.now())!=1) throw new StaleWorkerException();
+            return new RagDeleteAsyncResult(task.getId(),task.getSpaceFileId());
+        } catch(TaskCanceledException canceled) {
+            spaceRagTaskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            throw canceled;
+        } catch(StaleTaskException stale) {
+            spaceRagTaskMapper.skipAsync(task.getId(),expectedVersion,asyncTaskId,safeError(stale),LocalDateTime.now());
+            throw stale;
+        } catch(StaleWorkerException stale) {
+            throw stale;
+        } catch(Exception temporary) {
+            if(finalAttempt) {
+                fileLifecycleService.removalFailed(task.getSpaceId(),task.getSpaceFileId(),safeError(temporary));
+                finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(temporary));
+            }
+            throw new RetryableTaskException(safeError(temporary));
+        }
+    }
+
+    /** Bounded fan-out plus terminal child aggregation; no heavy indexing runs on the parent message. */
+    public RagSpaceAsyncResult executeSpaceAsync(Long ragTaskId,Long asyncTaskId,long expectedVersion,
+                                                 boolean finalAttempt,TaskExecutionContext executionContext) {
+        SpaceRagTask task=requireAsyncTask(ragTaskId,asyncTaskId,expectedVersion,"RAG_SPACE_FANOUT");
+        if(spaceRagTaskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG space fanout task cannot be claimed");
+        }
+        try {
+            executionContext.checkpoint();
+            long cursor=task.getFanoutCursor()==null ? 0L : task.getFanoutCursor();
+            List<SpaceRagDocument> batch=spaceRagDocumentMapper.listBySpaceIdAfterId(
+                    task.getSpaceId(),cursor,RAG_FANOUT_BATCH_SIZE);
+            int created=0;
+            long nextCursor=cursor;
+            for(SpaceRagDocument document:batch) {
+                executionContext.checkpoint();
+                SpaceRagTask child=createFanoutChild(task,document);
+                if(child!=null && child.getAsyncTaskId()!=null) created++;
+                nextCursor=Math.max(nextCursor,document.getId());
+            }
+            int knownChildren=spaceRagTaskMapper.listByParent(task.getId()).size();
+            if(nextCursor!=cursor && spaceRagTaskMapper.advanceFanout(task.getId(),expectedVersion,asyncTaskId,
+                    nextCursor,knownChildren,LocalDateTime.now())!=1) throw new StaleWorkerException();
+            if(batch.size()==RAG_FANOUT_BATCH_SIZE) {
+                throw new RetryableTaskException("RAG fanout continuation required after "+nextCursor);
+            }
+            List<SpaceRagTask> children=spaceRagTaskMapper.listByParent(task.getId());
+            long active=children.stream().filter(child -> List.of("PENDING","RUNNING").contains(child.getTaskStatus())).count();
+            if(active>0) throw new RetryableTaskException("Waiting for "+active+" RAG child tasks");
+            int success=(int)children.stream().filter(child -> SpaceConstant.RAG_TASK_SUCCESS.equals(child.getTaskStatus())).count();
+            int canceled=(int)children.stream().filter(child -> "CANCELED".equals(child.getTaskStatus())).count();
+            int failed=children.size()-success;
+            String status=failed==0 ? SpaceConstant.RAG_TASK_SUCCESS
+                    : success==0 ? SpaceConstant.RAG_TASK_FAILED : "PARTIAL_SUCCESS";
+            String error=failed==0 ? null : "RAG children failed or canceled: failed="+failed+", canceled="+canceled;
+            if(spaceRagTaskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,status,
+                    children.size(),success,failed,error,LocalDateTime.now())!=1) throw new StaleWorkerException();
+            if(success>0) submitKnowledgeProfileSpaceTask(task.getSpaceId(),task.getCreatedBy());
+            return new RagSpaceAsyncResult(task.getId(),children.size(),success,failed,canceled,created);
+        } catch(TaskCanceledException canceled) {
+            cancelFanoutChildren(task);
+            spaceRagTaskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            throw canceled;
+        } catch(StaleTaskException stale) {
+            spaceRagTaskMapper.skipAsync(task.getId(),expectedVersion,asyncTaskId,safeError(stale),LocalDateTime.now());
+            throw stale;
+        } catch(StaleWorkerException stale) {
+            throw stale;
+        } catch(RetryableTaskException retryable) {
+            if(finalAttempt) finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,
+                    task.getTotalCount()==null?0:task.getTotalCount(),0,1,safeError(retryable));
+            throw retryable;
+        } catch(Exception temporary) {
+            if(finalAttempt) finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,0,0,1,safeError(temporary));
+            throw new RetryableTaskException(safeError(temporary));
+        }
+    }
+
+    private SpaceRagTask createFanoutChild(SpaceRagTask parent,SpaceRagDocument document) {
+        java.util.function.Supplier<SpaceRagTask> work=() -> {
+            SpaceRagTask existing=spaceRagTaskMapper.getByParentFileType(parent.getId(),document.getSpaceFileId(),
+                    SpaceConstant.RAG_TASK_REBUILD_FILE);
+            if(existing!=null) return existing;
+            SpaceRagDocument refreshed=refreshDocumentMetadata(document);
+            return createTask(parent.getSpaceId(),refreshed.getSpaceFileId(),refreshed.getId(),
+                    SpaceConstant.RAG_TASK_REBUILD_FILE,parent.getCreatedBy(),parent.getId(),false);
+        };
+        return transactionTemplate==null ? work.get() : transactionTemplate.execute(status -> work.get());
+    }
+
+    private void cancelFanoutChildren(SpaceRagTask parent) {
+        for(SpaceRagTask child:spaceRagTaskMapper.listByParent(parent.getId())) {
+            if(child.getAsyncTaskId()==null || !List.of("PENDING","RUNNING").contains(child.getTaskStatus())) continue;
+            try {
+                taskCenter.cancel(child.getAsyncTaskId(),parent.getCreatedBy(),"Parent RAG task canceled");
+            } catch(RuntimeException ignored) {
+                log.warn("Unable to cancel RAG child task: childId={}",child.getId());
+            }
+        }
+    }
+
+    private SpaceRagTask requireAsyncTask(Long id,Long asyncTaskId,long version,String centralType) {
+        SpaceRagTask task=spaceRagTaskMapper.getById(id);
+        if(task==null || !centralType.equals(unifiedTaskType(task.getTaskType()))
+                || !asyncTaskId.equals(task.getAsyncTaskId()) || resourceVersion(task)!=version) {
+            throw new StaleTaskException("RAG task association is stale");
+        }
+        return task;
+    }
+
+    private void restoreOrFailIndex(SpaceRagTask task,Long asyncTaskId,long version,String error) {
+        ragIndexTransactionService.failIndexFenced(task.getDocumentId(),version,asyncTaskId,truncate(error,1000));
+        SpaceRagDocument restored=spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+        if(restored!=null && SpaceConstant.RAG_INDEX_SUCCESS.equals(restored.getIndexStatus())
+                && "ACTIVE".equals(restored.getVectorState())) {
+            fileLifecycleService.indexSucceeded(task.getSpaceId(),task.getSpaceFileId());
+        } else {
+            fileLifecycleService.indexFailed(task.getSpaceId(),task.getSpaceFileId(),error);
+        }
+    }
+
+    private void finishAsync(SpaceRagTask task,Long asyncTaskId,String status,int total,int success,int failed,String error) {
+        spaceRagTaskMapper.finishAsync(task.getId(),resourceVersion(task),asyncTaskId,status,total,success,failed,
+                truncate(error,1000),LocalDateTime.now());
+    }
+
+    private String safeError(Throwable error) {
+        if(error==null) return "Unknown RAG failure";
+        String message=error.getMessage();
+        return truncate(message==null || message.isBlank() ? error.getClass().getSimpleName() : message,1000);
+    }
+
+    public record RagFileAsyncResult(Long ragTaskId,Long documentId,int chunkCount) {}
+    public record RagDeleteAsyncResult(Long ragTaskId,Long spaceFileId) {}
+    public record RagSpaceAsyncResult(Long ragTaskId,int total,int success,int failed,int canceled,int dispatchedThisAttempt) {}
 
     /**
      * 重建 rebuildDocument 相关逻辑。
@@ -906,6 +1187,22 @@ public class SpaceRagService {
         document.setCreatetime(now);
         document.setUpdatetime(now);
         spaceRagDocumentMapper.insert(document);
+        return document;
+    }
+
+    private SpaceRagDocument refreshDocumentMetadata(SpaceRagDocument document) {
+        if(document==null) return null;
+        SpaceFile spaceFile=requireFile(document.getSpaceId(),document.getSpaceFileId());
+        File current=fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
+        if(current==null || current.getHash()==null || current.getHash().isBlank()) {
+            throw new BaseException("文件哈希不存在，无法建立 RAG 索引");
+        }
+        if(!Objects.equals(document.getFileName(),spaceFile.getFileName())
+                || !Objects.equals(document.getFileHash(),current.getHash())
+                || !Objects.equals(document.getFileType(),current.getType())) {
+            spaceRagDocumentMapper.updateFileMeta(document.getId(),spaceFile.getFileName(),current.getHash(),current.getType(),LocalDateTime.now());
+            return spaceRagDocumentMapper.getById(document.getId());
+        }
         return document;
     }
 
@@ -1217,6 +1514,7 @@ public class SpaceRagService {
         LocalDateTime cutoff = LocalDateTime.now().minusMinutes(timeoutMinutes);
         String errorMessage = "RAG indexing task timeout after " + timeoutMinutes + " minutes";
         for(SpaceRagTask task : spaceRagTaskMapper.listStaleIndexTasks(spaceId,cutoff)) {
+            if(mqRagEnabled() && task.getAsyncTaskId()!=null) continue;
             LocalDateTime now = LocalDateTime.now();
             int updated = spaceRagTaskMapper.failActiveTask(task.getId(),errorMessage,now,now);
             if(updated == 0) {
@@ -1263,27 +1561,83 @@ public class SpaceRagService {
      * @return 处理结果
      */
     private SpaceRagTask createTask(Long spaceId, Long spaceFileId, Long documentId, String taskType, Long userId) {
+        return createTask(spaceId,spaceFileId,documentId,taskType,userId,null,false);
+    }
+
+    private SpaceRagTask createTask(Long spaceId,Long spaceFileId,Long documentId,String taskType,Long userId,
+                                    Long parentTaskId,boolean clearVectors) {
         LocalDateTime now = LocalDateTime.now();
         SpaceRagTask task = new SpaceRagTask();
         task.setSpaceId(spaceId);
         task.setSpaceFileId(spaceFileId);
         task.setDocumentId(documentId);
+        task.setParentTaskId(parentTaskId);
         task.setTaskType(taskType);
         task.setTaskStatus(SpaceConstant.RAG_TASK_PENDING);
         task.setTotalCount(0);
         task.setSuccessCount(0);
         task.setFailedCount(0);
+        task.setClearVectors(clearVectors);
+        task.setFanoutCursor(0L);
+        long version=1L;
+        if(documentId!=null) {
+            SpaceRagDocument document=spaceRagDocumentMapper.getAnyById(documentId);
+            version=document==null || document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+        }
+        task.setResourceVersion(version);
         task.setCreatedBy(userId);
         task.setCreatetime(now);
         task.setUpdatetime(now);
         if(spaceRagTaskMapper.insert(task) > 0) {
+            if(mqRagEnabled()) registerUnified(task);
             return task;
         }
-        SpaceRagTask existing = spaceRagTaskMapper.findActiveTask(spaceId,spaceFileId,taskType);
+        SpaceRagTask existing = parentTaskId==null
+                ? spaceRagTaskMapper.findActiveTask(spaceId,spaceFileId,taskType)
+                : spaceRagTaskMapper.getByParentFileType(parentTaskId,spaceFileId,taskType);
         if(existing != null) {
             return existing;
         }
         throw new ConflictException("相同范围的 RAG 任务正在执行");
+    }
+
+    private void registerUnified(SpaceRagTask task) {
+        long version=resourceVersion(task);
+        String type=unifiedTaskType(task.getTaskType());
+        boolean file=task.getSpaceFileId()!=null;
+        String resource=file ? "rag-file:"+task.getSpaceId()+":"+task.getSpaceFileId()
+                : "rag-space:"+task.getSpaceId()+":"+task.getId();
+        Long centralParent=null;
+        if(task.getParentTaskId()!=null) {
+            SpaceRagTask parent=spaceRagTaskMapper.getById(task.getParentTaskId());
+            centralParent=parent==null ? null : parent.getAsyncTaskId();
+        }
+        Integer maxAttempts=SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(task.getTaskType())
+                ? RAG_PARENT_MAX_ATTEMPTS : null;
+        com.ylcloud.entity.UnifiedAsyncTask central=taskCenter.createTask(new TaskCreateCommand(
+                "rag:"+task.getId()+":"+type+":"+version,
+                "rag",type,new DomainTaskPayload(task.getId()),task.getCreatedBy(),task.getSpaceId(),resource,version,
+                centralParent,maxAttempts));
+        if(spaceRagTaskMapper.bindAsyncTask(task.getId(),version,central.getId(),LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG task binding was rejected");
+        }
+        task.setAsyncTaskId(central.getId());
+    }
+
+    private String unifiedTaskType(String taskType) {
+        if(SpaceConstant.RAG_TASK_INDEX_FILE.equals(taskType)) return "RAG_INDEX_FILE";
+        if(SpaceConstant.RAG_TASK_REBUILD_FILE.equals(taskType)) return "RAG_REBUILD_FILE";
+        if(SpaceConstant.RAG_TASK_DELETE_FILE.equals(taskType)) return "RAG_DELETE_FILE";
+        if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(taskType)) return "RAG_SPACE_FANOUT";
+        throw new BaseException("Unsupported RAG task type: "+taskType);
+    }
+
+    private boolean mqRagEnabled() {
+        return mqProperties!=null && mqProperties.isEnabled() && mqProperties.isRag() && taskCenter!=null;
+    }
+
+    private long resourceVersion(SpaceRagTask task) {
+        return task.getResourceVersion()==null ? 1L : task.getResourceVersion();
     }
 
     /**
@@ -1442,12 +1796,14 @@ public class SpaceRagService {
         vo.setSpaceId(task.getSpaceId());
         vo.setSpaceFileId(task.getSpaceFileId());
         vo.setDocumentId(task.getDocumentId());
+        vo.setParentTaskId(task.getParentTaskId());
         vo.setTaskType(task.getTaskType());
         vo.setTaskStatus(task.getTaskStatus());
         vo.setTotalCount(task.getTotalCount());
         vo.setSuccessCount(task.getSuccessCount());
         vo.setFailedCount(task.getFailedCount());
         vo.setErrorMessage(task.getErrorMessage());
+        vo.setAsyncTaskId(task.getAsyncTaskId());
         vo.setCreatedBy(task.getCreatedBy());
         vo.setStartedTime(task.getStartedTime());
         vo.setFinishedTime(task.getFinishedTime());
