@@ -122,6 +122,23 @@ class UnifiedTaskCenterServiceTest {
                 any(),any(),any(),any(),any(),any());
     }
 
+    @Test
+    void cancellationRacingWithCompletionConvergesToCanceled() {
+        UnifiedAsyncTask running=task("RUNNING",2);
+        UnifiedAsyncTask latest=task("RUNNING",2);
+        latest.setCancelRequestedAt(LocalDateTime.now());
+        latest.setCancelReason("stop");
+        when(mapper.markSuccess(anyLong(),anyInt(),anyString(),anyString(),any(),any())).thenReturn(0);
+        when(mapper.getById(5L)).thenReturn(latest);
+        when(mapper.markRunningCanceled(eq(5L),eq(2),eq("lease"),any(),any())).thenReturn(1);
+
+        assertFalse(service.complete(running,"lease",Map.of("ok",true)));
+
+        verify(mapper).markRunningCanceled(eq(5L),eq(2),eq("lease"),any(),any());
+        verify(mapper).finishAttempt(eq(5L),eq(2),eq("lease"),eq("CANCELED"),
+                eq("CANCELED"),eq("USER_CANCELED"),eq("stop"),eq(false),isNull(),any());
+    }
+
     private AsyncDemoCreateDTO demo(String mode) {
         AsyncDemoCreateDTO dto = new AsyncDemoCreateDTO();
         dto.setText("hello");

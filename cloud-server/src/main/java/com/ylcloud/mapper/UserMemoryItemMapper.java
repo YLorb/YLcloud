@@ -12,14 +12,16 @@ public interface UserMemoryItemMapper {
             "memory_type as memoryType, content, normalized_key as normalizedKey, content_hash as contentHash, source_hash as sourceHash, " +
             "confidence, user_confirmed as userConfirmed, pinned, expires_at as expiresAt, version, memory_status as memoryStatus, " +
             "embedding_status as embeddingStatus, qdrant_point_id as qdrantPointId, supersedes_id as supersedesId, retry_count as retryCount, " +
-            "next_retry_time as nextRetryTime, error_message as errorMessage, status, createtime, updatetime";
+            "next_retry_time as nextRetryTime, error_message as errorMessage, origin_async_task_id as originAsyncTaskId, " +
+            "profile_async_task_id as profileAsyncTaskId, vector_async_task_id as vectorAsyncTaskId, async_version as asyncVersion, " +
+            "status, createtime, updatetime";
 
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into user_memory_item(user_id, source_session_id, source_message_id, memory_type, content, normalized_key, " +
             "content_hash, source_hash, confidence, user_confirmed, pinned, expires_at, version, memory_status, embedding_status, " +
-            "supersedes_id, retry_count, status, createtime, updatetime) values(#{userId},#{sourceSessionId},#{sourceMessageId}," +
+            "supersedes_id, retry_count, origin_async_task_id, async_version, status, createtime, updatetime) values(#{userId},#{sourceSessionId},#{sourceMessageId}," +
             "#{memoryType},#{content},#{normalizedKey},#{contentHash},#{sourceHash},#{confidence},#{userConfirmed},#{pinned}," +
-            "#{expiresAt},#{version},#{memoryStatus},#{embeddingStatus},#{supersedesId},0,1,#{createtime},#{updatetime})")
+            "#{expiresAt},#{version},#{memoryStatus},#{embeddingStatus},#{supersedesId},0,#{originAsyncTaskId},#{asyncVersion},1,#{createtime},#{updatetime})")
     int insert(UserMemoryItem item);
 
     @Select("select " + COLUMNS + " from user_memory_item where user_id=#{userId} and normalized_key=#{key} and source_hash=#{sourceHash} limit 1")
@@ -44,12 +46,51 @@ public interface UserMemoryItemMapper {
             "error_message=null, next_retry_time=null, updatetime=#{now} where id=#{id} and embedding_status='INDEXING' and memory_status='INDEXING'")
     int activate(@Param("id") Long id, @Param("pointId") String pointId, @Param("now") LocalDateTime now);
 
+    @Update("update user_memory_item set profile_async_task_id=#{asyncTaskId},updatetime=#{now} " +
+            "where id=#{id} and async_version=#{version} and status=1 and memory_status='CANDIDATE' " +
+            "and embedding_status in ('PENDING','FAILED_RETRYABLE') and (profile_async_task_id is null or profile_async_task_id=#{asyncTaskId})")
+    int bindProfileTask(@Param("id") Long id,@Param("version") long version,
+                        @Param("asyncTaskId") Long asyncTaskId,@Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set vector_async_task_id=#{vectorTaskId},updatetime=#{now} " +
+            "where id=#{id} and async_version=#{version} and profile_async_task_id=#{profileTaskId} and status=1 " +
+            "and memory_status='CANDIDATE' and embedding_status in ('PENDING','FAILED_RETRYABLE') " +
+            "and (vector_async_task_id is null or vector_async_task_id=#{vectorTaskId})")
+    int bindVectorTask(@Param("id") Long id,@Param("version") long version,
+                       @Param("profileTaskId") Long profileTaskId,@Param("vectorTaskId") Long vectorTaskId,
+                       @Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set embedding_status='INDEXING',memory_status='INDEXING',error_message=null,updatetime=#{now} " +
+            "where id=#{id} and async_version=#{version} and vector_async_task_id=#{asyncTaskId} and status=1 " +
+            "and embedding_status in ('PENDING','FAILED_RETRYABLE','INDEXING') and memory_status in ('CANDIDATE','INDEXING')")
+    int claimIndexAsync(@Param("id") Long id,@Param("version") long version,
+                        @Param("asyncTaskId") Long asyncTaskId,@Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set embedding_status='READY',memory_status='ACTIVE',qdrant_point_id=#{pointId}," +
+            "error_message=null,next_retry_time=null,updatetime=#{now} where id=#{id} and async_version=#{version} " +
+            "and vector_async_task_id=#{asyncTaskId} and embedding_status='INDEXING' and memory_status='INDEXING' and status=1")
+    int activateAsync(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                      @Param("pointId") String pointId,@Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set embedding_status='FAILED_RETRYABLE',memory_status='CANDIDATE',retry_count=retry_count+1," +
+            "error_message=#{error},updatetime=#{now} where id=#{id} and async_version=#{version} " +
+            "and vector_async_task_id=#{asyncTaskId} and embedding_status='INDEXING'")
+    int failIndexAsync(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
+                       @Param("error") String error,@Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set embedding_status='CANCELED',memory_status='CANCELED',async_version=async_version+1," +
+            "profile_async_task_id=null,vector_async_task_id=null,error_message='Unified task canceled',updatetime=#{now} " +
+            "where id=#{id} and async_version=#{version} and vector_async_task_id=#{asyncTaskId} and embedding_status='INDEXING'")
+    int cancelIndexAsync(@Param("id") Long id,@Param("version") long version,
+                         @Param("asyncTaskId") Long asyncTaskId,@Param("now") LocalDateTime now);
+
     @Update("update user_memory_item set embedding_status='FAILED_RETRYABLE', memory_status='CANDIDATE', retry_count=retry_count+1, " +
             "next_retry_time=#{nextRetry}, error_message=#{error}, updatetime=#{now} where id=#{id} and embedding_status='INDEXING'")
     int failIndex(@Param("id") Long id, @Param("error") String error, @Param("nextRetry") LocalDateTime nextRetry,
                   @Param("now") LocalDateTime now);
 
-    @Update("update user_memory_item set memory_status='SUPERSEDED', embedding_status='DELETE_PENDING', updatetime=#{now} " +
+    @Update("update user_memory_item set memory_status='SUPERSEDED', embedding_status='DELETE_PENDING', async_version=async_version+1, " +
+            "profile_async_task_id=null,vector_async_task_id=null,updatetime=#{now} " +
             "where id=#{id} and memory_status='ACTIVE'")
     int supersede(@Param("id") Long id, @Param("now") LocalDateTime now);
 
@@ -63,6 +104,22 @@ public interface UserMemoryItemMapper {
 
     @Update("update user_memory_item set memory_status='DELETED', embedding_status='DELETED', status=0, error_message=null, updatetime=#{now} where id=#{id}")
     int markDeleted(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set vector_async_task_id=#{asyncTaskId},updatetime=#{now} where id=#{id} " +
+            "and async_version=#{version} and embedding_status='DELETE_PENDING' " +
+            "and (vector_async_task_id is null or vector_async_task_id=#{asyncTaskId})")
+    int bindDeleteTask(@Param("id") Long id,@Param("version") long version,
+                       @Param("asyncTaskId") Long asyncTaskId,@Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set memory_status='DELETED',embedding_status='DELETED',status=0,error_message=null,updatetime=#{now} " +
+            "where id=#{id} and async_version=#{version} and vector_async_task_id=#{asyncTaskId} and embedding_status='DELETE_PENDING'")
+    int markDeletedAsync(@Param("id") Long id,@Param("version") long version,
+                         @Param("asyncTaskId") Long asyncTaskId,@Param("now") LocalDateTime now);
+
+    @Update("update user_memory_item set retry_count=retry_count+1,error_message=#{error},updatetime=#{now} " +
+            "where id=#{id} and async_version=#{version} and vector_async_task_id=#{asyncTaskId} and embedding_status='DELETE_PENDING'")
+    int failDeleteAsync(@Param("id") Long id,@Param("version") long version,
+                        @Param("asyncTaskId") Long asyncTaskId,@Param("error") String error,@Param("now") LocalDateTime now);
 
     @Update("update user_memory_item set error_message=#{error}, retry_count=retry_count+1, next_retry_time=#{nextRetry}, updatetime=#{now} where id=#{id} and embedding_status='DELETE_PENDING'")
     int failDelete(@Param("id") Long id, @Param("error") String error, @Param("nextRetry") LocalDateTime nextRetry,
@@ -88,11 +145,13 @@ public interface UserMemoryItemMapper {
     @Update("update user_memory_item set pinned=#{pinned}, updatetime=#{now} where id=#{id} and user_id=#{userId} and status=1 and memory_status='ACTIVE'")
     int setPinned(@Param("id") Long id, @Param("userId") Long userId, @Param("pinned") boolean pinned, @Param("now") LocalDateTime now);
 
-    @Update("update user_memory_item set memory_status='DELETE_PENDING', embedding_status='DELETE_PENDING', updatetime=#{now} " +
+    @Update("update user_memory_item set memory_status='DELETE_PENDING', embedding_status='DELETE_PENDING', async_version=async_version+1, " +
+            "profile_async_task_id=null,vector_async_task_id=null,updatetime=#{now} " +
             "where id=#{id} and user_id=#{userId} and status=1 and memory_status not in ('DELETED','DELETE_PENDING')")
     int forget(@Param("id") Long id, @Param("userId") Long userId, @Param("now") LocalDateTime now);
 
-    @Update("update user_memory_item set memory_status='DELETE_PENDING', embedding_status='DELETE_PENDING', updatetime=#{now} " +
+    @Update("update user_memory_item set memory_status='DELETE_PENDING', embedding_status='DELETE_PENDING', async_version=async_version+1, " +
+            "profile_async_task_id=null,vector_async_task_id=null,updatetime=#{now} " +
             "where user_id=#{userId} and status=1 and memory_status not in ('DELETED','DELETE_PENDING')")
     int clear(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 

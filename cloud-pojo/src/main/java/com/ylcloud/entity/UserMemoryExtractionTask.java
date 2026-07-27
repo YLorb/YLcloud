@@ -15,6 +15,8 @@ public class UserMemoryExtractionTask {
     private Integer retryCount;
     private LocalDateTime nextRetryTime;
     private String errorMessage;
+    private Long asyncTaskId;
+    private Long resourceVersion;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;
 }

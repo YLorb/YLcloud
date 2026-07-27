@@ -45,6 +45,7 @@ ylcloud:
       enabled: ${YLCLOUD_ASYNC_MQ_ENABLED:false}
       cleanup: ${YLCLOUD_ASYNC_MQ_CLEANUP:false}
       maintenance: ${YLCLOUD_ASYNC_MQ_MAINTENANCE:false}
+      memory: ${YLCLOUD_ASYNC_MQ_MEMORY:false}
       publisher-delay-ms: ${YLCLOUD_ASYNC_MQ_PUBLISHER_DELAY_MS:1000}
       publisher-batch-size: ${YLCLOUD_ASYNC_MQ_PUBLISHER_BATCH_SIZE:50}
       publish-lease-seconds: ${YLCLOUD_ASYNC_MQ_PUBLISH_LEASE_SECONDS:30}

@@ -11,6 +11,7 @@ public class AsyncMqProperties {
     private boolean enabled;
     private boolean cleanup;
     private boolean maintenance;
+    private boolean memory;
     private long publisherDelayMs = 1000;
     private int publisherBatchSize = 50;
     private int publishLeaseSeconds = 30;

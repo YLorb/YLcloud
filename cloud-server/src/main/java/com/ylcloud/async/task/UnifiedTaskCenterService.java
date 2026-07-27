@@ -122,6 +122,12 @@ public class UnifiedTaskCenterService {
         return task != null && !TERMINAL.contains(task.getStatus());
     }
 
+    public String status(Long taskId) {
+        if(taskId == null) return null;
+        UnifiedAsyncTask task = mapper.getById(taskId);
+        return task == null ? null : task.getStatus();
+    }
+
     @Transactional
     public UnifiedAsyncTask claim(TaskDispatchEnvelope envelope, String workerId, String leaseToken) {
         if(envelope.schemaVersion() != 1 || envelope.taskId() == null || envelope.expectedAttemptVersion() == null) {
@@ -153,7 +159,10 @@ public class UnifiedTaskCenterService {
     public boolean complete(UnifiedAsyncTask task, String leaseToken, Object result) {
         LocalDateTime now = LocalDateTime.now();
         if(mapper.markSuccess(task.getId(),task.getAttemptVersion(),leaseToken,writeJson(result),
-                expireAt(now),now) != 1) return false;
+                expireAt(now),now) != 1) {
+            checkpointCancel(task,leaseToken);
+            return false;
+        }
         mapper.finishAttempt(task.getId(),task.getAttemptVersion(),leaseToken,"SUCCESS",
                 null,null,null,false,null,now);
         return true;

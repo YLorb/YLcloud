@@ -28,6 +28,10 @@ public class UserMemoryItem {
     private Integer retryCount;
     private LocalDateTime nextRetryTime;
     private String errorMessage;
+    private Long originAsyncTaskId;
+    private Long profileAsyncTaskId;
+    private Long vectorAsyncTaskId;
+    private Long asyncVersion;
     private Integer status;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;

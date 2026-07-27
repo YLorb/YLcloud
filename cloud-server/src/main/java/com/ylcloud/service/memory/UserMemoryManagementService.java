@@ -55,7 +55,7 @@ public class UserMemoryManagementService {
         UserMemoryItem replacement=memoryService.acceptManual(userId,current.getSourceSessionId(),current.getSourceMessageId(),
                 "manual-edit:"+id+":"+dto.getContent(),new UserMemoryCandidate(dto.getMemoryType(),current.getNormalizedKey(),dto.getContent(),1,true));
         if(replacement==null) throw new BaseException("记忆更新失败");
-        memoryService.processIndex(replacement.getId());
+        if(!memoryService.usesUnifiedTasks()) memoryService.processIndex(replacement.getId());
         if(Boolean.TRUE.equals(current.getPinned())) mapper.setPinned(replacement.getId(),userId,true,LocalDateTime.now());
         return toVO(mapper.getOwned(replacement.getId(),userId));
     }
