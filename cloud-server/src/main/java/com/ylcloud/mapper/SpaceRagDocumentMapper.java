@@ -32,7 +32,7 @@ public interface SpaceRagDocumentMapper {
      * @return 处理结果
      */
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
-            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, chunk_count as chunkCount, " +
+            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
             "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +
             "from space_rag_document where space_id = #{spaceId} and space_file_id = #{spaceFileId} and status = 1")
     SpaceRagDocument getBySpaceFileId(@Param("spaceId") Long spaceId, @Param("spaceFileId") Long spaceFileId);
@@ -42,10 +42,16 @@ public interface SpaceRagDocumentMapper {
      * @return 处理结果
      */
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
-            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, chunk_count as chunkCount, " +
+            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
             "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +
             "from space_rag_document where id = #{id} and status = 1")
     SpaceRagDocument getById(@Param("id") Long id);
+
+    @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
+            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
+            "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +
+            "from space_rag_document where id=#{id} for update")
+    SpaceRagDocument getAnyByIdForUpdate(@Param("id") Long id);
 
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
             "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
@@ -71,7 +77,7 @@ public interface SpaceRagDocumentMapper {
      * @return 列表结果
      */
     @Select("select id, space_id as spaceId, space_file_id as spaceFileId, file_uuid as fileUuid, file_name as fileName, " +
-            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, chunk_count as chunkCount, " +
+            "file_hash as fileHash, file_type as fileType, index_status as indexStatus, vector_state as vectorState, consistency_version as consistencyVersion, consistency_async_task_id as consistencyAsyncTaskId, chunk_count as chunkCount, " +
             "error_message as errorMessage, created_by as createdBy, status, createtime, updatetime " +
             "from space_rag_document where space_id = #{spaceId} and status = 1 order by updatetime desc")
     List<SpaceRagDocument> listBySpaceId(@Param("spaceId") Long spaceId);

@@ -45,8 +45,23 @@ import com.ylcloud.service.knowledge.quality.QualityIssue;
 import com.ylcloud.service.rag.RagGenerateRequest;
 import com.ylcloud.service.rag.RagGenerateResponse;
 import com.ylcloud.service.rag.RagModelClient;
+import com.ylcloud.async.mq.AsyncMqProperties;
+import com.ylcloud.async.task.DomainTaskPayload;
+import com.ylcloud.async.task.FatalTaskException;
+import com.ylcloud.async.task.RetryableTaskException;
+import com.ylcloud.async.task.StaleTaskException;
+import com.ylcloud.async.task.TaskCreateCommand;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
+import com.ylcloud.async.worker.StaleWorkerException;
+import com.ylcloud.async.worker.TaskCanceledException;
+import com.ylcloud.async.worker.TaskExecutionContext;
+import com.ylcloud.entity.UnifiedAsyncTask;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -84,6 +99,20 @@ public class KnowledgePipelineService {
     private final RagProperties ragProperties;
     private final SpaceRagMapper spaceRagMapper;
     private final ObjectMapper objectMapper;
+    private UnifiedTaskCenterService taskCenter;
+    private AsyncMqProperties mqProperties;
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired(required = false)
+    public void setAsyncTaskInfrastructure(UnifiedTaskCenterService taskCenter, AsyncMqProperties mqProperties) {
+        this.taskCenter = taskCenter;
+        this.mqProperties = mqProperties;
+    }
+
+    @Autowired(required = false)
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.transactionTemplate=new TransactionTemplate(transactionManager);
+    }
 
     public KnowledgePipelineService(SpacePermissionService spacePermissionService,
                                     SpaceRagDocumentMapper spaceRagDocumentMapper,
@@ -127,17 +156,20 @@ public class KnowledgePipelineService {
         this.objectMapper = objectMapper;
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO submitDocument(Long spaceId, Long documentId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
         requireKnowledgeProfileEnabled(spaceId);
         return toTaskVO(createDocumentProfileTask(spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,true));
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO submitDocumentProfileTask(Long spaceId, Long documentId, Long userId) {
         requireKnowledgeProfileEnabled(spaceId);
         return toTaskVO(createDocumentProfileTask(spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,false));
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO submitDocumentProfileTaskIfAbsent(Long spaceId, Long documentId, Long userId) {
         requireKnowledgeProfileEnabled(spaceId);
         SpaceRagDocument document = requireDocument(spaceId,documentId);
@@ -148,6 +180,7 @@ public class KnowledgePipelineService {
         return toTaskVO(createDocumentProfileTask(spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,false));
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO recordDocumentProfileSkipped(Long spaceId, Long documentId, Long userId, String reason) {
         SpaceRagDocument document = requireDocument(spaceId,documentId);
         SpaceKnowledgePipelineTask active = taskMapper.getActiveDocumentTask(spaceId,document.getId());
@@ -155,7 +188,7 @@ public class KnowledgePipelineService {
             return toTaskVO(active);
         }
         SpaceKnowledgePipelineTask task = createTask(
-                spaceId,document.getId(),SpaceConstant.KNOWLEDGE_TASK_PROFILE_DOCUMENT,userId,false);
+                spaceId,document.getId(),SpaceConstant.KNOWLEDGE_TASK_PROFILE_DOCUMENT,userId,false,false);
         LocalDateTime finished = LocalDateTime.now();
         updateFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_SKIPPED,SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,
                 100,1,0,0,null,null,finished);
@@ -164,13 +197,14 @@ public class KnowledgePipelineService {
         return toTaskVO(taskMapper.getById(task.getId()));
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO recordSpaceProfileSkipped(Long spaceId, Long userId, String reason) {
         SpaceKnowledgePipelineTask active = taskMapper.getActiveSpaceTask(spaceId);
         if(active != null) {
             return toTaskVO(active);
         }
         SpaceKnowledgePipelineTask task = createTask(
-                spaceId,null,SpaceConstant.KNOWLEDGE_TASK_PROFILE_SPACE,userId,false);
+                spaceId,null,SpaceConstant.KNOWLEDGE_TASK_PROFILE_SPACE,userId,false,false);
         markTaskSkipped(task,reason);
         return toTaskVO(taskMapper.getById(task.getId()));
     }
@@ -208,6 +242,7 @@ public class KnowledgePipelineService {
         }
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO submitSpace(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
         requireKnowledgeProfileEnabled(spaceId);
@@ -217,6 +252,7 @@ public class KnowledgePipelineService {
         return createSpaceProfileTask(spaceId,userId);
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO submitSpaceProfileTaskIfAbsent(Long spaceId, Long userId) {
         requireKnowledgeProfileEnabled(spaceId);
         if(taskMapper.getActiveSpaceTask(spaceId) != null) {
@@ -226,9 +262,127 @@ public class KnowledgePipelineService {
     }
 
     private SpaceKnowledgePipelineTaskVO createSpaceProfileTask(Long spaceId, Long userId) {
-        SpaceKnowledgePipelineTask task = createTask(spaceId,null,SpaceConstant.KNOWLEDGE_TASK_PROFILE_SPACE,userId,true);
+        SpaceKnowledgePipelineTask task = createTask(spaceId,null,SpaceConstant.KNOWLEDGE_TASK_PROFILE_SPACE,userId,true,true);
         pipelineEventService.taskCreated(task.getId(),spaceId,null,"knowledge-" + task.getId());
         return toTaskVO(task);
+    }
+
+    /** Executes one document profile through the unified leased worker. */
+    public DocumentAsyncResult executeDocumentAsync(Long pipelineTaskId, Long asyncTaskId, long expectedVersion,
+                                                     int attemptVersion, boolean finalAttempt,
+                                                     TaskExecutionContext executionContext) {
+        SpaceKnowledgePipelineTask task = requireAsyncTask(pipelineTaskId,asyncTaskId,expectedVersion,
+                SpaceConstant.KNOWLEDGE_TASK_PROFILE_DOCUMENT);
+        if(taskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now()) != 1) {
+            throw new StaleTaskException("Knowledge pipeline task cannot be claimed");
+        }
+        SpaceRagDocument document = spaceRagDocumentMapper.getById(task.getDocumentId());
+        if(!documentMatches(task,document,expectedVersion)) {
+            finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_SKIPPED,
+                    SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,1,0,0,null,"RESOURCE_VERSION_STALE");
+            throw new StaleTaskException("Knowledge document version is stale");
+        }
+        try {
+            if(!isKnowledgeProfileEnabled(task.getSpaceId())) {
+                finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_SKIPPED,
+                        SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,1,0,0,null,
+                        SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+                return new DocumentAsyncResult(task.getId(),task.getDocumentId(),SpaceConstant.KNOWLEDGE_TASK_SKIPPED);
+            }
+            executionContext.checkpoint();
+            KnowledgePipelineContext context = createPipelineContext(task,document);
+            context.setAsyncTaskId(asyncTaskId);
+            context.setExpectedDocumentVersion(expectedVersion);
+            context.setAttemptNo(attemptVersion);
+            context.setTaskExecutionContext(executionContext);
+            SpaceKnowledgeDocumentProfileVO profile = runDocumentPipeline(context);
+            executionContext.checkpoint();
+            if(taskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,
+                    SpaceConstant.KNOWLEDGE_TASK_SUCCESS,SpaceConstant.KNOWLEDGE_STAGE_SUCCESS,
+                    1,1,0,null,"PROFILE_COMMITTED",LocalDateTime.now()) != 1) {
+                throw new StaleWorkerException();
+            }
+            pipelineEventService.taskFinished(context,SpaceConstant.KNOWLEDGE_EVENT_STATUS_SUCCEEDED,
+                    "Document pipeline finished with profile status " + profile.getProfileStatus());
+            return new DocumentAsyncResult(task.getId(),document.getId(),profile.getProfileStatus());
+        } catch(TaskCanceledException canceled) {
+            taskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            throw canceled;
+        } catch(StaleWorkerException | StaleTaskException stale) {
+            throw stale;
+        } catch(RetryableTaskException retryable) {
+            if(finalAttempt) {
+                finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_FAILED,
+                        SpaceConstant.KNOWLEDGE_STAGE_FAILED,1,0,1,safeError(retryable),"RETRY_EXHAUSTED");
+            }
+            throw retryable;
+        } catch(BaseException deterministic) {
+            finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_FAILED,
+                    SpaceConstant.KNOWLEDGE_STAGE_FAILED,1,0,1,safeError(deterministic),"INVALID_PIPELINE_INPUT");
+            throw new FatalTaskException(safeError(deterministic));
+        } catch(Exception temporary) {
+            if(finalAttempt) {
+                finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_FAILED,
+                        SpaceConstant.KNOWLEDGE_STAGE_FAILED,1,0,1,safeError(temporary),"RETRY_EXHAUSTED");
+            }
+            throw new RetryableTaskException(safeError(temporary));
+        }
+    }
+
+    /** Space tasks are bounded fan-out coordinators; document workers perform the heavy pipeline. */
+    public SpaceFanoutResult executeSpaceAsync(Long pipelineTaskId, Long asyncTaskId, long expectedVersion,
+                                               int attemptVersion, boolean finalAttempt,
+                                               TaskExecutionContext executionContext) {
+        SpaceKnowledgePipelineTask task = requireAsyncTask(pipelineTaskId,asyncTaskId,expectedVersion,
+                SpaceConstant.KNOWLEDGE_TASK_PROFILE_SPACE);
+        if(taskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now()) != 1) {
+            throw new StaleTaskException("Knowledge space pipeline task cannot be claimed");
+        }
+        try {
+            executionContext.checkpoint();
+            if(!isKnowledgeProfileEnabled(task.getSpaceId())) {
+                finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_SKIPPED,
+                        SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,0,0,0,null,
+                        SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+                return new SpaceFanoutResult(task.getId(),0);
+            }
+            List<SpaceRagDocument> documents = spaceRagDocumentMapper.listBySpaceId(task.getSpaceId()).stream()
+                    .filter(document -> SpaceConstant.RAG_INDEX_READY.equals(document.getIndexStatus()))
+                    .toList();
+            if(documents.isEmpty()) {
+                finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_SKIPPED,
+                        SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,0,0,0,null,
+                        SpaceConstant.KNOWLEDGE_TERMINAL_NO_ELIGIBLE_DOCUMENTS);
+                return new SpaceFanoutResult(task.getId(),0);
+            }
+            int dispatched = 0;
+            for(SpaceRagDocument document : documents) {
+                executionContext.checkpoint();
+                SpaceKnowledgePipelineTask child = taskMapper.getByParentDocument(task.getId(),document.getId());
+                if(child == null) {
+                    child = createFanoutChild(task,document);
+                }
+                if(child.getAsyncTaskId()!=null) dispatched++;
+            }
+            if(taskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,
+                    SpaceConstant.KNOWLEDGE_TASK_SUCCESS,SpaceConstant.KNOWLEDGE_STAGE_SUCCESS,
+                    documents.size(),dispatched,documents.size()-dispatched,null,"FANOUT_DISPATCHED",
+                    LocalDateTime.now()) != 1) {
+                throw new StaleWorkerException();
+            }
+            return new SpaceFanoutResult(task.getId(),dispatched);
+        } catch(TaskCanceledException canceled) {
+            taskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            throw canceled;
+        } catch(StaleWorkerException | StaleTaskException stale) {
+            throw stale;
+        } catch(Exception temporary) {
+            if(finalAttempt) {
+                finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_FAILED,
+                        SpaceConstant.KNOWLEDGE_STAGE_FAILED,0,0,1,safeError(temporary),"RETRY_EXHAUSTED");
+            }
+            throw new RetryableTaskException(safeError(temporary));
+        }
     }
 
     public void executeSpaceTask(Long taskId) {
@@ -420,6 +574,7 @@ public class KnowledgePipelineService {
         return toProfileVO(knowledgeProfileAssetService.restoreVersion(spaceId,documentId,versionId,userId));
     }
 
+    @Transactional
     public SpaceKnowledgePipelineTaskVO retryTask(Long spaceId, Long taskId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
         SpaceKnowledgePipelineTask failedTask = taskMapper.getById(taskId);
@@ -430,12 +585,21 @@ public class KnowledgePipelineService {
                 && !SpaceConstant.KNOWLEDGE_TASK_PARTIAL_SUCCESS.equals(failedTask.getTaskStatus())) {
             throw new BaseException("only failed knowledge pipeline tasks can be retried");
         }
+        if(mqKnowledgeEnabled() && failedTask.getAsyncTaskId()!=null) {
+            taskCenter.retry(failedTask.getAsyncTaskId(),userId,"Retry knowledge pipeline task");
+            if(taskMapper.prepareAsyncRetry(failedTask.getId(),resourceVersion(failedTask),
+                    failedTask.getAsyncTaskId(),LocalDateTime.now())!=1) {
+                throw new StaleTaskException("Knowledge pipeline retry was rejected by the resource fence");
+            }
+            return toTaskVO(taskMapper.getById(taskId));
+        }
         if(failedTask.getDocumentId() != null) {
             return submitDocumentProfileTask(spaceId,failedTask.getDocumentId(),userId);
         }
         return submitSpace(spaceId,userId);
     }
 
+    @Transactional
     public List<SpaceKnowledgePipelineTaskVO> retryFailedTasks(Long spaceId, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
         List<SpaceKnowledgePipelineTaskVO> result = new ArrayList<>();
@@ -448,6 +612,7 @@ public class KnowledgePipelineService {
     private SpaceKnowledgeDocumentProfileVO runDocumentPipeline(KnowledgePipelineContext context) {
         GeneratedProfileContext profileContext = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_LOAD_CHUNKS,
                 context.getDocument().getFileName(),() -> buildProfileContext(context.getDocument()));
+        checkpoint(context);
         context.setChunks(profileContext.usedChunks());
         context.setContentContext(profileContext.context());
         SpaceKnowledgeDocumentProfile currentProfile = profileMapper.getByDocumentId(context.getSpaceId(),context.getDocumentId());
@@ -472,20 +637,28 @@ public class KnowledgePipelineService {
         }
         if(incrementalDecision.syncsRetrievalSource()) {
             updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,95,1,1,0,null,null,null);
+            checkpoint(context);
             SpaceKnowledgeDocumentProfile refreshed = pipelineEventService.executeStage(context,
                     SpaceConstant.KNOWLEDGE_PIPELINE_SYNC_RETRIEVAL_SOURCE,
                     incrementalDecision.detail(),
-                    () -> knowledgeProfileWriteService.syncRetrievalSource(
-                            context.getSpaceId(),
-                            context.getDocumentId(),
-                            sourceSnapshot,
-                            currentProfile == null ? 0L : currentProfile.getSourceSnapshotRevision()));
+                    () -> context.getTaskExecutionContext()==null
+                            ? knowledgeProfileWriteService.syncRetrievalSource(
+                                context.getSpaceId(),context.getDocumentId(),sourceSnapshot,
+                                currentProfile == null ? 0L : currentProfile.getSourceSnapshotRevision())
+                            : knowledgeProfileWriteService.syncRetrievalSourceFenced(
+                                context.getSpaceId(),context.getDocumentId(),sourceSnapshot,
+                                currentProfile == null ? 0L : currentProfile.getSourceSnapshotRevision(),
+                                context.getTaskId(),context.getAsyncTaskId(),context.getExpectedDocumentVersion(),
+                                context.getAttemptNo(),
+                                context.getDocument().getFileHash()));
             return toProfileVO(refreshed);
         }
         updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_GENERATE_PROFILE,25,1,0,0,null,null,null);
 
         String rawOutput = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_GENERATE_PROFILE,
-                "contextChars=" + profileContext.context().length(),() -> generateProfileRaw(context.getDocument(),profileContext.context()));
+                "contextChars=" + profileContext.context().length(),() -> generateProfileRaw(
+                        context.getDocument(),profileContext.context(),context.getTaskExecutionContext()!=null));
+        checkpoint(context);
         context.setRawLlmOutput(rawOutput);
         updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_PARSE_PROFILE,40,1,0,0,null,null,null);
 
@@ -526,6 +699,7 @@ public class KnowledgePipelineService {
         }
 
         updateRunningFlow(context.getTaskId(),SpaceConstant.KNOWLEDGE_TASK_RUNNING,SpaceConstant.KNOWLEDGE_PIPELINE_SAVE_PROFILE,80,1,0,0,null,null,null);
+        checkpoint(context);
         SpaceKnowledgeDocumentProfileVO profile = pipelineEventService.executeStage(context,SpaceConstant.KNOWLEDGE_PIPELINE_SAVE_PROFILE,
                 "score=" + context.getScoreAfterRepair().getTotalScore(),() -> saveProfile(context,profileContext,sourceSnapshot));
         if(SpaceConstant.KNOWLEDGE_PROFILE_NEEDS_REVIEW.equals(profile.getProfileStatus())) {
@@ -587,11 +761,20 @@ public class KnowledgePipelineService {
         profile.setErrorMessage(null);
         profile.setStatus(StatusConstant.ENABLE);
         profile.setCreatetime(LocalDateTime.now());
+        if(context.getTaskExecutionContext()!=null) {
+            return toProfileVO(knowledgeProfileWriteService.saveProfileFenced(profile,generated.getQuestions(),
+                    ragProperties.getQuery().getModel(),"knowledge-profile-v1",context.getTaskId(),context.getAsyncTaskId(),
+                    context.getExpectedDocumentVersion(),context.getAttemptNo(),document.getFileHash()));
+        }
         return toProfileVO(knowledgeProfileWriteService.saveProfile(profile,generated.getQuestions(),
                 ragProperties.getQuery().getModel(),"knowledge-profile-v1"));
     }
 
     private String generateProfileRaw(SpaceRagDocument document, String context) {
+        return generateProfileRaw(document,context,false);
+    }
+
+    private String generateProfileRaw(SpaceRagDocument document, String context,boolean strict) {
         RagGenerateRequest request = new RagGenerateRequest();
         request.setModel(ragProperties.getQuery().getModel());
         request.setTemperature(0.1);
@@ -606,9 +789,11 @@ public class KnowledgePipelineService {
             if(response != null && response.getText() != null && !response.getText().isBlank()) {
                 return response.getText();
             }
-        } catch (Exception ignored) {
+        } catch (Exception failure) {
+            if(strict) throw new RetryableTaskException("Knowledge profile model is temporarily unavailable");
             // Fall back to deterministic metadata when generation is unavailable.
         }
+        if(strict) throw new RetryableTaskException("Knowledge profile model returned an empty response");
         return toJsonObject(fallbackDraft(document,context));
     }
 
@@ -712,11 +897,27 @@ public class KnowledgePipelineService {
     }
 
     private SpaceKnowledgePipelineTask createDocumentProfileTask(Long spaceId, Long documentId, Long userId, String stage, boolean forceRebuild) {
+        return createDocumentProfileTask(spaceId,documentId,userId,stage,forceRebuild,null);
+    }
+
+    private SpaceKnowledgePipelineTask createDocumentProfileTask(Long spaceId, Long documentId, Long userId,
+                                                                  String stage, boolean forceRebuild, Long parentTaskId) {
         SpaceRagDocument document = requireDocument(spaceId,documentId);
-        SpaceKnowledgePipelineTask task = createTask(spaceId,document.getId(),SpaceConstant.KNOWLEDGE_TASK_PROFILE_DOCUMENT,userId,forceRebuild);
+        SpaceKnowledgePipelineTask task = createTask(spaceId,document.getId(),SpaceConstant.KNOWLEDGE_TASK_PROFILE_DOCUMENT,
+                userId,forceRebuild,true,parentTaskId);
         updateFlow(task.getId(),SpaceConstant.KNOWLEDGE_TASK_PENDING,stage,0,1,0,0,null,null,null);
         pipelineEventService.taskCreated(task.getId(),spaceId,document.getId(),"knowledge-" + task.getId());
         return taskMapper.getById(task.getId());
+    }
+
+    private SpaceKnowledgePipelineTask createFanoutChild(SpaceKnowledgePipelineTask parent,SpaceRagDocument document) {
+        if(transactionTemplate==null) {
+            return createDocumentProfileTask(parent.getSpaceId(),document.getId(),parent.getCreatedBy(),
+                    SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,false,parent.getId());
+        }
+        return transactionTemplate.execute(status -> createDocumentProfileTask(
+                parent.getSpaceId(),document.getId(),parent.getCreatedBy(),
+                SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,false,parent.getId()));
     }
 
     private void saveFailedProfile(SpaceRagDocument document, String errorMessage) {
@@ -762,11 +963,18 @@ public class KnowledgePipelineService {
         return document;
     }
 
-    private SpaceKnowledgePipelineTask createTask(Long spaceId, Long documentId, String taskType, Long userId, boolean forceRebuild) {
+    private SpaceKnowledgePipelineTask createTask(Long spaceId, Long documentId, String taskType, Long userId,
+                                                   boolean forceRebuild,boolean dispatch) {
+        return createTask(spaceId,documentId,taskType,userId,forceRebuild,dispatch,null);
+    }
+
+    private SpaceKnowledgePipelineTask createTask(Long spaceId, Long documentId, String taskType, Long userId,
+                                                   boolean forceRebuild,boolean dispatch,Long parentTaskId) {
         LocalDateTime now = LocalDateTime.now();
         SpaceKnowledgePipelineTask task = new SpaceKnowledgePipelineTask();
         task.setSpaceId(spaceId);
         task.setDocumentId(documentId);
+        task.setParentTaskId(parentTaskId);
         task.setTaskType(taskType);
         task.setTaskStatus(SpaceConstant.KNOWLEDGE_TASK_PENDING);
         task.setStage(SpaceConstant.KNOWLEDGE_STAGE_PENDING);
@@ -780,14 +988,23 @@ public class KnowledgePipelineService {
         task.setTerminalReason(null);
         task.setIncrementalAction(null);
         task.setIncrementalDetail(null);
+        long resourceVersion=1L;
+        if(documentId!=null) {
+            SpaceRagDocument document=spaceRagDocumentMapper.getById(documentId);
+            resourceVersion=document==null || document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+        }
+        task.setResourceVersion(resourceVersion);
         task.setCreatedBy(userId);
         task.setCreatetime(now);
         task.setUpdatetime(now);
         try {
             taskMapper.insert(task);
+            if(dispatch && mqKnowledgeEnabled()) registerUnified(task);
             return task;
         } catch (DuplicateKeyException ex) {
-            SpaceKnowledgePipelineTask active = documentId == null
+            SpaceKnowledgePipelineTask active = parentTaskId != null
+                    ? taskMapper.getByParentDocument(parentTaskId,documentId)
+                    : documentId == null
                     ? taskMapper.getActiveSpaceTask(spaceId)
                     : taskMapper.getActiveDocumentTask(spaceId,documentId);
             if(active != null) {
@@ -846,6 +1063,55 @@ public class KnowledgePipelineService {
                                   String errorMessage, LocalDateTime startedTime, LocalDateTime finishedTime) {
         return taskMapper.updateFlowIfRunning(taskId,status,stage,progress,totalCount,successCount,failedCount,
                 errorMessage,startedTime,finishedTime,LocalDateTime.now());
+    }
+
+    private void checkpoint(KnowledgePipelineContext context) {
+        if(context.getTaskExecutionContext()!=null) context.getTaskExecutionContext().checkpoint();
+    }
+
+    private boolean mqKnowledgeEnabled() {
+        return mqProperties!=null && mqProperties.isEnabled() && mqProperties.isKnowledge() && taskCenter!=null;
+    }
+
+    private void registerUnified(SpaceKnowledgePipelineTask task) {
+        long version=resourceVersion(task);
+        boolean document=task.getDocumentId()!=null;
+        String type=document ? "KNOWLEDGE_PROFILE_DOCUMENT" : "KNOWLEDGE_PROFILE_SPACE_FANOUT";
+        String resource=document ? "knowledge-document:"+task.getDocumentId()
+                : "knowledge-space:"+task.getSpaceId()+":"+task.getId();
+        UnifiedAsyncTask central=taskCenter.createTask(new TaskCreateCommand(
+                "knowledge-pipeline:"+task.getId()+":"+type+":"+version,
+                "knowledge",type,new DomainTaskPayload(task.getId()),task.getCreatedBy(),task.getSpaceId(),resource,version));
+        if(taskMapper.bindAsyncTask(task.getId(),version,central.getId(),LocalDateTime.now())!=1) {
+            throw new StaleTaskException("Knowledge pipeline task binding was rejected");
+        }
+        task.setAsyncTaskId(central.getId());
+    }
+
+    private SpaceKnowledgePipelineTask requireAsyncTask(Long id,Long asyncTaskId,long version,String type) {
+        SpaceKnowledgePipelineTask task=taskMapper.getById(id);
+        if(task==null || !type.equals(task.getTaskType()) || !asyncTaskId.equals(task.getAsyncTaskId())
+                || resourceVersion(task)!=version) {
+            throw new StaleTaskException("Knowledge pipeline task association is stale");
+        }
+        return task;
+    }
+
+    private boolean documentMatches(SpaceKnowledgePipelineTask task,SpaceRagDocument document,long version) {
+        long current=document==null || document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+        return document!=null && task.getSpaceId().equals(document.getSpaceId())
+                && document.getStatus()!=null && document.getStatus()==StatusConstant.ENABLE
+                && SpaceConstant.RAG_INDEX_READY.equals(document.getIndexStatus()) && current==version;
+    }
+
+    private long resourceVersion(SpaceKnowledgePipelineTask task) {
+        return task.getResourceVersion()==null ? 1L : task.getResourceVersion();
+    }
+
+    private void finishAsync(SpaceKnowledgePipelineTask task,Long asyncTaskId,String status,String stage,
+                             int total,int success,int failed,String error,String reason) {
+        taskMapper.finishAsync(task.getId(),resourceVersion(task),asyncTaskId,status,stage,total,success,failed,
+                error,reason,LocalDateTime.now());
     }
 
     private String buildContext(List<FileRagChunk> chunks, List<FileRagChunk> usedChunks) {
@@ -1180,6 +1446,10 @@ public class KnowledgePipelineService {
                                    String context,
                                    int totalContentChunkCount) {
     }
+
+    public record DocumentAsyncResult(Long pipelineTaskId,Long documentId,String profileStatus) {}
+
+    public record SpaceFanoutResult(Long pipelineTaskId,int dispatched) {}
 
     record GeneratedProfile(String title,
                             String summary,

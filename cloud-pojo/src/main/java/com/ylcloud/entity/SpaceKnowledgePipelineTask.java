@@ -9,6 +9,7 @@ public class SpaceKnowledgePipelineTask {
     private Long id;
     private Long spaceId;
     private Long documentId;
+    private Long parentTaskId;
     private String taskType;
     private String taskStatus;
     private String stage;
@@ -17,6 +18,8 @@ public class SpaceKnowledgePipelineTask {
     private Integer successCount;
     private Integer failedCount;
     private String errorMessage;
+    private Long asyncTaskId;
+    private Long resourceVersion;
     private Boolean forceRebuild;
     private String terminalStage;
     private String terminalReason;

@@ -36,7 +36,8 @@ public interface UnifiedTaskQueryMapper {
                  k.total_count,coalesce(k.success_count,0)+coalesce(k.failed_count,0),
                  coalesce(k.error_message,k.terminal_reason,k.task_status),k.error_message,
                  (k.task_status in ('FAILED','PARTIAL_SUCCESS')),k.createtime,k.updatetime,'knowledge'
-          from space_knowledge_pipeline_task k where k.created_by=#{userId} and (#{spaceId} is null or k.space_id=#{spaceId})
+          from space_knowledge_pipeline_task k where k.async_task_id is null and k.created_by=#{userId}
+            and (#{spaceId} is null or k.space_id=#{spaceId})
         ) merged
         where (#{spaceId} is null or merged.spaceId=#{spaceId})
           and (#{status} is null or merged.status=#{status})

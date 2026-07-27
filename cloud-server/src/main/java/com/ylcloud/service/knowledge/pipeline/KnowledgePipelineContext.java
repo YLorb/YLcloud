@@ -8,6 +8,7 @@ import com.ylcloud.service.knowledge.quality.KnowledgeProfileQualityResult;
 import lombok.Data;
 
 import java.util.List;
+import com.ylcloud.async.worker.TaskExecutionContext;
 
 @Data
 public class KnowledgePipelineContext {
@@ -27,4 +28,7 @@ public class KnowledgePipelineContext {
     private KnowledgeProfileQualityResult scoreAfterRepair;
     private int repairAttempt;
     private String repairReason;
+    private Long expectedDocumentVersion;
+    private Long asyncTaskId;
+    private TaskExecutionContext taskExecutionContext;
 }
