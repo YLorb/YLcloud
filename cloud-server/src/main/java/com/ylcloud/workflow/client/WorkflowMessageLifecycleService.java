@@ -3,7 +3,19 @@ package com.ylcloud.workflow.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.entity.KnowledgeChatMessage;
+import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
+import com.ylcloud.async.mq.AsyncMqProperties;
+import com.ylcloud.async.task.DomainTaskPayload;
+import com.ylcloud.async.task.FatalTaskException;
+import com.ylcloud.async.task.RetryableTaskException;
+import com.ylcloud.async.task.StaleTaskException;
+import com.ylcloud.async.task.TaskCreateCommand;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
+import com.ylcloud.async.worker.StaleWorkerException;
+import com.ylcloud.async.worker.TaskCanceledException;
+import com.ylcloud.async.worker.TaskExecutionContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.ylcloud.workflow.client.WorkflowRunRequestFactory.PreparedWorkflowRun;
 import com.ylcloud.workflow.contract.WorkflowContracts.JavaMessageStatus;
 import com.ylcloud.workflow.contract.WorkflowContracts.WorkflowResult;
@@ -14,6 +26,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.Map;
 
 /**
  * 将 Java 消息与 Workflow Run/Execution 绑定，并以 execution epoch 作为所有异步写入的 CAS 门禁。
@@ -27,6 +40,8 @@ public class WorkflowMessageLifecycleService {
     private final WorkflowAnswerGenerator answerGenerator;
     private final KnowledgeChatMessageMapper messageMapper;
     private final ObjectMapper objectMapper;
+    private UnifiedTaskCenterService taskCenter;
+    private AsyncMqProperties mqProperties;
 
     public WorkflowMessageLifecycleService(
             WorkflowHttpClient client,
@@ -99,11 +114,11 @@ public class WorkflowMessageLifecycleService {
             // 短暂查询失败由下一次 2 秒调和重试；确定性的 4xx/契约拒绝则终止当前轮次。
             if (!exception.isRetryable()) {
                 messageMapper.markWorkflowFailed(messageId, message.getWorkflowExecutionId(),
-                        message.getWorkflowExecutionEpoch(), WorkflowRunStatus.FAILED.name(), errorSummary(exception));
+                        message.getWorkflowExecutionEpoch(), WorkflowRunStatus.FAILED.name(), "Workflow service rejected request");
             }
         } catch (Exception exception) {
             messageMapper.markWorkflowFailed(messageId, message.getWorkflowExecutionId(),
-                    message.getWorkflowExecutionEpoch(), WorkflowRunStatus.FAILED.name(), errorSummary(exception));
+                    message.getWorkflowExecutionEpoch(), WorkflowRunStatus.FAILED.name(), "Workflow internal processing failure");
         }
     }
 
@@ -130,6 +145,95 @@ public class WorkflowMessageLifecycleService {
         }
     }
 
+    public Map<String,Object> executeAsync(Long messageId,Long asyncTaskId,long version,boolean retry,
+                                           boolean finalAttempt,TaskExecutionContext context) {
+        KnowledgeChatMessage message=requireCurrent(messageId,asyncTaskId,version);
+        if(messageMapper.claimChatAsync(messageId,version,asyncTaskId,LocalDateTime.now())==0) {
+            throw new StaleTaskException("Workflow Chat 任务状态已变化");
+        }
+        try {
+            context.checkpoint();
+            message=messageMapper.getTaskById(messageId);
+            if(message.getWorkflowRunId()==null) startAccepted(message);
+            else if(retry && !isSuccessfulWorkflow(message)) retryAccepted(message);
+            long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(90);
+            while(System.nanoTime()<deadline) {
+                context.checkpoint();
+                message=requireCurrent(messageId,asyncTaskId,version);
+                if("SUCCESS".equals(message.getTaskStatus())) {
+                    return Map.of("messageId",messageId,"status","SUCCESS","workflowRunId",message.getWorkflowRunId());
+                }
+                if("CANCELED".equals(message.getTaskStatus())) throw new TaskCanceledException();
+                if("FAILED".equals(message.getTaskStatus())) {
+                    if("FAILED".equals(message.getGenerationStatus()) && !finalAttempt
+                            && messageMapper.requeueWorkflowGenerationFailure(messageId,message.getWorkflowExecutionEpoch())==1) {
+                        throw new RetryableTaskException("Workflow 最终回答生成暂时不可用");
+                    }
+                    throw new FatalTaskException("Workflow 执行失败");
+                }
+                reconcile(messageId);
+                message=messageMapper.getTaskById(messageId);
+                if(message!=null && "SUCCESS".equals(message.getTaskStatus())) {
+                    return Map.of("messageId",messageId,"status","SUCCESS","workflowRunId",message.getWorkflowRunId());
+                }
+                try { Thread.sleep(2000L); }
+                catch(InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new RetryableTaskException("Workflow 等待被中断");
+                }
+            }
+            if(finalAttempt) failAsyncDomain(messageId,asyncTaskId,version,"Workflow processing timed out");
+            throw new RetryableTaskException("Workflow 执行尚未完成");
+        } catch(TaskCanceledException | StaleWorkerException | StaleTaskException | FatalTaskException control) {
+            throw control;
+        } catch(WorkflowClientException failure) {
+            if(finalAttempt || !failure.isRetryable()) failAsyncDomain(messageId,asyncTaskId,version,"Workflow service unavailable");
+            if(failure.isRetryable()) throw new RetryableTaskException("Workflow 服务暂时不可用");
+            throw new FatalTaskException("Workflow 请求被拒绝");
+        } catch(RetryableTaskException retryable) {
+            throw retryable;
+        } catch(Exception failure) {
+            if(finalAttempt) failAsyncDomain(messageId,asyncTaskId,version,"Workflow internal failure");
+            throw new RetryableTaskException("Workflow 服务暂时不可用");
+        }
+    }
+
+    private void startAccepted(KnowledgeChatMessage message) {
+        PreparedWorkflowRun prepared=requestFactory.create(message);
+        WorkflowRunAccepted accepted=client.createRun(prepared.request(),prepared.idempotencyKey());
+        if(messageMapper.bindWorkflowRun(message.getId(),accepted.runId().toString(),accepted.executionId().toString(),
+                accepted.executionEpoch())!=1) throw new StaleTaskException("Workflow 受理结果被版本栅栏拒绝");
+    }
+
+    private void retryAccepted(KnowledgeChatMessage message) {
+        int oldEpoch=message.getWorkflowExecutionEpoch()==null ? 0 : message.getWorkflowExecutionEpoch();
+        UUID runId=UUID.fromString(message.getWorkflowRunId());
+        WorkflowRunAccepted accepted=client.retryRun(runId,"assistant:"+message.getId()+":retry:"+message.getRetryCount());
+        if(!runId.equals(accepted.runId()) || accepted.executionEpoch()<=oldEpoch) {
+            throw new FatalTaskException("Workflow 返回了无效的重试轮次");
+        }
+        if(messageMapper.bindWorkflowRetry(message.getId(),runId.toString(),accepted.executionId().toString(),
+                accepted.executionEpoch())!=1) throw new StaleTaskException("Workflow 重试结果被版本栅栏拒绝");
+    }
+
+    private boolean isSuccessfulWorkflow(KnowledgeChatMessage message) {
+        return "SUCCEEDED".equals(message.getWorkflowStatus()) || "DEGRADED".equals(message.getWorkflowStatus());
+    }
+
+    private KnowledgeChatMessage requireCurrent(Long messageId,Long asyncTaskId,long version) {
+        KnowledgeChatMessage current=messageMapper.getTaskById(messageId);
+        long currentVersion=current==null || current.getAsyncVersion()==null ? 1L : current.getAsyncVersion();
+        if(current==null || current.getStatus()==null || current.getStatus()!=1
+                || !asyncTaskId.equals(current.getAsyncTaskId()) || currentVersion!=version) {
+            throw new StaleTaskException("Workflow Chat 消息已删除或资源版本已变化");
+        }
+        return current;
+    }
+
+    private void failAsyncDomain(Long messageId,Long asyncTaskId,long version,String safeError) {
+        messageMapper.markChatFailedAsync(messageId,version,asyncTaskId,safeError,LocalDateTime.now());
+    }
+
     public void cancel(KnowledgeChatMessage message) {
         if (message.getWorkflowRunId() == null || message.getWorkflowExecutionId() == null
                 || message.getWorkflowExecutionEpoch() == null) {
@@ -148,11 +252,42 @@ public class WorkflowMessageLifecycleService {
             initialDelayString = "${ylcloud.workflow.reconcile-initial-delay-ms:2000}")
     public void recover() {
         if (!isEnabled()) return;
+        if(mqChatEnabled()) {
+            messageMapper.listWorkflowUnaccepted(RECOVERY_BATCH_SIZE).forEach(message -> registerUnified(message,"CHAT_WORKFLOW_RUN"));
+            messageMapper.listWorkflowReconcilable(RECOVERY_BATCH_SIZE).forEach(message -> {
+                if(message.getAsyncTaskId()==null || !taskCenter.isActive(message.getAsyncTaskId())) {
+                    registerUnified(message,"CHAT_WORKFLOW_RUN");
+                }
+            });
+            return;
+        }
         messageMapper.requeueStaleWorkflowGeneration(LocalDateTime.now().minusMinutes(10));
         messageMapper.listWorkflowUnaccepted(RECOVERY_BATCH_SIZE)
                 .forEach(message -> start(message.getId()));
         messageMapper.listWorkflowReconcilable(RECOVERY_BATCH_SIZE)
                 .forEach(message -> reconcile(message.getId()));
+    }
+
+    @Autowired(required=false)
+    public void setUnifiedTaskCenter(UnifiedTaskCenterService taskCenter,AsyncMqProperties mqProperties) {
+        this.taskCenter=taskCenter;
+        this.mqProperties=mqProperties;
+    }
+
+    private void registerUnified(KnowledgeChatMessage message,String taskType) {
+        if(message.getAsyncTaskId()!=null && taskCenter.isActive(message.getAsyncTaskId())) return;
+        long version=message.getAsyncVersion()==null ? 1L : message.getAsyncVersion();
+        UnifiedAsyncTask task=taskCenter.createTask(new TaskCreateCommand(
+                "chat-message:"+message.getId()+":"+taskType+":"+version,"chat",taskType,
+                new DomainTaskPayload(message.getId()),message.getUserId(),null,
+                "chat-message:"+message.getSessionId()+":"+message.getId(),version));
+        if(messageMapper.bindAsyncTask(message.getId(),version,task.getId(),taskType,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("Workflow Chat 任务绑定被版本栅栏拒绝");
+        }
+    }
+
+    private boolean mqChatEnabled() {
+        return taskCenter!=null && mqProperties!=null && mqProperties.isEnabled() && mqProperties.isChat();
     }
 
     private void generateFinal(KnowledgeChatMessage message) {
@@ -167,7 +302,7 @@ public class WorkflowMessageLifecycleService {
             String answer = answerGenerator.generate(claimed, result);
             messageMapper.markWorkflowGenerated(message.getId(), epoch, answer);
         } catch (Exception exception) {
-            messageMapper.markWorkflowGenerationFailed(message.getId(), epoch, errorSummary(exception));
+            messageMapper.markWorkflowGenerationFailed(message.getId(), epoch, "Workflow final generation failed");
         }
     }
 

@@ -1,11 +1,11 @@
 ---
 id: TASK-20260725-019
 type: implementation-task
-status: pending
+status: completed
 priority: P0
 created: 2026-07-25
-updated: 2026-07-25
-owner: unassigned
+updated: 2026-07-27
+owner: codex
 version: 2
 tags: [mq-v4, chat, workflow]
 ---
@@ -62,3 +62,14 @@ tags: [mq-v4, chat, workflow]
 - 独立测试、commit、push；记录延迟分位数、失败率和 Flag 切换演练。
 - 下一任务：[[10-规划与实施/任务/TASK-20260725-020-mq-v5知识流水线任务迁移]]
 - 测试：[[10-规划与实施/测试/TEST-20260725-002-统一异步任务与消息队列测试要求]]
+
+## 实施与验收记录（2026-07-27）
+
+- 新增 `CHAT_QUERY`、`CHAT_WORKFLOW_RUN`、`CHAT_WORKFLOW_RETRY`，统一路由到 chat 队列；默认并发 3、prefetch 1。
+- Chat 消息新增 `async_task_id`、`async_version`、`async_task_type`。提交时领域消息、统一任务与 Outbox 同事务写入；Payload 仅包含消息 ID。
+- 重试、取消和会话删除推进资源版本并清除旧任务绑定；普通 Chat 与 Workflow 最终写入均校验消息、版本和任务 ID，迟到结果无法覆盖新状态。
+- 定时恢复器在 Flag 开启时只登记/修复统一任务，不直接调用模型或 Workflow；关闭 `YLCLOUD_ASYNC_MQ_CHAT` 后恢复旧执行路径，实测未生成新的统一任务。
+- 自动化结果：TASK-019 专项 13 项、相关 Chat/Workflow 回归合计 17 项通过；全量后端 270 项通过；前端 12 项通过且生产构建成功；两份 Compose 配置校验通过。
+- 真实环境结果：隔离验收库由 V44 升级到 V45；正常投递 Outbox `SENT`；Rabbit 停机时任务保持 `PENDING_PUBLISH`、Outbox 保持 `PENDING` 并累计 7 次补发，恢复后第 8 次发送成功并被消费；领域错误摘要为安全固定文本。
+- 回切结果：Flag=false 后同一消息由旧路径处理，统一任务数量保持不变（2），未发生双跑。
+- 已知边界：Workflow 服务未作为本地 Compose 依赖启动，远端 Workflow 契约、单次受理、取消检查和结果版本栅栏由 7 项自动化测试覆盖；生产发布前仍需在包含 Workflow 服务的预发布环境做端到端演练。

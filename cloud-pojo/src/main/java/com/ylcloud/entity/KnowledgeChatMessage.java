@@ -32,6 +32,9 @@ public class KnowledgeChatMessage {
     private String workflowSnapshotHash;
     private String workflowResultJson;
     private String generationStatus;
+    private Long asyncTaskId;
+    private Long asyncVersion;
+    private String asyncTaskType;
     private Integer status;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;

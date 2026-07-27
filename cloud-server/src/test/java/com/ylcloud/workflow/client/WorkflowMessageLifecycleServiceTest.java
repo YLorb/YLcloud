@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.ylcloud.entity.KnowledgeChatMessage;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
+import com.ylcloud.async.worker.TaskCanceledException;
+import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.workflow.client.WorkflowRunRequestFactory.PreparedWorkflowRun;
 import com.ylcloud.workflow.contract.WorkflowContracts.KnowledgeScopeDecision;
 import com.ylcloud.workflow.contract.WorkflowContracts.RetrievalTrace;
@@ -27,8 +29,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class WorkflowMessageLifecycleServiceTest {
     private static final UUID RUN_ID = UUID.fromString("11111111-1111-4111-8111-111111111111");
@@ -120,6 +126,39 @@ class WorkflowMessageLifecycleServiceTest {
         service.retry(9L);
 
         verify(mapper).bindWorkflowRetry(9L, RUN_ID.toString(), newExecution.toString(), 2);
+    }
+
+    @Test
+    void unifiedWorkflowTaskStartsExactlyOnceAndCompletesFromFencedState() {
+        KnowledgeChatMessage queued=message("QUEUED",null,null,null);
+        queued.setStatus(1); queued.setAsyncTaskId(30L); queued.setAsyncVersion(1L);
+        KnowledgeChatMessage success=message("SUCCESS","SUCCEEDED",EXECUTION_ID.toString(),1);
+        success.setStatus(1); success.setAsyncTaskId(30L); success.setAsyncVersion(1L);
+        when(mapper.getTaskById(9L)).thenReturn(queued,queued,success);
+        when(mapper.claimChatAsync(eq(9L),eq(1L),eq(30L),any())).thenReturn(1);
+        when(requestFactory.create(queued)).thenReturn(new PreparedWorkflowRun(createRequest(),"idem-9"));
+        when(client.createRun(any(),eq("idem-9"))).thenReturn(accepted(1,EXECUTION_ID));
+        when(mapper.bindWorkflowRun(9L,RUN_ID.toString(),EXECUTION_ID.toString(),1)).thenReturn(1);
+
+        service.executeAsync(9L,30L,1L,false,false,mock(TaskExecutionContext.class));
+
+        verify(client,times(1)).createRun(any(),eq("idem-9"));
+        verify(client,never()).getRun(any());
+    }
+
+    @Test
+    void unifiedWorkflowCancellationBeforeSubmissionCallsNoRemoteService() {
+        KnowledgeChatMessage queued=message("QUEUED",null,null,null);
+        queued.setStatus(1); queued.setAsyncTaskId(30L); queued.setAsyncVersion(1L);
+        when(mapper.getTaskById(9L)).thenReturn(queued);
+        when(mapper.claimChatAsync(eq(9L),eq(1L),eq(30L),any())).thenReturn(1);
+        TaskExecutionContext context=mock(TaskExecutionContext.class);
+        doThrow(new TaskCanceledException()).when(context).checkpoint();
+
+        assertThrows(TaskCanceledException.class,
+                () -> service.executeAsync(9L,30L,1L,false,false,context));
+
+        verifyNoInteractions(client);
     }
 
     private KnowledgeChatMessage message(String taskStatus, String workflowStatus, String executionId, Integer epoch) {

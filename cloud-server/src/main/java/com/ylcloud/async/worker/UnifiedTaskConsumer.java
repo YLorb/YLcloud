@@ -62,6 +62,12 @@ public class UnifiedTaskConsumer {
         consume(message,channel);
     }
 
+    @RabbitListener(queues = RabbitTaskTopology.CHAT_QUEUE,
+            concurrency = "${ylcloud.async.mq.chat-concurrency:3}")
+    public void consumeChat(Message message,Channel channel) throws Exception {
+        consume(message,channel);
+    }
+
     private void consume(Message message, Channel channel) throws Exception {
         long tag = message.getMessageProperties().getDeliveryTag();
         TaskDispatchEnvelope envelope;

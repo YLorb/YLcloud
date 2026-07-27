@@ -10,8 +10,19 @@ import com.ylcloud.VO.KnowledgeRagQueryVO;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.KnowledgeChatMessage;
 import com.ylcloud.entity.KnowledgeChatSession;
+import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
+import com.ylcloud.async.mq.AsyncMqProperties;
+import com.ylcloud.async.task.DomainTaskPayload;
+import com.ylcloud.async.task.FatalTaskException;
+import com.ylcloud.async.task.RetryableTaskException;
+import com.ylcloud.async.task.StaleTaskException;
+import com.ylcloud.async.task.TaskCreateCommand;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
+import com.ylcloud.async.worker.StaleWorkerException;
+import com.ylcloud.async.worker.TaskCanceledException;
+import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.workflow.client.WorkflowMessageLifecycleService;
 import com.ylcloud.workflow.client.WorkflowStatusPresentation;
 import com.ylcloud.workflow.contract.WorkflowContracts.WorkflowRunStatus;
@@ -44,6 +55,8 @@ public class KnowledgeChatQueryService {
     private final WorkflowMessageLifecycleService workflowLifecycle;
     private WebhookEventService webhookEventService;
     private QuotaService quotaService;
+    private UnifiedTaskCenterService taskCenter;
+    private AsyncMqProperties mqProperties;
 
     @Autowired
     public KnowledgeChatQueryService(KnowledgeChatSessionMapper sessionMapper,
@@ -112,12 +125,14 @@ public class KnowledgeChatQueryService {
         assistant.setRequestKey(normalizedKey);
         assistant.setRequestJson(writeRequest(dto));
         assistant.setRetryCount(0);
+        assistant.setAsyncVersion(1L);
         assistant.setStatus(StatusConstant.ENABLE);
         assistant.setCreatetime(now);
         assistant.setUpdatetime(now);
         messageMapper.insert(assistant);
         sessionMapper.touch(session.getId(),userId,now);
-        dispatchAfterCommit(assistant.getId());
+        if(mqChatEnabled()) registerUnified(assistant,workflowEnabled() ? "CHAT_WORKFLOW_RUN" : "CHAT_QUERY");
+        else dispatchAfterCommit(assistant.getId());
         return toVO(assistant);
     }
 
@@ -137,7 +152,12 @@ public class KnowledgeChatQueryService {
         if(updated == 0) {
             throw new BaseException("回答状态已变化，请刷新后重试");
         }
-        dispatchAfterCommit(messageId, workflowRetry);
+        long nextVersion=(message.getAsyncVersion()==null ? 1L : message.getAsyncVersion())+1L;
+        message.setAsyncVersion(nextVersion);
+        message.setAsyncTaskId(null);
+        message.setAsyncTaskType(null);
+        if(mqChatEnabled()) registerUnified(message,workflowRetry ? "CHAT_WORKFLOW_RETRY" : "CHAT_QUERY");
+        else dispatchAfterCommit(messageId, workflowRetry);
         message.setTaskStatus("QUEUED");
         message.setErrorMessage(null);
         message.setRetryCount((message.getRetryCount() == null ? 0 : message.getRetryCount()) + 1);
@@ -149,6 +169,17 @@ public class KnowledgeChatQueryService {
     public KnowledgeChatMessageVO cancel(Long sessionId, Long messageId, Long userId) {
         requireSession(sessionId,userId);
         KnowledgeChatMessage message = messageMapper.getOwned(messageId,sessionId,userId);
+        if(mqChatEnabled()) {
+            if(message==null || !"assistant".equals(message.getRole())) throw new BaseException("待取消的回答不存在");
+            if(!"QUEUED".equals(message.getTaskStatus()) && !"RUNNING".equals(message.getTaskStatus())) {
+                throw new BaseException("当前回答不可取消");
+            }
+            if(message.getAsyncTaskId()==null) throw new BaseException("回答尚未绑定统一任务");
+            taskCenter.cancel(message.getAsyncTaskId(),userId,"用户取消回答");
+            if(workflowEnabled() && message.getWorkflowRunId()!=null) workflowLifecycle.cancel(message);
+            messageMapper.cancelChatAsync(messageId,currentVersion(message),message.getAsyncTaskId(),LocalDateTime.now());
+            return toVO(messageMapper.getOwned(messageId,sessionId,userId));
+        }
         if(message == null || !"assistant".equals(message.getRole())) throw new BaseException("待取消的回答不存在");
         if(workflowLifecycle == null || !workflowLifecycle.isEnabled()) throw new BaseException("Workflow 未启用");
         if(!"QUEUED".equals(message.getTaskStatus()) && !"RUNNING".equals(message.getTaskStatus())) {
@@ -160,6 +191,8 @@ public class KnowledgeChatQueryService {
     }
 
     public void execute(Long messageId) {
+        KnowledgeChatMessage before=messageMapper.getTaskById(messageId);
+        if(before!=null && before.getAsyncTaskId()!=null && taskCenter!=null && taskCenter.isActive(before.getAsyncTaskId())) return;
         if(messageMapper.claimQueued(messageId) == 0) {
             return;
         }
@@ -196,6 +229,55 @@ public class KnowledgeChatQueryService {
         }
     }
 
+    public Map<String,Object> executeAsync(Long messageId,Long asyncTaskId,long version,
+                                           boolean finalAttempt,TaskExecutionContext context) {
+        KnowledgeChatMessage message=requireCurrent(messageId,asyncTaskId,version);
+        if(messageMapper.claimChatAsync(messageId,version,asyncTaskId,LocalDateTime.now())==0) {
+            throw new StaleTaskException("Chat 任务状态已变化");
+        }
+        KnowledgeChatQueryCreateDTO request=null;
+        try {
+            context.checkpoint();
+            request=objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class);
+            ConversationContextSnapshot snapshot=contextService.resolve(message);
+            context.checkpoint();
+            KnowledgeRagQueryDTO ragRequest=new KnowledgeRagQueryDTO();
+            ragRequest.setQuestion(request.getQuestion());
+            ragRequest.setSpaceIds(request.getSpaceIds());
+            ragRequest.setRetrievalMode(request.getRetrievalMode());
+            ragRequest.setHistory(snapshot.history());
+            KnowledgeRagQueryVO result=ragQueryService.query(ragRequest,message.getUserId());
+            context.checkpoint();
+            requireCurrent(messageId,asyncTaskId,version);
+            if(quotaService!=null) quotaService.consumeModelTokens(message.getUserId(),snapshot.totalTokens());
+            contextService.finalizeRetrieval(message,snapshot,result.getCitations()==null ? List.of() : result.getCitations().stream()
+                    .map(citation -> citation.getChunkId()).filter(java.util.Objects::nonNull).distinct().toList());
+            String answer=result.getAnswer()==null || result.getAnswer().isBlank()
+                    ? "当前知识库中没有足够相关的信息来回答这个问题。" : result.getAnswer().trim();
+            String citations=objectMapper.writeValueAsString(result.getCitations()==null ? List.of() : result.getCitations());
+            if(messageMapper.markChatSuccessAsync(messageId,version,asyncTaskId,answer,citations,LocalDateTime.now())!=1) {
+                throw new StaleTaskException("Chat 结果被版本栅栏拒绝");
+            }
+            if(memoryExtractionService!=null) memoryExtractionService.enqueue(message);
+            emitAgent(message,request,"AGENT_TASK_COMPLETED",answer);
+            return Map.of("messageId",messageId,"status","SUCCESS");
+        } catch(TaskCanceledException | StaleWorkerException | StaleTaskException control) {
+            throw control;
+        } catch(BaseException deterministic) {
+            messageMapper.markChatFailedAsync(messageId,version,asyncTaskId,"Chat request rejected",LocalDateTime.now());
+            emitAgent(message,request,"AGENT_TASK_FAILED",null);
+            throw new FatalTaskException("Chat 请求无法执行");
+        } catch(Exception failure) {
+            if(finalAttempt) {
+                messageMapper.markChatFailedAsync(messageId,version,asyncTaskId,"Chat service unavailable",LocalDateTime.now());
+                emitAgent(message,request,"AGENT_TASK_FAILED",null);
+            }
+            throw new RetryableTaskException("Chat 服务暂时不可用");
+        } finally {
+            if(quotaService!=null) quotaService.releaseAgentTask(message.getUserId());
+        }
+    }
+
     @Autowired(required = false)
     public void setWebhookEventService(WebhookEventService webhookEventService) {
         this.webhookEventService = webhookEventService;
@@ -203,6 +285,12 @@ public class KnowledgeChatQueryService {
 
     @Autowired(required=false)
     public void setQuotaService(QuotaService quotaService) { this.quotaService=quotaService; }
+
+    @Autowired(required=false)
+    public void setUnifiedTaskCenter(UnifiedTaskCenterService taskCenter,AsyncMqProperties mqProperties) {
+        this.taskCenter=taskCenter;
+        this.mqProperties=mqProperties;
+    }
 
     private void emitAgent(KnowledgeChatMessage message,KnowledgeChatQueryCreateDTO request,String eventType,String answer) {
         if(webhookEventService == null || message == null) return;
@@ -225,6 +313,14 @@ public class KnowledgeChatQueryService {
             initialDelayString = "${ylcloud.chat.recovery-initial-delay-ms:15000}")
     public void recoverPendingQueries() {
         if(workflowLifecycle != null && workflowLifecycle.isEnabled()) return;
+        if(mqChatEnabled()) {
+            messageMapper.listQueued(100).forEach(message -> {
+                if(message.getAsyncTaskId()==null || !taskCenter.isActive(message.getAsyncTaskId())) {
+                    registerUnified(message,"CHAT_QUERY");
+                }
+            });
+            return;
+        }
         messageMapper.requeueStale(LocalDateTime.now().minusMinutes(10));
         messageMapper.listQueued(100).forEach(message -> executor.execute(() -> execute(message.getId())));
     }
@@ -240,6 +336,41 @@ public class KnowledgeChatQueryService {
 
     private KnowledgeChatMessage findQueuedTask(Long messageId) {
         return messageMapper.getTaskById(messageId);
+    }
+
+    public UnifiedAsyncTask registerUnified(KnowledgeChatMessage message,String taskType) {
+        long version=currentVersion(message);
+        UnifiedAsyncTask task=taskCenter.createTask(new TaskCreateCommand(
+                "chat-message:"+message.getId()+":"+taskType+":"+version,
+                "chat",taskType,new DomainTaskPayload(message.getId()),message.getUserId(),null,
+                "chat-message:"+message.getSessionId()+":"+message.getId(),version));
+        if(messageMapper.bindAsyncTask(message.getId(),version,task.getId(),taskType,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("Chat 任务绑定被版本栅栏拒绝");
+        }
+        message.setAsyncTaskId(task.getId());
+        message.setAsyncTaskType(taskType);
+        return task;
+    }
+
+    private KnowledgeChatMessage requireCurrent(Long messageId,Long asyncTaskId,long version) {
+        KnowledgeChatMessage current=messageMapper.getTaskById(messageId);
+        if(current==null || current.getStatus()==null || current.getStatus()!=StatusConstant.ENABLE
+                || !asyncTaskId.equals(current.getAsyncTaskId()) || currentVersion(current)!=version) {
+            throw new StaleTaskException("Chat 消息已删除或资源版本已变化");
+        }
+        return current;
+    }
+
+    private long currentVersion(KnowledgeChatMessage message) {
+        return message.getAsyncVersion()==null ? 1L : message.getAsyncVersion();
+    }
+
+    private boolean workflowEnabled() {
+        return workflowLifecycle!=null && workflowLifecycle.isEnabled();
+    }
+
+    private boolean mqChatEnabled() {
+        return taskCenter!=null && mqProperties!=null && mqProperties.isEnabled() && mqProperties.isChat();
     }
 
     private void dispatchAfterCommit(Long messageId) {
