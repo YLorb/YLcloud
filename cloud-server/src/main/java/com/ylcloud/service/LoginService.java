@@ -31,6 +31,13 @@ public class LoginService {
         if(user == null || !StatusConstant.ENABLE.equals(user.getStatus())) {
             throw new UnauthorizedException("用户名或密码错误");
         }
+
+        // TASK-010: 检查账号生命周期状态
+        String accountStatus = user.getAccountStatus();
+        if(accountStatus != null && !"ACTIVE".equals(accountStatus)) {
+            throw new UnauthorizedException("账号已注销，请联系管理员恢复");
+        }
+
         if(!passwordMatches(userLoginDTO.getPassword(),user)) {
             throw new UnauthorizedException("用户名或密码错误");
         }

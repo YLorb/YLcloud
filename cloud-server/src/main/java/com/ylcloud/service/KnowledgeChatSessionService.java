@@ -241,4 +241,21 @@ public class KnowledgeChatSessionService {
         }
         return Math.min(limit,200);
     }
+
+    /**
+     * 取消用户所有活跃会话（用于账号删除）。
+     */
+    @Transactional
+    public int cancelAllUserSessions(Long userId) {
+        List<KnowledgeChatSession> sessions = sessionMapper.listByUser(userId, null, 1000);
+        int cancelled = 0;
+        LocalDateTime now = LocalDateTime.now();
+        for (KnowledgeChatSession session : sessions) {
+            messageMapper.disableBySessionId(session.getId());
+            if (sessionMapper.disable(session.getId(), userId, now) > 0) {
+                cancelled++;
+            }
+        }
+        return cancelled;
+    }
 }

@@ -108,4 +108,8 @@ public interface WebhookMapper {
             "lease_token=null,lease_until=null,updatetime=#{now} where delivery_id=#{id} and lease_token=#{token}")
     int markDead(@Param("id") Long id,@Param("token") String token,@Param("status") Integer status,
                  @Param("error") String error,@Param("now") LocalDateTime now);
+
+    @Update("update webhook_subscription set subscription_status='DISABLED',updatetime=#{now} " +
+            "where user_id=#{userId} and subscription_status='ACTIVE'")
+    int deleteByUserId(@Param("userId") Long userId);
 }

@@ -60,7 +60,7 @@ class UnifiedTaskCenterServiceTest {
                 null,null,"physical-file:file-1",1));
 
         assertEquals("cleanup",task.getTaskDomain());
-        assertEquals("{\"resourceId\":12}",task.getPayloadJson());
+        assertEquals("{\"resourceId\":12,\"spaceId\":null,\"metadata\":null}",task.getPayloadJson());
         verify(mapper).insertOutbox(anyString(),eq(12L),eq(0),anyString(),eq("task.cleanup"),anyString(),any(),any());
     }
 
