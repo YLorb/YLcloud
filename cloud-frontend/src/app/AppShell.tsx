@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Bot, BrainCircuit, ChevronLeft, ChevronRight, Database, Files, HardDrive, LayoutGrid,
-  ListTodo, LogOut, Menu, Moon, Settings, Sun, Users, X
+  ListTodo, LogOut, Menu, Moon, Settings, Shield, Sun, User, Users, Wrench, X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -16,7 +16,8 @@ const navItems = [
   { to: "/knowledge", label: "知识库", icon: Database },
   { to: "/assistant", label: "AI Assistant", icon: Bot },
   { to: "/memories", label: "记忆管理", icon: BrainCircuit },
-  { to: "/tasks", label: "后台任务", icon: ListTodo }
+  { to: "/tasks", label: "后台任务", icon: ListTodo },
+  { to: "/account", label: "账号设置", icon: User }
 ];
 
 const routeMeta = [
@@ -26,6 +27,10 @@ const routeMeta = [
   { test: (path: string) => path.startsWith("/knowledge"), title: "知识库", description: "管理 RAG 索引、知识画像和检索质量。" },
   { test: (path: string) => path.startsWith("/assistant"), title: "AI Assistant", description: "基于一个或多个知识库进行可信、可恢复的问答。" },
   { test: (path: string) => path.startsWith("/tasks"), title: "后台任务", description: "查看执行阶段、结果并恢复失败任务。" },
+  { test: (path: string) => path.startsWith("/account"), title: "账号设置", description: "管理账号状态、数据导出和注销选项。" },
+  { test: (path: string) => path.startsWith("/admin/audit"), title: "安全审计", description: "查看不可变的安全事件日志和保留策略。" },
+  { test: (path: string) => path.startsWith("/admin/backup"), title: "备份状态", description: "监控系统备份和恢复就绪状态。" },
+  { test: (path: string) => path.startsWith("/admin/operations"), title: "系统运维", description: "维护模式控制和升级检查清单。" },
   { test: (path: string) => path.startsWith("/admin"), title: "Admin Settings", description: "管理站点信息、权限、存储配额和 AI/RAG 配置。" }
 ];
 
@@ -83,6 +88,15 @@ export function AppShell() {
               <span className="nav-eyebrow nav-eyebrow--spaced">管理</span>
               <NavLink to="/admin/settings" aria-label="Admin Settings" title={collapsed ? "Admin Settings" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
                 <Settings size={19} aria-hidden="true" /><span>Admin Settings</span>
+              </NavLink>
+              <NavLink to="/admin/audit" aria-label="安全审计" title={collapsed ? "安全审计" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
+                <Shield size={19} aria-hidden="true" /><span>安全审计</span>
+              </NavLink>
+              <NavLink to="/admin/backup" aria-label="备份状态" title={collapsed ? "备份状态" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
+                <Database size={19} aria-hidden="true" /><span>备份状态</span>
+              </NavLink>
+              <NavLink to="/admin/operations" aria-label="系统运维" title={collapsed ? "系统运维" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
+                <Wrench size={19} aria-hidden="true" /><span>系统运维</span>
               </NavLink>
             </>
           )}

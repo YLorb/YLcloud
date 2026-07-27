@@ -49,7 +49,15 @@ import type {
   UserMemory,
   UserMemorySetting,
   UserMemoryStats,
-  KnowledgeChatEpisode
+  KnowledgeChatEpisode,
+  AccountStatus,
+  DataExportJob,
+  SecurityAuditEvent,
+  AuditRetentionConfig,
+  AuditStats,
+  BackupRun,
+  BackupStats,
+  MaintenanceStatus
 } from "./types";
 
 const TOKEN_KEY = "ylcloud_token";
@@ -559,5 +567,62 @@ export const api = {
   listKnowledgeCategories: (spaceId: number) =>
     request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/categories`),
   listKnowledgeTags: (spaceId: number) =>
-    request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/tags`)
+    request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/tags`),
+
+  // Account Lifecycle
+  accountStatus: () => request<AccountStatus>("/api/account/status"),
+  cancelAccount: (payload: { reason?: string; confirmTeams?: boolean }) =>
+    request<AccountStatus>("/api/account/cancel", { method: "POST", body: JSON.stringify(payload) }),
+  recoverAccount: (payload: { userId: number; reason?: string }) =>
+    request<AccountStatus>("/api/account/recover", { method: "POST", body: JSON.stringify(payload) }),
+  requestDataExport: (payload: { exportScope?: string }) =>
+    request<DataExportJob>("/api/account/export", { method: "POST", body: JSON.stringify(payload) }),
+  listDataExports: () => request<DataExportJob[]>("/api/account/export/list"),
+  getDataExport: (jobId: number) => request<DataExportJob>(`/api/account/export/${jobId}`),
+
+  // Security Audit
+  queryAuditEvents: (payload: {
+    eventType?: string;
+    outcome?: string;
+    severity?: string;
+    actorId?: number;
+    targetType?: string;
+    targetId?: number;
+    startTime?: string;
+    endTime?: string;
+    page?: number;
+    pageSize?: number;
+  }) => request<{ records: SecurityAuditEvent[]; total: number }>("/api/admin/audit/query", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  auditStats: (payload?: { startTime?: string; endTime?: string }) =>
+    request<AuditStats>(`/api/admin/audit/stats?${params(payload || {})}`),
+  listRetentionConfigs: () => request<AuditRetentionConfig[]>("/api/admin/audit/retention"),
+  updateRetentionConfig: (configKey: string, retentionDays: number) =>
+    request<AuditRetentionConfig>(`/api/admin/audit/retention/${configKey}`, {
+      method: "PUT",
+      body: JSON.stringify({ retentionDays })
+    }),
+
+  // Backup
+  listReadyBackups: () => request<BackupRun[]>("/api/admin/backup/ready"),
+  listRecentBackups: (limit = 20) => request<BackupRun[]>(`/api/admin/backup/recent?${params({ limit })}`),
+  getBackup: (backupId: number) => request<BackupRun>(`/api/admin/backup/${backupId}`),
+  backupStats: () => request<BackupStats>("/api/admin/backup/stats"),
+  recordBackup: (payload: {
+    backupType: string;
+    backupPath: string;
+    manifestPath?: string;
+    encryptionEnabled?: boolean;
+    sizeBytes?: number;
+    checksum?: string;
+  }) => request<BackupRun>("/api/admin/backup/record", { method: "POST", body: JSON.stringify(payload) }),
+
+  // Maintenance Mode
+  maintenanceStatus: () => request<MaintenanceStatus>("/api/admin/maintenance/status"),
+  enableMaintenance: (payload: { reason: string }) =>
+    request<MaintenanceStatus>("/api/admin/maintenance/enable", { method: "POST", body: JSON.stringify(payload) }),
+  disableMaintenance: () =>
+    request<MaintenanceStatus>("/api/admin/maintenance/disable", { method: "POST" })
 };

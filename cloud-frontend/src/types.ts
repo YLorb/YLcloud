@@ -719,3 +719,103 @@ export type RagConfigLog = {
   afterJson?: string;
   createtime?: string;
 };
+
+// Account Lifecycle Types
+export type AccountStatus = {
+  userId: number;
+  username: string;
+  accountStatus: "ACTIVE" | "CANCELLED" | "PURGING" | "PURGED";
+  cancelledAt?: string;
+  cancelRequestedBy?: number;
+  recoverableUntil?: string;
+  purgingStartedAt?: string;
+  purgedAt?: string;
+  ownedTeamCount: number;
+};
+
+export type DataExportJob = {
+  jobId: number;
+  userId: number;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "EXPIRED";
+  exportScope?: string;
+  fileKey?: string;
+  downloadUrl?: string;
+  expiresAt?: string;
+  errorMessage?: string;
+  createTime?: string;
+  updateTime?: string;
+};
+
+// Security Audit Types
+export type SecurityAuditEvent = {
+  eventId: number;
+  eventType: string;
+  eventCategory: string;
+  outcome: "SUCCESS" | "FAILURE" | "DENIED";
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  retentionPolicy: "STANDARD" | "PERMANENT";
+  actorType?: string;
+  actorId?: number;
+  actorName?: string;
+  targetType?: string;
+  targetId?: number;
+  targetName?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  traceId?: string;
+  detailJson?: string;
+  createTime?: string;
+};
+
+export type AuditRetentionConfig = {
+  configKey: string;
+  retentionDays: number;
+  description?: string;
+  updateTime?: string;
+};
+
+export type AuditStats = {
+  totalEvents: number;
+  successCount: number;
+  failureCount: number;
+  deniedCount: number;
+  criticalCount: number;
+  permanentCount: number;
+  eventsByType: Array<{ eventType: string; count: number }>;
+  eventsByDay: Array<{ date: string; count: number }>;
+};
+
+// Backup Types
+export type BackupRun = {
+  backupId: number;
+  backupType: string;
+  status: "PENDING" | "RUNNING" | "VERIFYING" | "READY" | "FAILED" | "EXPIRED";
+  backupPath?: string;
+  manifestPath?: string;
+  encryptionEnabled: boolean;
+  sizeBytes?: number;
+  checksum?: string;
+  verificationStatus?: string;
+  verificationMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+  expiresAt?: string;
+  createTime?: string;
+};
+
+export type BackupStats = {
+  totalBackups: number;
+  readyBackups: number;
+  failedBackups: number;
+  lastBackupAt?: string;
+  lastReadyAt?: string;
+  totalSizeBytes: number;
+};
+
+// Maintenance Mode Types
+export type MaintenanceStatus = {
+  enabled: boolean;
+  reason?: string;
+  enabledAt?: string;
+  enabledBy?: number;
+};
