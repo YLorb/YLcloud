@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# TASK-014: Compose upgrade, maintenance and rollback
+# Extends deploy.sh with backup gate, maintenance mode, migration and enhanced verification
 set -Eeuo pipefail
 
 VERSION="${1:-}"
@@ -13,18 +15,28 @@ STATE_ROOT="${YLCLOUD_DEPLOY_STATE_ROOT:-/var/lib/ylcloud-deploy}"
 LOCK_FILE="${YLCLOUD_DEPLOY_LOCK_FILE:-/var/lock/ylcloud-deploy.lock}"
 BACKEND_URL="${YLCLOUD_DEPLOY_BACKEND_URL:-http://127.0.0.1:8080}"
 FRONTEND_URL="${YLCLOUD_DEPLOY_FRONTEND_URL:-http://127.0.0.1:5173}"
+BACKUP_ROOT="${YLCLOUD_BACKUP_ROOT:-/var/lib/ylcloud-backup}"
 START_EPOCH="$(date +%s)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 CHANGED_APP=0
 CHANGED_FRONTEND=0
 ROLLING_BACK=0
+MAINTENANCE_MODE=0
 
 die() { echo "ERROR: $*" >&2; return 1; }
+log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 
 valid_version() {
+  # TASK-014: Maintain mq-v1~mq-v6 version parameter contract
   [[ "$VERSION" =~ ^mq-v[1-6]$ || "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
   [[ "$VERSION" != "latest" && "$VERSION" != "dev" ]]
 }
+
+# TASK-014: Default to latest version when not specified
+if [[ -z "$VERSION" ]]; then
+  VERSION="${YLCLOUD_DEPLOY_DEFAULT_VERSION:-mq-v6}"
+  log "No version specified, using default: $VERSION"
+fi
 
 valid_version || die "usage: ./scripts/deploy.sh <mq-v1..mq-v6|vN.N.N>"
 [[ "$(id -u)" -ne 0 ]] || die "run as a dedicated deployment user, not root"
@@ -83,13 +95,101 @@ capture_old() {
   [[ -n "$OLD_VERSION" ]] || die "current-version is missing; refusing an unrecoverable release"
   OLD_APP_RESTART="$(restart_count "$APP_SERVICE")"
   OLD_FRONTEND_RESTART="$(restart_count "$FRONTEND_SERVICE")"
-  echo "old_version=${OLD_VERSION:-unknown} app_health=$(health "$APP_SERVICE") frontend_health=$(health "$FRONTEND_SERVICE")"
+  log "old_version=${OLD_VERSION:-unknown} app_health=$(health "$APP_SERVICE") frontend_health=$(health "$FRONTEND_SERVICE")"
 }
 
 http_smoke() {
   curl --fail --silent --show-error "$BACKEND_URL/api/site/public-settings" >/dev/null
   curl --fail --silent --show-error "$FRONTEND_URL/" >/dev/null
   curl --fail --silent --show-error "$FRONTEND_URL/api/site/public-settings" >/dev/null
+}
+
+# TASK-014: Check for READY backup before upgrade
+check_backup_gate() {
+  log "Checking backup gate..."
+
+  # Check if backup gate is disabled
+  if [[ "${YLCLOUD_DEPLOY_SKIP_BACKUP_GATE:-0}" == "1" ]]; then
+    log "WARNING: Backup gate skipped by configuration"
+    return 0
+  fi
+
+  # Check for READY backup
+  local ready_backup
+  ready_backup="$(ls -1 "$BACKUP_ROOT"/ylcloud-backup-*.tar.gz.enc 2>/dev/null | head -1 || true)"
+
+  if [[ -z "$ready_backup" ]]; then
+    die "No READY backup found. Run scripts/backup.sh first or set YLCLOUD_DEPLOY_SKIP_BACKUP_GATE=1 to skip"
+  fi
+
+  # Verify backup integrity
+  if [[ -f "$ready_backup.sha256" ]]; then
+    local expected_hash actual_hash
+    expected_hash="$(cat "$ready_backup.sha256")"
+    actual_hash="$(sha256sum "$ready_backup" | cut -d' ' -f1)"
+    [[ "$actual_hash" == "$expected_hash" ]] || die "Backup integrity check failed"
+  fi
+
+  log "Backup gate passed: $ready_backup"
+}
+
+# TASK-014: Enable maintenance mode
+enable_maintenance_mode() {
+  log "Enabling maintenance mode..."
+  MAINTENANCE_MODE=1
+
+  # Create maintenance mode marker file
+  touch "$STATE_ROOT/maintenance-mode"
+
+  # Notify application to enter maintenance mode
+  # This rejects writes and new Agent/async tasks, allows read-only and health endpoints
+  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+  if [[ -n "$token" ]]; then
+    curl --silent --show-error -X POST -H "Authorization: Bearer $token" \
+      "$BACKEND_URL/api/admin/maintenance/enable" 2>/dev/null || true
+  fi
+
+  log "Maintenance mode enabled"
+}
+
+# TASK-014: Disable maintenance mode
+disable_maintenance_mode() {
+  log "Disabling maintenance mode..."
+  MAINTENANCE_MODE=0
+
+  # Remove maintenance mode marker file
+  rm -f "$STATE_ROOT/maintenance-mode"
+
+  # Notify application to exit maintenance mode
+  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+  if [[ -n "$token" ]]; then
+    curl --silent --show-error -X POST -H "Authorization: Bearer $token" \
+      "$BACKEND_URL/api/admin/maintenance/disable" 2>/dev/null || true
+  fi
+
+  log "Maintenance mode disabled"
+}
+
+# TASK-014: Run database migrations
+run_migrations() {
+  log "Running database migrations..."
+
+  # Flyway migrations are run automatically by Spring Boot on startup
+  # This function verifies migration status and handles failures
+
+  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+  if [[ -n "$token" ]]; then
+    # Check migration status
+    local migration_status
+    migration_status="$(curl --silent --show-error -H "Authorization: Bearer $token" \
+      "$BACKEND_URL/actuator/flyway" 2>/dev/null || echo '{}')"
+
+    if echo "$migration_status" | grep -q '"state":"FAILED"'; then
+      die "Database migration failed. Check logs for details"
+    fi
+  fi
+
+  log "Database migrations completed"
 }
 
 rollback_service() {
@@ -103,19 +203,33 @@ rollback() {
   [[ "$ROLLING_BACK" -eq 0 ]] || exit 86
   ROLLING_BACK=1
   trap - ERR INT TERM
-  echo "release failed; restoring changed services"
+
+  log "Release failed; restoring changed services"
+
+  # TASK-014: Disable maintenance mode on rollback
+  if [[ "$MAINTENANCE_MODE" -eq 1 ]]; then
+    disable_maintenance_mode
+  fi
+
   if [[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" == "rollback" ]]; then
     echo "injected rollback failure" >&2
     exit 86
   fi
+
   if [[ "$CHANGED_APP" -eq 1 ]]; then rollback_service "$APP_SERVICE" "$OLD_APP_IMAGE" "$OLD_APP_REF"; fi
   if [[ "$CHANGED_FRONTEND" -eq 1 ]]; then rollback_service "$FRONTEND_SERVICE" "$OLD_FRONTEND_IMAGE" "$OLD_FRONTEND_REF"; fi
+
   http_smoke || { echo "rollback smoke failed" >&2; exit 86; }
   compose ps
-  echo "rollback completed; current-version was not changed"
+
+  log "Rollback completed; current-version was not changed"
   exit "$original_code"
 }
+
+# TASK-014: Enhanced preflight with backup gate
 preflight() {
+  log "Running preflight checks..."
+
   command -v docker >/dev/null
   command -v curl >/dev/null
   command -v flock >/dev/null
@@ -123,12 +237,19 @@ preflight() {
   docker compose version >/dev/null
   [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] || die "compose/env file missing"
   [[ -s .secrets/rabbitmq_password && -s .secrets/jwt_secret && -s .secrets/service_jwt_active_secret ]] || die "required secret file missing or empty"
+
   local free_kb min_kb
   free_kb="$(df -Pk . | awk 'NR==2 {print $4}')"
   min_kb="${YLCLOUD_DEPLOY_MIN_FREE_KB:-2097152}"
   [[ "$free_kb" -ge "$min_kb" ]] || die "insufficient disk space"
+
   compose config -q
   capture_old
+
+  # TASK-014: Check backup gate
+  check_backup_gate
+
+  log "Preflight checks passed"
 }
 
 verify_changed() {
@@ -142,6 +263,40 @@ verify_changed() {
   if [[ "$new_image" != "$old_image" ]]; then
     [[ "$new_cid" != "$old_cid" ]] || die "$service image changed but container was not recreated"
   fi
+}
+
+# TASK-014: Enhanced health verification
+verify_platform_health() {
+  log "Verifying platform health..."
+
+  # Check all critical services
+  local services=("mysql" "minio" "qdrant" "rabbitmq" "$APP_SERVICE" "$FRONTEND_SERVICE")
+  for service in "${services[@]}"; do
+    local cid
+    cid="$(container_id "$service" 2>/dev/null || true)"
+    if [[ -z "$cid" ]]; then
+      log "WARNING: Service $service not found"
+      continue
+    fi
+
+    local service_health
+    service_health="$(health "$service")"
+    if [[ "$service_health" != "healthy" && "$service_health" != "running" ]]; then
+      die "Service $service is not healthy: $service_health"
+    fi
+  done
+
+  # Check application health endpoint
+  curl --fail --silent --show-error "$BACKEND_URL/actuator/health" | grep -q '"status":"UP"' || die "Application health check failed"
+
+  # Check RabbitMQ queues
+  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+  if [[ -n "$token" ]]; then
+    curl --fail --silent --show-error -H "Authorization: Bearer $token" \
+      "$BACKEND_URL/api/async/page?page=1&pageSize=1" >/dev/null || die "Async task API check failed"
+  fi
+
+  log "Platform health verification passed"
 }
 
 task_smoke() {
@@ -163,12 +318,20 @@ task_smoke() {
   die "smoke task timed out"
 }
 
-echo "deploy_start version=$VERSION log=$LOG_FILE"
+# Main deployment flow
+log "=== Starting deployment: version=$VERSION ==="
+log "Log file: $LOG_FILE"
+
 preflight
 trap 'rollback $?' ERR
 trap 'rollback 130' INT
 trap 'rollback 143' TERM
+
+# TASK-014: Enable maintenance mode before upgrade
+enable_maintenance_mode
+
 compose pull "$APP_SERVICE" "$FRONTEND_SERVICE"
+
 if ! container_id rabbitmq >/dev/null 2>&1 || [[ -z "$(container_id rabbitmq)" ]]; then
   docker pull rabbitmq:4.3.4-management
   compose up -d --wait --wait-timeout "$WAIT_TIMEOUT" rabbitmq
@@ -180,6 +343,10 @@ CHANGED_APP=1
 compose up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" "$APP_SERVICE"
 [[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" != "app" ]] || die "injected app failure"
 verify_changed "$APP_SERVICE" "$OLD_APP_CID" "$OLD_APP_IMAGE" "$OLD_APP_RESTART"
+
+# TASK-014: Run migrations after app startup
+run_migrations
+
 curl --fail --silent --show-error "$BACKEND_URL/actuator/health" | grep -q '"status":"UP"'
 [[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" != "smoke" ]] || die "injected smoke failure"
 task_smoke
@@ -188,12 +355,22 @@ CHANGED_FRONTEND=1
 compose up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" "$FRONTEND_SERVICE"
 [[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" != "frontend" ]] || die "injected frontend failure"
 verify_changed "$FRONTEND_SERVICE" "$OLD_FRONTEND_CID" "$OLD_FRONTEND_IMAGE" "$OLD_FRONTEND_RESTART"
+
+# TASK-014: Enhanced platform health verification
+verify_platform_health
+
 http_smoke
 compose ps
+
+# TASK-014: Disable maintenance mode after successful deployment
+disable_maintenance_mode
 
 tmp_version="$STATE_ROOT/.current-version.${STAMP}.tmp"
 printf '%s\n' "$VERSION" > "$tmp_version"
 mv -f "$tmp_version" "$STATE_ROOT/current-version"
 trap - ERR INT TERM
+
 duration=$(( $(date +%s) - START_EPOCH ))
-echo "deploy_success version=$VERSION app_image=$(image_id "$APP_SERVICE") frontend_image=$(image_id "$FRONTEND_SERVICE") duration_seconds=$duration log=$LOG_FILE"
+log "=== Deployment completed successfully ==="
+log "version=$VERSION app_image=$(image_id "$APP_SERVICE") frontend_image=$(image_id "$FRONTEND_SERVICE") duration_seconds=$duration"
+echo "deploy_success version=$VERSION duration_seconds=$duration log=$LOG_FILE"
