@@ -9,6 +9,7 @@ import com.ylcloud.DTO.AsyncTaskOperationDTO;
 import com.ylcloud.async.task.UnifiedTaskCenterService;
 import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.Exception.ForbiddenException;
+import com.ylcloud.service.SecurityAuditService;
 import jakarta.validation.Valid;
 import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 当前用户的真实后台任务入口。
@@ -32,13 +34,16 @@ public class AsyncTaskController {
     private final AsyncTaskService asyncTaskService;
     private final UnifiedTaskCenterService taskCenterService;
     private final Environment environment;
+    private final SecurityAuditService auditService;
 
     public AsyncTaskController(AsyncTaskService asyncTaskService,
                                UnifiedTaskCenterService taskCenterService,
-                               Environment environment) {
+                               Environment environment,
+                               SecurityAuditService auditService) {
         this.asyncTaskService = asyncTaskService;
         this.taskCenterService = taskCenterService;
         this.environment = environment;
+        this.auditService = auditService;
     }
 
     @GetMapping
@@ -74,14 +79,32 @@ public class AsyncTaskController {
     @PostMapping("/{taskId}/retry")
     public Result<Boolean> retry(@PathVariable Long taskId,
                                  @RequestBody(required = false) @Valid AsyncTaskOperationDTO dto) {
-        taskCenterService.retry(taskId,BaseContext.getCurrentId(),dto == null ? null : dto.getReason());
-        return Result.success(true);
+        Long userId = BaseContext.getCurrentId();
+        try {
+            taskCenterService.retry(taskId, userId, dto == null ? null : dto.getReason());
+            auditService.recordSuccess("ASYNC_TASK", "RETRY", userId, null,
+                    "TASK", taskId.toString(), null, Map.of());
+            return Result.success(true);
+        } catch (Exception e) {
+            auditService.recordFailure("ASYNC_TASK", "RETRY", userId, null,
+                    "TASK", taskId.toString(), null, e.getMessage(), Map.of());
+            throw e;
+        }
     }
 
     @PostMapping("/{taskId}/cancel")
     public Result<Boolean> cancel(@PathVariable Long taskId,
                                   @RequestBody(required = false) @Valid AsyncTaskOperationDTO dto) {
-        taskCenterService.cancel(taskId,BaseContext.getCurrentId(),dto == null ? null : dto.getReason());
-        return Result.success(true);
+        Long userId = BaseContext.getCurrentId();
+        try {
+            taskCenterService.cancel(taskId, userId, dto == null ? null : dto.getReason());
+            auditService.recordSuccess("ASYNC_TASK", "CANCEL", userId, null,
+                    "TASK", taskId.toString(), null, Map.of());
+            return Result.success(true);
+        } catch (Exception e) {
+            auditService.recordFailure("ASYNC_TASK", "CANCEL", userId, null,
+                    "TASK", taskId.toString(), null, e.getMessage(), Map.of());
+            throw e;
+        }
     }
 }

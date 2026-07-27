@@ -1,6 +1,7 @@
 package com.ylcloud.config;
 
 import com.ylcloud.interceptor.JwtTokenInterceptor;
+import com.ylcloud.interceptor.MaintenanceInterceptor;
 import com.ylcloud.interceptor.OpenApiKeyInterceptor;
 import com.ylcloud.interceptor.UserPermissionInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,9 +18,18 @@ public class WebConfig implements WebMvcConfigurer {
     private UserPermissionInterceptor userPermissionInterceptor;
     @Autowired
     private OpenApiKeyInterceptor openApiKeyInterceptor;
+    @Autowired
+    private MaintenanceInterceptor maintenanceInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 维护模式拦截器：需在所有授权之前执行，仅豁免公开端点
+        registry.addInterceptor(maintenanceInterceptor)
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/sign", "/api/login", "/api/site/public-settings",
+                        "/api/share/**", "/api/v1/**", "/api/open/**", "/internal/**",
+                        "/api/admin/maintenance/disable");
+
         registry.addInterceptor(jwtTokenInterceptor)
                 .addPathPatterns("/**")
                 .excludePathPatterns("/api/sign")

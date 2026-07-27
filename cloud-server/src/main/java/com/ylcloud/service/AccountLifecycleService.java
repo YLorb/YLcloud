@@ -31,6 +31,7 @@ public class AccountLifecycleService {
     private final AccountRecoveryLogMapper recoveryLogMapper;
     private final AccessControlMapper auditMapper;
     private final AccountDeletionOrchestrationService deletionService;
+    private final SecurityAuditService securityAudit;
 
     @Value("${ylcloud.account.recovery-days:3}")
     private int recoveryDays;
@@ -38,11 +39,13 @@ public class AccountLifecycleService {
     public AccountLifecycleService(UserLifecycleMapper userLifecycleMapper,
                                    AccountRecoveryLogMapper recoveryLogMapper,
                                    AccessControlMapper auditMapper,
-                                   AccountDeletionOrchestrationService deletionService) {
+                                   AccountDeletionOrchestrationService deletionService,
+                                   SecurityAuditService securityAudit) {
         this.userLifecycleMapper = userLifecycleMapper;
         this.recoveryLogMapper = recoveryLogMapper;
         this.auditMapper = auditMapper;
         this.deletionService = deletionService;
+        this.securityAudit = securityAudit;
     }
 
     /**
@@ -84,6 +87,13 @@ public class AccountLifecycleService {
         auditMapper.insertAudit(userId, "ACCOUNT", userId, "CANCEL_REQUEST",
                 "{\"accountStatus\":\"ACTIVE\"}",
                 "{\"accountStatus\":\"CANCELLED\",\"recoverableUntil\":\"" + recoverableUntil + "\"}");
+
+        securityAudit.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                .eventType("ACCOUNT_LIFECYCLE")
+                .action("CANCEL_REQUEST")
+                .subject(userId, user.getUsername())
+                .target("ACCOUNT", String.valueOf(userId), user.getUsername())
+                .result("SUCCESS"));
 
         log.info("Account cancellation requested: userId={}, recoverableUntil={}", userId, recoverableUntil);
         return getStatus(userId);
@@ -128,6 +138,13 @@ public class AccountLifecycleService {
         auditMapper.insertAudit(adminId, "ACCOUNT", dto.getUserId(), "ACCOUNT_RECOVER",
                 "{\"accountStatus\":\"CANCELLED\"}",
                 "{\"accountStatus\":\"ACTIVE\",\"reason\":\"" + safe(dto.getReason()) + "\"}");
+
+        securityAudit.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                .eventType("ACCOUNT_LIFECYCLE")
+                .action("ACCOUNT_RECOVER")
+                .subject(adminId, admin.getUsername())
+                .target("ACCOUNT", String.valueOf(dto.getUserId()), target.getUsername())
+                .result("SUCCESS"));
 
         log.info("Account recovered: userId={}, by adminId={}", dto.getUserId(), adminId);
         return getStatus(dto.getUserId());

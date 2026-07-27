@@ -5,6 +5,7 @@ import com.ylcloud.Result;
 import com.ylcloud.VO.WebhookSubscriptionCreatedVO;
 import com.ylcloud.VO.WebhookSubscriptionVO;
 import com.ylcloud.context.BaseContext;
+import com.ylcloud.service.SecurityAuditService;
 import com.ylcloud.service.WebhookSubscriptionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @RestController
@@ -24,10 +26,22 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class WebhookSubscriptionController {
     private final WebhookSubscriptionService service;
+    private final SecurityAuditService auditService;
 
     @PostMapping
     public Result<WebhookSubscriptionCreatedVO> create(@RequestBody @Valid WebhookSubscriptionCreateDTO dto) {
-        return Result.success(service.create(BaseContext.getCurrentId(),dto));
+        Long userId = BaseContext.getCurrentId();
+        try {
+            WebhookSubscriptionCreatedVO result = service.create(userId, dto);
+            auditService.recordSuccess("WEBHOOK", "CREATE", userId, null,
+                    "WEBHOOK", result.subscription() != null && result.subscription().getId() != null ? result.subscription().getId().toString() : null, dto.getTargetUrl(),
+                    Map.of("eventTypes", dto.getEventTypes() != null ? String.join(",", dto.getEventTypes()) : ""));
+            return Result.success(result);
+        } catch (Exception e) {
+            auditService.recordFailure("WEBHOOK", "CREATE", userId, null,
+                    "WEBHOOK", null, dto.getTargetUrl(), e.getMessage(), Map.of());
+            throw e;
+        }
     }
 
     @GetMapping
@@ -42,12 +56,31 @@ public class WebhookSubscriptionController {
 
     @PostMapping("/{subscriptionId}/rotate-secret")
     public Result<WebhookSubscriptionCreatedVO> rotate(@PathVariable Long subscriptionId) {
-        return Result.success(service.rotateSecret(BaseContext.getCurrentId(),subscriptionId));
+        Long userId = BaseContext.getCurrentId();
+        try {
+            WebhookSubscriptionCreatedVO result = service.rotateSecret(userId, subscriptionId);
+            auditService.recordSuccess("WEBHOOK", "ROTATE_SECRET", userId, null,
+                    "WEBHOOK", subscriptionId.toString(), null, Map.of());
+            return Result.success(result);
+        } catch (Exception e) {
+            auditService.recordFailure("WEBHOOK", "ROTATE_SECRET", userId, null,
+                    "WEBHOOK", subscriptionId.toString(), null, e.getMessage(), Map.of());
+            throw e;
+        }
     }
 
     @DeleteMapping("/{subscriptionId}")
     public Result<Boolean> disable(@PathVariable Long subscriptionId) {
-        service.disable(BaseContext.getCurrentId(),subscriptionId);
-        return Result.success(true);
+        Long userId = BaseContext.getCurrentId();
+        try {
+            service.disable(userId, subscriptionId);
+            auditService.recordSuccess("WEBHOOK", "DISABLE", userId, null,
+                    "WEBHOOK", subscriptionId.toString(), null, Map.of());
+            return Result.success(true);
+        } catch (Exception e) {
+            auditService.recordFailure("WEBHOOK", "DISABLE", userId, null,
+                    "WEBHOOK", subscriptionId.toString(), null, e.getMessage(), Map.of());
+            throw e;
+        }
     }
 }

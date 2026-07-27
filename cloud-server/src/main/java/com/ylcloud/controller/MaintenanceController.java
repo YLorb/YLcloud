@@ -1,6 +1,7 @@
 package com.ylcloud.controller;
 
 import com.ylcloud.Result;
+import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.MaintenanceModeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -16,12 +17,14 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class MaintenanceController {
     private final MaintenanceModeService maintenanceService;
+    private final AdminPermissionService adminPermissionService;
 
     /**
      * 启用维护模式。
      */
     @PostMapping("/enable")
     public Result<Map<String, Object>> enable(@RequestParam(required = false) String reason) {
+        adminPermissionService.requireAdmin();
         maintenanceService.enableMaintenanceMode(reason);
         return Result.success(Map.of(
                 "status", "enabled",
@@ -34,6 +37,7 @@ public class MaintenanceController {
      */
     @PostMapping("/disable")
     public Result<Map<String, Object>> disable() {
+        adminPermissionService.requireAdmin();
         maintenanceService.disableMaintenanceMode();
         return Result.success(Map.of(
                 "status", "disabled",
@@ -46,6 +50,7 @@ public class MaintenanceController {
      */
     @GetMapping("/status")
     public Result<MaintenanceModeService.MaintenanceStatus> status() {
+        adminPermissionService.requireAdmin();
         return Result.success(maintenanceService.getStatus());
     }
 }

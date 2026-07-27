@@ -8,6 +8,7 @@ import com.ylcloud.VO.AccountStatusVO;
 import com.ylcloud.VO.DataExportJobVO;
 import com.ylcloud.context.BaseContext;
 import com.ylcloud.service.AccountLifecycleService;
+import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.DataExportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +25,7 @@ import java.util.List;
 public class AccountLifecycleController {
     private final AccountLifecycleService lifecycleService;
     private final DataExportService exportService;
+    private final AdminPermissionService adminPermissionService;
 
     /**
      * 获取当前用户账号状态。
@@ -49,6 +51,7 @@ public class AccountLifecycleController {
      */
     @PostMapping("/recover")
     public Result<AccountStatusVO> recoverAccount(@RequestBody AccountRecoverDTO dto) {
+        adminPermissionService.requireAdmin();
         Long adminId = BaseContext.getCurrentId();
         return Result.success(lifecycleService.recoverAccount(adminId, dto));
     }

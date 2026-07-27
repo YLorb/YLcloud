@@ -34,7 +34,8 @@ public interface AccountDeletionJobMapper {
     Long lockByUserId(@Param("userId") Long userId);
 
     @Update("update account_deletion_job set status = #{status}, current_step = #{currentStep}, " +
-            "step_result_json = #{stepResultJson}, started_at = #{startedAt}, finished_at = #{finishedAt}, " +
+            "step_result_json = #{stepResultJson}, async_task_id = #{asyncTaskId}, " +
+            "started_at = #{startedAt}, finished_at = #{finishedAt}, " +
             "last_error = #{lastError}, retry_count = #{retryCount}, updated_at = #{updatedAt} " +
             "where id = #{id}")
     int update(AccountDeletionJob job);

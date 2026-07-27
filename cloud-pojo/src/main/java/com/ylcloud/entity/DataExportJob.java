@@ -11,6 +11,8 @@ public class DataExportJob {
     private String status;
     private String exportScope;
     private String encryptionKeyId;
+    private String encryptedKey;
+    private String encryptedIv;
     private String storagePath;
     private Long fileSizeBytes;
     private String fileHash;

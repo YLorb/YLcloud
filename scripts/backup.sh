@@ -22,7 +22,7 @@ MANIFEST_FILE="$BACKUP_DIR/manifest.json"
 ARCHIVE_FILE="$BACKUP_ROOT/ylcloud-backup-$STAMP.tar.gz.enc"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
-log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
+log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >&2; }
 
 # Preflight checks
 preflight() {

@@ -4,7 +4,7 @@ import com.ylcloud.DTO.AuditQueryDTO;
 import com.ylcloud.Result;
 import com.ylcloud.VO.AuditRetentionConfigVO;
 import com.ylcloud.VO.SecurityAuditEventVO;
-import com.ylcloud.context.BaseContext;
+import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.SecurityAuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -21,12 +21,14 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SecurityAuditController {
     private final SecurityAuditService auditService;
+    private final AdminPermissionService adminPermissionService;
 
     /**
      * 查询审计事件。
      */
     @PostMapping("/query")
     public Result<List<SecurityAuditEventVO>> query(@RequestBody AuditQueryDTO dto) {
+        adminPermissionService.requireAdmin();
         return Result.success(auditService.query(dto));
     }
 
@@ -35,6 +37,7 @@ public class SecurityAuditController {
      */
     @GetMapping("/stats")
     public Result<Map<String, Object>> stats() {
+        adminPermissionService.requireAdmin();
         return Result.success(auditService.getStats());
     }
 
@@ -43,6 +46,7 @@ public class SecurityAuditController {
      */
     @GetMapping("/retention")
     public Result<List<AuditRetentionConfigVO>> listRetentionConfigs() {
+        adminPermissionService.requireAdmin();
         return Result.success(auditService.listRetentionConfigs());
     }
 
@@ -55,6 +59,7 @@ public class SecurityAuditController {
             @RequestParam(required = false) Integer retentionDays,
             @RequestParam(required = false) Boolean permanent,
             @RequestParam(required = false) String description) {
+        adminPermissionService.requireAdmin();
         return Result.success(auditService.updateRetentionConfig(configKey, retentionDays, permanent, description));
     }
 }

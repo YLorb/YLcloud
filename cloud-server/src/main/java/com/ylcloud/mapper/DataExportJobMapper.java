@@ -16,12 +16,14 @@ public interface DataExportJobMapper {
 
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into data_export_job(user_id, job_key, status, export_scope, encryption_key_id, " +
-            "async_task_id, created_at, updated_at) " +
-            "values(#{userId}, #{jobKey}, #{status}, #{exportScope}, #{encryptionKeyId}, #{asyncTaskId}, #{createdAt}, #{updatedAt})")
+            "encrypted_key, encrypted_iv, async_task_id, created_at, updated_at) " +
+            "values(#{userId}, #{jobKey}, #{status}, #{exportScope}, #{encryptionKeyId}, " +
+            "#{encryptedKey}, #{encryptedIv}, #{asyncTaskId}, #{createdAt}, #{updatedAt})")
     int insert(DataExportJob job);
 
     @Select("select id, user_id as userId, job_key as jobKey, status, export_scope as exportScope, " +
-            "encryption_key_id as encryptionKeyId, storage_path as storagePath, file_size_bytes as fileSizeBytes, " +
+            "encryption_key_id as encryptionKeyId, encrypted_key as encryptedKey, encrypted_iv as encryptedIv, " +
+            "storage_path as storagePath, file_size_bytes as fileSizeBytes, " +
             "file_hash as fileHash, download_url as downloadUrl, download_expires_at as downloadExpiresAt, " +
             "async_task_id as asyncTaskId, started_at as startedAt, finished_at as finishedAt, " +
             "last_error as lastError, created_at as createdAt, updated_at as updatedAt " +
@@ -29,7 +31,8 @@ public interface DataExportJobMapper {
     DataExportJob getById(@Param("id") Long id);
 
     @Select("select id, user_id as userId, job_key as jobKey, status, export_scope as exportScope, " +
-            "encryption_key_id as encryptionKeyId, storage_path as storagePath, file_size_bytes as fileSizeBytes, " +
+            "encryption_key_id as encryptionKeyId, encrypted_key as encryptedKey, encrypted_iv as encryptedIv, " +
+            "storage_path as storagePath, file_size_bytes as fileSizeBytes, " +
             "file_hash as fileHash, download_url as downloadUrl, download_expires_at as downloadExpiresAt, " +
             "async_task_id as asyncTaskId, started_at as startedAt, finished_at as finishedAt, " +
             "last_error as lastError, created_at as createdAt, updated_at as updatedAt " +
@@ -39,9 +42,12 @@ public interface DataExportJobMapper {
     @Select("select id from data_export_job where user_id = #{userId} and status in ('PENDING','RUNNING') for update")
     Long lockActiveByUserId(@Param("userId") Long userId);
 
-    @Update("update data_export_job set status = #{status}, storage_path = #{storagePath}, " +
+    @Update("update data_export_job set status = #{status}, encryption_key_id = #{encryptionKeyId}, " +
+            "encrypted_key = #{encryptedKey}, encrypted_iv = #{encryptedIv}, " +
+            "storage_path = #{storagePath}, " +
             "file_size_bytes = #{fileSizeBytes}, file_hash = #{fileHash}, download_url = #{downloadUrl}, " +
-            "download_expires_at = #{downloadExpiresAt}, started_at = #{startedAt}, finished_at = #{finishedAt}, " +
+            "download_expires_at = #{downloadExpiresAt}, async_task_id = #{asyncTaskId}, " +
+            "started_at = #{startedAt}, finished_at = #{finishedAt}, " +
             "last_error = #{lastError}, updated_at = #{updatedAt} where id = #{id}")
     int update(DataExportJob job);
 

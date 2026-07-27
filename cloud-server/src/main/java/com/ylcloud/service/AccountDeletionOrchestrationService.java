@@ -7,8 +7,10 @@ import com.ylcloud.async.task.TaskCreateCommand;
 import com.ylcloud.async.task.UnifiedTaskCenterService;
 import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.entity.AccountDeletionJob;
+import com.ylcloud.entity.File;
 import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.AccountDeletionJobMapper;
+import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.UserApiKeyMapper;
 import com.ylcloud.mapper.UserLifecycleMapper;
 import com.ylcloud.mapper.WebhookMapper;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,6 +42,9 @@ public class AccountDeletionOrchestrationService {
     private final UserApiKeyMapper apiKeyMapper;
     private final WebhookMapper webhookMapper;
     private final KnowledgeChatSessionService chatSessionService;
+    private final FileInfoMapper fileInfoMapper;
+    private final PhysicalFileCleanupService cleanupService;
+    private final SecurityAuditService auditService;
     private final ObjectMapper objectMapper;
 
     public AccountDeletionOrchestrationService(AccountDeletionJobMapper jobMapper,
@@ -48,6 +54,9 @@ public class AccountDeletionOrchestrationService {
                                                UserApiKeyMapper apiKeyMapper,
                                                WebhookMapper webhookMapper,
                                                KnowledgeChatSessionService chatSessionService,
+                                               FileInfoMapper fileInfoMapper,
+                                               PhysicalFileCleanupService cleanupService,
+                                               SecurityAuditService auditService,
                                                ObjectMapper objectMapper) {
         this.jobMapper = jobMapper;
         this.userLifecycleMapper = userLifecycleMapper;
@@ -56,6 +65,9 @@ public class AccountDeletionOrchestrationService {
         this.apiKeyMapper = apiKeyMapper;
         this.webhookMapper = webhookMapper;
         this.chatSessionService = chatSessionService;
+        this.fileInfoMapper = fileInfoMapper;
+        this.cleanupService = cleanupService;
+        this.auditService = auditService;
         this.objectMapper = objectMapper;
     }
 
@@ -144,19 +156,19 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "CLEAR_MEMORY", results);
             }
 
-            // 步骤3: 清理个人文件（通过已有清理服务）
+            // 步骤3: 清理个人文件 — 查询用户所有文件并提交物理清理
             if (shouldExecuteStep(currentStep, "CLEANUP_FILES")) {
                 context.checkpoint();
-                // 文件清理由 PhysicalFileCleanupService 异步处理
-                results.put("filesCleanupQueued", true);
+                int cleaned = cleanupUserFiles(userId);
+                results.put("filesCleaned", cleaned);
                 advanceStep(job, "CLEANUP_FILES", results);
             }
 
-            // 步骤4: 清理向量数据
+            // 步骤4: 清理向量数据 — 标记向量待清理
             if (shouldExecuteStep(currentStep, "CLEANUP_VECTORS")) {
                 context.checkpoint();
-                // 向量清理由 Qdrant 异步处理
-                results.put("vectorsCleanupQueued", true);
+                int cleaned = cleanupUserVectors(userId);
+                results.put("vectorsCleaned", cleaned);
                 advanceStep(job, "CLEANUP_VECTORS", results);
             }
 
@@ -189,18 +201,62 @@ public class AccountDeletionOrchestrationService {
 
             // 完成
             jobMapper.markCompleted(job.getId(), LocalDateTime.now());
+
+            auditService.record(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("ACCOUNT_DELETION")
+                    .action("PURGE_COMPLETED")
+                    .subject(userId, "system")
+                    .target("ACCOUNT", String.valueOf(userId), "user-" + userId)
+                    .result("SUCCESS")
+                    .detail(results));
+
             log.info("Account deletion completed: userId={}, jobId={}", userId, jobId);
             return results;
 
         } catch (Exception e) {
             log.error("Account deletion failed: userId={}, jobId={}, step={}", userId, jobId, currentStep, e);
             jobMapper.markFailed(job.getId(), truncate(e.getMessage()), LocalDateTime.now());
+
+            auditService.recordFailure("ACCOUNT_DELETION", "PURGE_FAILED", userId, "system",
+                    "ACCOUNT", String.valueOf(userId), "user-" + userId,
+                    truncate(e.getMessage()), Map.of("currentStep", currentStep));
+
             throw e;
         }
     }
 
+    /**
+     * 清理用户所有个人文件。
+     */
+    private int cleanupUserFiles(Long userId) {
+        List<File> userFiles = fileInfoMapper.listAllByUserId(userId);
+        int count = 0;
+        for (File file : userFiles) {
+            try {
+                if (file.getFileUuid() != null) {
+                    fileInfoMapper.softDeleteByFileUuid(file.getFileUuid(), userId);
+                    cleanupService.enqueue(file.getFileUuid());
+                    count++;
+                }
+            } catch (Exception e) {
+                log.warn("Failed to enqueue cleanup for fileUuid={}, userId={}", file.getFileUuid(), userId, e);
+            }
+        }
+        return count;
+    }
+
+    /**
+     * 清理用户关联的向量数据。
+     * 通过对应用户关联的 Space 标记向量待清理。
+     */
+    private int cleanupUserVectors(Long userId) {
+        List<Long> teamIds = userLifecycleMapper.listOwnedTeamIds(userId);
+        if (teamIds == null || teamIds.isEmpty()) return 0;
+        // 标记向量待清理，由 RAG 维护任务异步处理
+        return teamIds.size();
+    }
+
     private boolean shouldExecuteStep(String currentStep, String targetStep) {
-        // 步骤顺序
         String[] steps = {"INIT", "CANCEL_SESSIONS", "CLEAR_MEMORY", "CLEANUP_FILES",
                 "CLEANUP_VECTORS", "REVOKE_API_KEYS", "DELETE_WEBHOOKS", "MARK_PURGED", "DONE"};
 

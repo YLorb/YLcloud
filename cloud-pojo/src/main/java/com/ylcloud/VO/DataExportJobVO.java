@@ -11,6 +11,7 @@ public class DataExportJobVO {
     private Long fileSizeBytes;
     private String downloadUrl;
     private LocalDateTime downloadExpiresAt;
+    private String decryptionKey;
     private LocalDateTime createdAt;
     private LocalDateTime finishedAt;
 }

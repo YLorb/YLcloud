@@ -104,22 +104,16 @@ http_smoke() {
   curl --fail --silent --show-error "$FRONTEND_URL/api/site/public-settings" >/dev/null
 }
 
-# TASK-014: Check for READY backup before upgrade
+# TASK-014: Check for READY backup before upgrade — MANDATORY, no skip allowed
 check_backup_gate() {
   log "Checking backup gate..."
-
-  # Check if backup gate is disabled
-  if [[ "${YLCLOUD_DEPLOY_SKIP_BACKUP_GATE:-0}" == "1" ]]; then
-    log "WARNING: Backup gate skipped by configuration"
-    return 0
-  fi
 
   # Check for READY backup
   local ready_backup
   ready_backup="$(ls -1 "$BACKUP_ROOT"/ylcloud-backup-*.tar.gz.enc 2>/dev/null | head -1 || true)"
 
   if [[ -z "$ready_backup" ]]; then
-    die "No READY backup found. Run scripts/backup.sh first or set YLCLOUD_DEPLOY_SKIP_BACKUP_GATE=1 to skip"
+    die "No READY backup found. Run scripts/backup.sh first"
   fi
 
   # Verify backup integrity
