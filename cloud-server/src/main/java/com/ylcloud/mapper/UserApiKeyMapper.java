@@ -74,7 +74,7 @@ public interface UserApiKeyMapper {
     int countWithinDriveRoot(@Param("userId") Long userId,@Param("fileId") Long fileId,
                              @Param("rootFileId") Long rootFileId);
 
-    @Update("update user_api_key set key_status='REVOKED',revoked_at=#{now},updatetime=#{now} " +
+    @Update("update user_api_key set key_status='REVOKED',revoked_at=now(),updatetime=now() " +
             "where user_id=#{userId} and key_status='ACTIVE'")
     int revokeAllByUserId(@Param("userId") Long userId);
 }
