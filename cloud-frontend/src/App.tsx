@@ -14,8 +14,13 @@ const FilesPage = lazy(() => import("./features/files/FilesPage").then((module) 
 const SpacesPage = lazy(() => import("./features/spaces/SpacesPage").then((module) => ({ default: module.SpacesPage })));
 const KnowledgePage = lazy(() => import("./features/knowledge/KnowledgePage").then((module) => ({ default: module.KnowledgePage })));
 const AssistantPage = lazy(() => import("./features/assistant/AssistantPage").then((module) => ({ default: module.AssistantPage })));
+const MemoryPage = lazy(() => import("./features/memory/MemoryPage").then((module) => ({ default: module.MemoryPage })));
 const TasksPage = lazy(() => import("./features/async/TasksPage").then((module) => ({ default: module.TasksPage })));
 const AdminSettingsPage = lazy(() => import("./features/settings/AdminSettingsPage").then((module) => ({ default: module.AdminSettingsPage })));
+const SecurityAuditPage = lazy(() => import("./features/admin/SecurityAuditPage").then((module) => ({ default: module.SecurityAuditPage })));
+const BackupStatusPage = lazy(() => import("./features/admin/BackupStatusPage").then((module) => ({ default: module.BackupStatusPage })));
+const SystemOperationsPage = lazy(() => import("./features/admin/SystemOperationsPage").then((module) => ({ default: module.SystemOperationsPage })));
+const AccountSettingsPage = lazy(() => import("./features/account/AccountSettingsPage").then((module) => ({ default: module.AccountSettingsPage })));
 
 function LazyPage({ children }: { children: ReactNode }) {
   return <Suspense fallback={<LoadingState label="正在加载页面" />}>{children}</Suspense>;
@@ -57,8 +62,15 @@ const router = createBrowserRouter([
         { path: "/spaces", element: <LazyPage><SpacesPage /></LazyPage> },
         { path: "/knowledge", element: <LazyPage><KnowledgePage /></LazyPage> },
         { path: "/assistant", element: <LazyPage><AssistantPage /></LazyPage> },
+        { path: "/memories", element: <LazyPage><MemoryPage /></LazyPage> },
         { path: "/tasks", element: <LazyPage><TasksPage /></LazyPage> },
-        { element: <AdminRoute />, children: [{ path: "/admin/settings", element: <LazyPage><AdminSettingsPage /></LazyPage> }] }
+        { path: "/account", element: <LazyPage><AccountSettingsPage /></LazyPage> },
+        { element: <AdminRoute />, children: [
+          { path: "/admin/settings", element: <LazyPage><AdminSettingsPage /></LazyPage> },
+          { path: "/admin/audit", element: <LazyPage><SecurityAuditPage /></LazyPage> },
+          { path: "/admin/backup", element: <LazyPage><BackupStatusPage /></LazyPage> },
+          { path: "/admin/operations", element: <LazyPage><SystemOperationsPage /></LazyPage> }
+        ] }
       ]
     }]
   },

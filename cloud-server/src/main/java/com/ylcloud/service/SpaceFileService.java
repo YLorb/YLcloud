@@ -25,6 +25,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -64,6 +65,8 @@ public class SpaceFileService {
     private final InitialFileVersionService initialFileVersionService;
     private final CrossStoreFileWriteService crossStoreFileWriteService;
     private final CrossStoreOperationService crossStoreOperationService;
+    private final SpaceFileLifecycleService lifecycleService;
+    private QuotaService quotaService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
@@ -91,7 +94,8 @@ public class SpaceFileService {
                             PhysicalFileCleanupService physicalFileCleanupService,
                             InitialFileVersionService initialFileVersionService,
                             CrossStoreFileWriteService crossStoreFileWriteService,
-                            CrossStoreOperationService crossStoreOperationService) {
+                            CrossStoreOperationService crossStoreOperationService,
+                            SpaceFileLifecycleService lifecycleService) {
         this.spaceFileMapper = spaceFileMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceService = spaceService;
@@ -103,7 +107,11 @@ public class SpaceFileService {
         this.initialFileVersionService = initialFileVersionService;
         this.crossStoreFileWriteService = crossStoreFileWriteService;
         this.crossStoreOperationService = crossStoreOperationService;
+        this.lifecycleService = lifecycleService;
     }
+
+    @Autowired(required=false)
+    public void setQuotaService(QuotaService quotaService) { this.quotaService=quotaService; }
 
     /**
      * 查询 listFiles 相关逻辑。
@@ -188,6 +196,9 @@ public class SpaceFileService {
         String fileName = dto.getName() == null || dto.getName().isBlank() ? userFile.getFileName() : dto.getName();
         fileName = requireSafeFileName(fileName);
         requireNoSameName(spaceId,parentId,fileName,0);
+        File physical = fileInfoMapper.getFileByFileUuid(userFile.getFileUuid(),userId);
+        if(physical == null) throw new BaseException("物理文件不存在");
+        if(quotaService != null) quotaService.requireTeamStorage(spaceId,quotaKey(physical),physical.getSize());
 
         LocalDateTime now = LocalDateTime.now();
         SpaceFile spaceFile = new SpaceFile();
@@ -202,12 +213,14 @@ public class SpaceFileService {
         spaceFile.setCreatetime(now);
         spaceFile.setUpdatetime(now);
         spaceFileMapper.insert(spaceFile);
+        if(quotaService != null) quotaService.recordTeamFile(spaceFile.getId(),spaceId,spaceFile.getFileUuid());
         if(fileInfoMapper.updateFileCount(userFile.getFileUuid(),1) == 0) {
             throw new BaseException("文件引用计数更新失败");
         }
         ensureInitialVersionIfEnabled(spaceFile,userId);
+        lifecycleService.fileAdded(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
-        return toVO(spaceFile);
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
     }
 
     /**
@@ -240,6 +253,7 @@ public class SpaceFileService {
         SpaceFile parent = requireDirectory(spaceId,realParentId);
         spaceFileMapper.lockById(spaceId,realParentId);
         FileFingerprint fingerprint = calculateFingerprint(uploadFile);
+        if(quotaService != null) quotaService.requireTeamStorage(spaceId,fingerprint.hash(),uploadFile.getSize());
         CrossStoreOperation operation;
         AtomicReference<String> resultRef = new AtomicReference<>();
         String effectiveKey = idempotencyKey == null || idempotencyKey.isBlank() ? UuidUtil.randomUuid() : idempotencyKey;
@@ -260,10 +274,11 @@ public class SpaceFileService {
                 operation.getResourceId());
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
         ensureInitialVersionIfEnabled(spaceFile,userId);
+        lifecycleService.fileAdded(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         resultRef.set(String.valueOf(spaceFile.getId()));
         crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
-        return toVO(spaceFile);
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
     }
 
     /**
@@ -288,6 +303,7 @@ public class SpaceFileService {
 
         String markdown = buildWebLinkMarkdown(uri,snapshot);
         byte[] content = markdown.getBytes(StandardCharsets.UTF_8);
+        if(quotaService != null) quotaService.requireTeamStorage(spaceId,HashUtil.sha256(content),content.length);
         String operationKey = CrossStoreOperationService.key("SPACE_GENERATED",userId,UuidUtil.randomUuid());
         AtomicReference<String> resultRef = new AtomicReference<>();
         CrossStoreOperation operation = crossStoreOperationService.claim(
@@ -299,10 +315,11 @@ public class SpaceFileService {
                 fileName,content,"text/markdown;charset=UTF-8",operation.getResourceId());
         SpaceFile spaceFile = createSpaceFile(spaceId,parent,stored.fileUuid(),fileName,userId);
         ensureInitialVersionIfEnabled(spaceFile,userId);
+        lifecycleService.fileAdded(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
         resultRef.set(String.valueOf(spaceFile.getId()));
         crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
-        return toVO(spaceFile);
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
     }
 
     /**
@@ -333,11 +350,15 @@ public class SpaceFileService {
                 removeTree(spaceId,child,userId);
             }
         }
+        if(file.getDir() == 0 && file.getFileUuid() != null) {
+            lifecycleService.fileRemovalStarted(file);
+        }
         int rows = spaceFileMapper.disable(spaceId,file.getId(),LocalDateTime.now());
         if(rows == 0) {
             throw new BaseException("空间文件删除失败");
         }
         if(file.getDir() == 0 && file.getFileUuid() != null) {
+            if(quotaService != null) quotaService.releaseReference("SPACE_FILE",file.getId());
             if(fileInfoMapper.updateFileCount(file.getFileUuid(),-1) == 0) {
                 throw new BaseException("文件引用计数更新失败");
             }
@@ -654,6 +675,11 @@ public class SpaceFileService {
         vo.setPath(spaceFile.getPath());
         vo.setVersionEnabled(spaceFile.getVersionEnabled());
         vo.setEffectiveVersionEnabled(resolveEffectiveVersionEnabled(spaceFile));
+        vo.setKnowledgeState(spaceFile.getKnowledgeState());
+        vo.setKnowledgeVersion(spaceFile.getKnowledgeVersion());
+        vo.setSearchable(Integer.valueOf(1).equals(spaceFile.getSearchable()));
+        vo.setLastKnowledgeError(spaceFile.getLastKnowledgeError());
+        vo.setRemovedAt(spaceFile.getRemovedAt());
         vo.setCreatetime(spaceFile.getCreatetime());
         vo.setUpdatetime(spaceFile.getUpdatetime());
         if(spaceFile.getDir() == 0 && spaceFile.getFileUuid() != null) {
@@ -843,7 +869,12 @@ public class SpaceFileService {
         if(spaceFileMapper.insert(spaceFile) == 0) {
             throw new BaseException("空间文件保存失败");
         }
+        if(quotaService != null) quotaService.recordTeamFile(spaceFile.getId(),spaceId,fileUuid);
         return spaceFile;
+    }
+
+    private String quotaKey(File file) {
+        return file.getHash() == null || file.getHash().isBlank() ? "uuid:" + file.getFileUuid() : file.getHash();
     }
 
     private void validateUploadFile(MultipartFile uploadFile) {

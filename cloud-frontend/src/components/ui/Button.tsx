@@ -32,16 +32,26 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   { asChild, className, variant, size, loading, disabled, children, ...props },
   ref
 ) {
-  const Component = asChild ? Slot : "button";
+  if (asChild) {
+    return (
+      <Slot
+        className={cn(buttonVariants({ variant, size }), className)}
+        ref={ref}
+        {...props}
+      >
+        {children}
+      </Slot>
+    );
+  }
   return (
-    <Component
+    <button
       className={cn(buttonVariants({ variant, size }), className)}
-      disabled={asChild ? undefined : disabled || loading}
+      disabled={disabled || loading}
       ref={ref}
       {...props}
     >
       {loading && <LoaderCircle className="ui-spinner" aria-hidden="true" size={16} />}
       {children}
-    </Component>
+    </button>
   );
 });

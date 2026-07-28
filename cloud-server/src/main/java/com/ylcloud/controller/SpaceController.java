@@ -1,6 +1,8 @@
 package com.ylcloud.controller;
 
 import com.ylcloud.DTO.SpaceCreateDTO;
+import com.ylcloud.DTO.SpaceLeaveDTO;
+import com.ylcloud.DTO.SpaceOwnerTransferDTO;
 import com.ylcloud.DTO.SpaceUpdateDTO;
 import com.ylcloud.DTO.SpaceVersionSettingDTO;
 import com.ylcloud.Result;
@@ -94,5 +96,17 @@ public class SpaceController {
     @DeleteMapping("/{spaceId}")
     public Result<Boolean> delete(@PathVariable Long spaceId) {
         return Result.success(spaceService.deleteSpace(spaceId,BaseContext.getCurrentId()));
+    }
+
+    @PutMapping("/{spaceId}/owner")
+    public Result<Boolean> transferOwner(@PathVariable Long spaceId,
+                                         @RequestBody @Valid SpaceOwnerTransferDTO dto) {
+        return Result.success(spaceService.transferOwner(spaceId,dto,BaseContext.getCurrentId()));
+    }
+
+    @PostMapping("/{spaceId}/leave")
+    public Result<Boolean> leave(@PathVariable Long spaceId,
+                                 @RequestBody(required = false) SpaceLeaveDTO dto) {
+        return Result.success(spaceService.leaveSpace(spaceId,dto,BaseContext.getCurrentId()));
     }
 }

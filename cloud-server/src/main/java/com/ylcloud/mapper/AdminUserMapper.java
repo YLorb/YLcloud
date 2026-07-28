@@ -12,18 +12,21 @@ import java.util.List;
 @Mapper
 public interface AdminUserMapper {
     @Select("select u.user_id as id, u.username, u.nickname, u.email, u.status, u.role, " +
+            "u.deployment_owner as deploymentOwner, " +
             "u.create_time as createTime, u.update_time as updateTime, pg.group_id as groupId, pg.group_name as groupName " +
             "from users u left join user_permission_group upg on upg.user_id = u.user_id " +
             "left join permission_group pg on pg.group_id = upg.group_id order by u.create_time asc, u.user_id asc")
     List<AdminUserVO> listAll();
 
     @Select("select u.user_id as id, u.username, u.nickname, u.email, u.status, u.role, " +
+            "u.deployment_owner as deploymentOwner, " +
             "u.create_time as createTime, u.update_time as updateTime, pg.group_id as groupId, pg.group_name as groupName " +
             "from users u left join user_permission_group upg on upg.user_id = u.user_id " +
             "left join permission_group pg on pg.group_id = upg.group_id where u.user_id = #{userId}")
     AdminUserVO getView(@Param("userId") Long userId);
 
-    @Select("select user_id as id, username, nickname, email, status, role, create_time as createTime, update_time as updateTime " +
+    @Select("select user_id as id, username, nickname, email, status, role, deployment_owner as deploymentOwner, " +
+            "create_time as createTime, update_time as updateTime " +
             "from users where user_id = #{userId} for update")
     User lockById(@Param("userId") Long userId);
 

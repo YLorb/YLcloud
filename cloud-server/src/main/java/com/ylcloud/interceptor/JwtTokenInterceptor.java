@@ -54,6 +54,13 @@ public class JwtTokenInterceptor implements HandlerInterceptor {
                 return false;
             }
 
+            // TASK-010: 检查账号生命周期状态
+            String accountStatus = user.getAccountStatus();
+            if(accountStatus != null && !"ACTIVE".equals(accountStatus)) {
+                writeUnauthorized(response, "账号已注销，请联系管理员恢复");
+                return false;
+            }
+
             BaseContext.setCurrentId(userId);
             request.setAttribute("userId",userId);
             request.setAttribute("username",claims.getSubject());

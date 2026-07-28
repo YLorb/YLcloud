@@ -105,14 +105,6 @@ if ($Mode -eq "Production") {
     }
 }
 
-if ($values["YLCLOUD_BOOTSTRAP_ADMIN_ENABLED"] -eq "true") {
-    Add-RequiredValueError "YLCLOUD_BOOTSTRAP_ADMIN_USERNAME"
-    $adminPassword = $values["YLCLOUD_BOOTSTRAP_ADMIN_PASSWORD"]
-    if ([string]::IsNullOrWhiteSpace($adminPassword) -or $adminPassword.Length -lt 12 -or $adminPassword -match "^(replace-|change-me|your-)") {
-        $errors.Add("Bootstrap admin password must be a non-template value with at least 12 characters")
-    }
-}
-
 $portDefaults = [ordered]@{
     YLCLOUD_MYSQL_HOST_PORT = 3306
     YLCLOUD_MINIO_API_HOST_PORT = 9000

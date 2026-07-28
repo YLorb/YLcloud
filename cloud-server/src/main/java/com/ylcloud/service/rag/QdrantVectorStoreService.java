@@ -16,6 +16,7 @@ import dev.langchain4j.store.embedding.filter.logical.And;
 import dev.langchain4j.store.embedding.qdrant.QdrantEmbeddingStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 
 @Service
 public class QdrantVectorStoreService {
@@ -37,6 +39,7 @@ public class QdrantVectorStoreService {
     private static final String FILE_UUID = "fileUuid";
     private static final String FILE_HASH = "fileHash";
     private static final String STATUS = "status";
+    private static final String POINT_ID_VERSION = "pointIdVersion";
 
     private final RagProperties properties;
     private final EmbeddingModel embeddingModel;
@@ -61,8 +64,12 @@ public class QdrantVectorStoreService {
                 .payloadTextKey(properties.getQdrant().getPayloadTextKey())
                 .build();
         String scheme = Boolean.TRUE.equals(properties.getQdrant().getUseTls()) ? "https" : "http";
-        RestClient.Builder restBuilder = RestClient.builder().baseUrl(
-                scheme + "://" + properties.getQdrant().getHost() + ":" + properties.getQdrant().getRestPort());
+        SimpleClientHttpRequestFactory requestFactory=new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(properties.getConnectTimeoutMs());
+        requestFactory.setReadTimeout(properties.getReadTimeoutMs());
+        RestClient.Builder restBuilder = RestClient.builder()
+                .requestFactory(requestFactory)
+                .baseUrl(scheme + "://" + properties.getQdrant().getHost() + ":" + properties.getQdrant().getRestPort());
         if(properties.getQdrant().getApiKey() != null && !properties.getQdrant().getApiKey().isBlank()) {
             restBuilder.defaultHeader("api-key",properties.getQdrant().getApiKey());
         }
@@ -78,16 +85,23 @@ public class QdrantVectorStoreService {
      * @param chunks 文件分片列表
      */
     public int upsertSpaceChunks(Long spaceId, Long spaceFileId, Long documentId, List<FileRagChunk> chunks) {
+        int indexed=stageSpaceChunks(spaceId,spaceFileId,documentId,chunks);
+        cleanupObsoleteSpaceFilePoints(spaceId,spaceFileId,chunks);
+        return indexed;
+    }
+
+    /** Writes and verifies the new stable IDs without removing the currently usable generation. */
+    public int stageSpaceChunks(Long spaceId, Long spaceFileId, Long documentId, List<FileRagChunk> chunks) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled())) {
             throw new IllegalStateException("Qdrant vector indexing is disabled");
         }
         if(chunks == null || chunks.isEmpty()) {
             throw new IllegalArgumentException("RAG indexing requires at least one non-empty chunk");
         }
-        deleteBySpaceFileStrict(spaceId,spaceFileId);
         int batchSize = properties.getEmbeddingBatchSize() == null || properties.getEmbeddingBatchSize() < 1
                 ? 8 : properties.getEmbeddingBatchSize();
         int indexedCount = 0;
+        Set<String> currentPointIds = new HashSet<>();
         for(int start = 0; start < chunks.size(); start += batchSize) {
             List<FileRagChunk> batch = chunks.subList(start,Math.min(start + batchSize,chunks.size()));
             List<String> ids = new ArrayList<>();
@@ -96,7 +110,9 @@ public class QdrantVectorStoreService {
                 if(chunk.getId() == null || chunk.getContent() == null || chunk.getContent().isBlank()) {
                     throw new IllegalArgumentException("RAG indexing received an invalid chunk");
                 }
-                ids.add(vectorId(spaceId,chunk.getId()));
+                String id=stablePointId(spaceId,spaceFileId,chunk.getFileHash(),chunk.getChunkIndex());
+                ids.add(id);
+                currentPointIds.add(id);
                 segments.add(TextSegment.from(chunk.getContent(),metadata(spaceId,spaceFileId,documentId,chunk)));
             }
             if(segments.isEmpty()) {
@@ -111,8 +127,21 @@ public class QdrantVectorStoreService {
         if(indexedCount != chunks.size()) {
             throw new IllegalStateException("Qdrant indexed vector count does not match valid chunk count");
         }
-        awaitCountBySpaceFile(spaceId,spaceFileId,chunks.size());
+        awaitPointIdsPresent(spaceId,spaceFileId,currentPointIds);
         return indexedCount;
+    }
+
+    /** Removes legacy/previous-generation points only after the new generation is committed. */
+    public void cleanupObsoleteSpaceFilePoints(Long spaceId,Long spaceFileId,List<FileRagChunk> chunks) {
+        if(chunks==null || chunks.isEmpty()) {
+            throw new IllegalArgumentException("RAG point cleanup requires the committed chunk generation");
+        }
+        Set<String> currentIds=new HashSet<>();
+        for(FileRagChunk chunk:chunks) {
+            currentIds.add(stablePointId(spaceId,spaceFileId,chunk.getFileHash(),chunk.getChunkIndex()));
+        }
+        removeObsoletePointIds(spaceId,spaceFileId,currentIds);
+        awaitCountBySpaceFile(spaceId,spaceFileId,chunks.size());
     }
 
     static int validateEmbeddingBatch(List<Embedding> embeddings, int expectedCount, Integer expectedDimension) {
@@ -273,6 +302,12 @@ public class QdrantVectorStoreService {
             return;
         }
         embeddingStore.removeAll(new IsEqualTo(SPACE_ID,spaceId));
+        awaitCountBySpace(spaceId,0);
+    }
+
+    public int countBySpaceStrict(Long spaceId) {
+        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) return 0;
+        return count(Map.of(SPACE_ID,spaceId));
     }
 
     /**
@@ -293,6 +328,7 @@ public class QdrantVectorStoreService {
         metadata.put(FILE_UUID,chunk.getFileUuid() == null ? "" : chunk.getFileUuid());
         metadata.put(FILE_HASH,chunk.getFileHash() == null ? "" : chunk.getFileHash());
         metadata.put(STATUS,StatusConstant.ENABLE);
+        metadata.put(POINT_ID_VERSION,"v1");
         return metadata;
     }
 
@@ -319,6 +355,17 @@ public class QdrantVectorStoreService {
         }
         throw new IllegalStateException("Qdrant point count mismatch for spaceId=" + spaceId +
                 ", spaceFileId=" + spaceFileId + ": expected " + expectedCount + ", got " + actual);
+    }
+
+    private void awaitCountBySpace(Long spaceId, int expectedCount) {
+        int actual = -1;
+        for(int attempt = 1; attempt <= 5; attempt++) {
+            actual = countBySpaceStrict(spaceId);
+            if(actual == expectedCount) return;
+            if(attempt < 5) sleepForVerification(100L * attempt);
+        }
+        throw new IllegalStateException("Qdrant point count mismatch for spaceId=" + spaceId +
+                ": expected=" + expectedCount + ", actual=" + actual);
     }
 
     @SuppressWarnings("unchecked")
@@ -375,7 +422,68 @@ public class QdrantVectorStoreService {
      * @param chunkId 方法入参
      * @return 处理结果
      */
-    private String vectorId(Long spaceId, Long chunkId) {
-        return UUID.nameUUIDFromBytes(("space-" + spaceId + "-chunk-" + chunkId).getBytes()).toString();
+    public static String stablePointId(Long spaceId,Long spaceFileId,String fileHash,Integer chunkIndex) {
+        if(spaceId==null || spaceFileId==null || fileHash==null || fileHash.isBlank() || chunkIndex==null || chunkIndex<0) {
+            throw new IllegalArgumentException("Stable RAG point ID requires space, logical file, hash and chunk index");
+        }
+        String source="point-id-v1|"+spaceId+"|"+spaceFileId+"|"+fileHash+"|"+chunkIndex;
+        return UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    private void awaitPointIdsPresent(Long spaceId,Long spaceFileId,Set<String> expectedIds) {
+        Set<String> actual=Set.of();
+        for(int attempt=1;attempt<=5;attempt++) {
+            actual=pointIdsBySpaceFile(spaceId,spaceFileId);
+            if(actual.containsAll(expectedIds)) return;
+            if(attempt<5) sleepForVerification(100L*attempt);
+        }
+        Set<String> missing=new HashSet<>(expectedIds);
+        missing.removeAll(actual);
+        throw new IllegalStateException("Qdrant stable point verification failed; missing="+missing.size());
+    }
+
+    private void removeObsoletePointIds(Long spaceId,Long spaceFileId,Set<String> currentIds) {
+        List<String> obsolete=new ArrayList<>(pointIdsBySpaceFile(spaceId,spaceFileId));
+        obsolete.removeAll(currentIds);
+        if(obsolete.isEmpty()) return;
+        restClient.post()
+                .uri("/collections/{collection}/points/delete?wait=true",properties.getQdrant().getCollectionName())
+                .body(Map.of("points",obsolete)).retrieve().toBodilessEntity();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> pointIdsBySpaceFile(Long spaceId,Long spaceFileId) {
+        Set<String> ids=new HashSet<>();
+        Object offset=null;
+        do {
+            Map<String,Object> body=new LinkedHashMap<>();
+            body.put("filter",filterBody(Map.of(SPACE_ID,spaceId,SPACE_FILE_ID,spaceFileId)));
+            body.put("limit",256);
+            body.put("with_payload",false);
+            body.put("with_vector",false);
+            if(offset!=null) body.put("offset",offset);
+            Map<String,Object> response=restClient.post()
+                    .uri("/collections/{collection}/points/scroll",properties.getQdrant().getCollectionName())
+                    .body(body).retrieve().body(Map.class);
+            if(response==null || !(response.get("result") instanceof Map<?,?> result)) {
+                throw new IllegalStateException("Qdrant point scroll response is invalid");
+            }
+            Object points=result.get("points");
+            if(points instanceof List<?> list) {
+                for(Object value:list) {
+                    if(value instanceof Map<?,?> point && point.get("id")!=null) {
+                        ids.add(String.valueOf(point.get("id")));
+                    }
+                }
+            }
+            offset=result.get("next_page_offset");
+        } while(offset!=null);
+        return ids;
+    }
+
+    private Map<String,Object> filterBody(Map<String,Object> matches) {
+        List<Map<String,Object>> must=new ArrayList<>();
+        matches.forEach((key,value) -> must.add(Map.of("key",key,"match",Map.of("value",value))));
+        return Map.of("must",must);
     }
 }

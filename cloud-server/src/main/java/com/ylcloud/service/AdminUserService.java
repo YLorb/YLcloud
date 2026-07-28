@@ -62,7 +62,6 @@ public class AdminUserService {
         if(userId.equals(operatorId)) {
             throw new BaseException("不能在当前会话中修改自己的角色或状态");
         }
-
         String nextRole = target.getRole();
         if(dto.getRole() != null) {
             nextRole = dto.getRole().trim().toUpperCase(Locale.ROOT);
@@ -73,6 +72,10 @@ public class AdminUserService {
         Integer nextStatus = dto.getStatus() == null ? target.getStatus() : dto.getStatus();
         if(!STATUSES.contains(nextStatus)) {
             throw new BaseException("用户状态仅支持启用或停用");
+        }
+        if(Boolean.TRUE.equals(target.getDeploymentOwner())
+                && (!"ADMIN".equals(nextRole) || nextStatus == 0)) {
+            throw new BaseException("部署所有者不可降级或停用");
         }
         boolean removingActiveAdmin = "ADMIN".equalsIgnoreCase(target.getRole())
                 && target.getStatus() != null && target.getStatus() == 1

@@ -14,6 +14,7 @@ public class KnowledgeChatSessionVO {
     private List<Long> spaceIds;
     private Integer messageCount;
     private List<KnowledgeChatMessageVO> messages;
+    private Integer summaryVersion;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;
 }

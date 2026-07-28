@@ -14,8 +14,36 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.anyList;
+import static org.mockito.Mockito.anyString;
 
 class KnowledgeProfileWriteServiceTest {
+    @Test
+    void reviewCandidateDoesNotReplaceCurrentEffectiveProfileOrQuestions() {
+        SpaceKnowledgeDocumentProfileMapper profileMapper = mock(SpaceKnowledgeDocumentProfileMapper.class);
+        SpaceKnowledgeQuestionMapper questionMapper = mock(SpaceKnowledgeQuestionMapper.class);
+        KnowledgeProfileAssetService assetService = mock(KnowledgeProfileAssetService.class);
+        SpaceKnowledgeDocumentProfile active = profile(1L,"active");
+        active.setId(5L);
+        active.setCurrentVersionId(10L);
+        SpaceKnowledgeDocumentProfile candidate = profile(2L,"candidate");
+        candidate.setSpaceId(2L);
+        candidate.setDocumentId(4L);
+        candidate.setProfileStatus("NEEDS_REVIEW");
+        candidate.setRepairAttempt(0);
+        when(profileMapper.getByDocumentIdForUpdate(2L,4L)).thenReturn(active);
+        when(profileMapper.getByDocumentId(2L,4L)).thenReturn(active);
+
+        new KnowledgeProfileWriteService(profileMapper,questionMapper,assetService)
+                .saveProfile(candidate,java.util.List.of("candidate question"),"model-v1","prompt-v1");
+
+        verify(profileMapper,never()).upsert(any());
+        verify(questionMapper,never()).deleteByDocumentId(any(),any());
+        verify(questionMapper,never()).insert(any());
+        verify(assetService).createVersion(eq(candidate),anyList(),eq("LLM_GENERATED"),eq("model-v1"),
+                eq("prompt-v1"),eq(null),anyString());
+    }
+
     @Test
     void syncRetrievalSourceWritesChunkSnapshotWithExpectedRevision() {
         SpaceKnowledgeDocumentProfileMapper profileMapper = mock(SpaceKnowledgeDocumentProfileMapper.class);

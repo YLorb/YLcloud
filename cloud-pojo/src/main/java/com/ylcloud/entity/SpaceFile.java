@@ -17,6 +17,11 @@ public class SpaceFile {
     private Long parentId;
     private String path;
     private Integer versionEnabled;
+    private String knowledgeState;
+    private Long knowledgeVersion;
+    private Integer searchable;
+    private String lastKnowledgeError;
+    private LocalDateTime removedAt;
     private Integer status;
     private Long createdBy;
     private LocalDateTime createtime;

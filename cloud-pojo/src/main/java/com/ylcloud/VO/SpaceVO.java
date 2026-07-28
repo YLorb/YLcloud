@@ -13,6 +13,7 @@ public class SpaceVO {
     private String name;
     private String description;
     private String type;
+    private String lifecycleState;
     private Long ownerId;
     private Long rootDirId;
     private String role;

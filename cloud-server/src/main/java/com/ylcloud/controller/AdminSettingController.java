@@ -31,6 +31,9 @@ public class AdminSettingController {
     @PutMapping
     public Result<Void> update(@RequestBody @Valid SiteSettingUpdateDTO dto) {
         adminPermissionService.requireAdmin();
+        if(dto.getSettings().stream().anyMatch(item -> "webhook.allowPrivateTargets".equals(item.getKey()))) {
+            adminPermissionService.requireDeploymentOwner();
+        }
         siteSettingService.updateBatch(dto);
         return Result.success();
     }

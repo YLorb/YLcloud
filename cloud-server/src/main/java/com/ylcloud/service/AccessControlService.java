@@ -16,6 +16,7 @@ import com.ylcloud.mapper.AccessControlMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
@@ -27,6 +28,12 @@ import java.util.Map;
 public class AccessControlService {
     private final AccessControlMapper mapper;
     private final ObjectMapper objectMapper;
+    private SecurityAuditService securityAuditService;
+
+    @Autowired(required = false)
+    public void setSecurityAuditService(SecurityAuditService securityAuditService) {
+        this.securityAuditService = securityAuditService;
+    }
 
     public List<PermissionDefinitionVO> definitions() {
         return UserPermissionKeys.DEFINITIONS;
@@ -194,6 +201,13 @@ public class AccessControlService {
     private String normalize(String value) { return value == null || value.isBlank() ? null : value.trim(); }
     private void audit(String targetType, Long targetId, String action, Object before, Object after) {
         mapper.insertAudit(BaseContext.getCurrentId(),targetType,targetId,action,json(before),json(after));
+        if(securityAuditService != null) {
+            securityAuditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("PERMISSION_CHANGE").action(action).subject(BaseContext.getCurrentId(), null)
+                    .target(targetType, String.valueOf(targetId), null).result("SUCCESS")
+                    .detail(Map.of("before", before == null ? Map.of() : before,
+                            "after", after == null ? Map.of() : after)));
+        }
     }
     private String json(Object value) {
         if(value == null) return null;

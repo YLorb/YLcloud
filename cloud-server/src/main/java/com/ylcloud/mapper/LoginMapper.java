@@ -16,6 +16,7 @@ public interface LoginMapper {
      * @return 处理结果
      */
     @Select("select user_id as id, username, password, nickname, root_id as rootID, email, avatar, status, role, " +
+            "deployment_owner as deploymentOwner, account_status as accountStatus, " +
             "create_time as createTime, update_time as updateTime " +
             "from users where username = #{username}")
     User getByUsername(String username);
@@ -25,6 +26,7 @@ public interface LoginMapper {
      * @return 处理结果
      */
     @Select("select user_id as id, username, password, nickname, root_id as rootID, email, avatar, status, role, " +
+            "deployment_owner as deploymentOwner, account_status as accountStatus, " +
             "create_time as createTime, update_time as updateTime " +
             "from users where user_id = #{userId}")
     User getById(@Param("userId") Long userId);

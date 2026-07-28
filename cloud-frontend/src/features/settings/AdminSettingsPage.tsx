@@ -1,6 +1,6 @@
 import * as Tabs from "@radix-ui/react-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Check, Eye, EyeOff, FileCog, Globe2, Save, ShieldCheck } from "lucide-react";
+import { Bot, Check, Cpu, Eye, EyeOff, FileCog, Globe2, Lock, Save, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useBlocker } from "react-router-dom";
 import { toast } from "sonner";
@@ -12,12 +12,13 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import type { SiteSetting } from "../../types";
 import { AccessManagementPanel } from "./AccessManagementPanel";
 
-type SectionKey = "site" | "permissions" | "files" | "ai";
+type SectionKey = "site" | "permissions" | "files" | "ai" | "embedding";
 const sections: Array<{ key: SectionKey; label: string; description: string; icon: typeof Globe2 }> = [
   { key: "site", label: "站点信息", description: "品牌、公开地址和站点说明", icon: Globe2 },
   { key: "permissions", label: "权限系统", description: "注册策略、用户角色和账号状态", icon: ShieldCheck },
   { key: "files", label: "文件与存储", description: "上传限制、分享地址和用户配额", icon: FileCog },
-  { key: "ai", label: "AI 与 RAG", description: "模型、解析、向量库和问答开关", icon: Bot }
+  { key: "ai", label: "AI 与 RAG", description: "模型、解析、向量库和问答开关", icon: Bot },
+  { key: "embedding", label: "Embedding 切换", description: "向量模型与维度迁移", icon: Cpu }
 ];
 
 export function AdminSettingsPage() {
@@ -46,13 +47,14 @@ export function AdminSettingsPage() {
     <section className="admin-security-note"><ShieldCheck size={22} /><div><strong>Admin Settings</strong><p>更改会影响所有后续请求。角色调整和账号停用立即生效，敏感配置不会明文回显。</p></div><StatusBadge tone="success">ADMIN 权限已验证</StatusBadge></section>
     <Tabs.Root defaultValue="site" orientation="vertical" className="settings-tabs">
       <Tabs.List className="settings-tabs__list" aria-label="管理员设置分组">
-        {sections.map(({ key, label, description, icon: Icon }) => <Tabs.Trigger key={key} value={key}><Icon size={17} /><span>{label}<small>{description}</small></span></Tabs.Trigger>)}
+        {sections.map(({ key, label, description, icon: Icon }) => <Tabs.Trigger key={key} value={key} className={key === "embedding" ? "settings-tab--unavailable" : undefined}><Icon size={17} /><span>{label}<small>{description}</small></span>{key === "embedding" && <Lock className="settings-tab__lock" size={12} aria-label="暂不可用" />}</Tabs.Trigger>)}
       </Tabs.List>
       <div className="settings-tabs__content">
         {sections.map((section) => <Tabs.Content key={section.key} value={section.key}>
           <header className="panel-header"><div><span className="section-eyebrow">Admin Settings</span><h2>{section.label}</h2><p>{section.description}。</p></div></header>
           {grouped[section.key].length > 0 && <div className="settings-field-list">{grouped[section.key].map((setting) => <SettingField key={setting.key} setting={setting} value={values[setting.key] ?? ""} revealed={revealed.has(setting.key)} onReveal={() => setRevealed((current) => { const next = new Set(current); next.has(setting.key) ? next.delete(setting.key) : next.add(setting.key); return next; })} onChange={(value) => setValues((current) => ({ ...current, [setting.key]: value }))} />)}</div>}
           {section.key === "permissions" && <AccessManagementPanel />}
+          {section.key === "embedding" && <div className="embedding-placeholder" aria-disabled="true"><Cpu size={32} /><strong>Embedding 模型切换暂不可用</strong><p>这里将用于选择向量模型、查看维度兼容性并执行索引迁移。功能开放前不会影响当前知识库。</p><span><Lock size={13} />敬请期待</span></div>}
         </Tabs.Content>)}
       </div>
     </Tabs.Root>
@@ -71,7 +73,7 @@ function SettingField({ setting, value, revealed, onReveal, onChange }: { settin
   </div></div>;
 }
 
-function groupSettings(settings: SiteSetting[]) { const groups: Record<SectionKey, SiteSetting[]> = { site: [], permissions: [], files: [], ai: [] }; settings.forEach((setting) => groups[sectionFor(setting)].push(setting)); return groups; }
+function groupSettings(settings: SiteSetting[]) { const groups: Record<SectionKey, SiteSetting[]> = { site: [], permissions: [], files: [], ai: [], embedding: [] }; settings.forEach((setting) => groups[sectionFor(setting)].push(setting)); return groups; }
 function sectionFor(setting: SiteSetting): SectionKey { if (setting.key === "site.allowRegister") return "permissions"; if (/^(upload|share|storage)\./.test(setting.key) || setting.groupName === "file") return "files"; if (/^(llm|rag)\./.test(setting.key) || setting.groupName === "ai") return "ai"; return "site"; }
 function bytesToGiB(value: string) { const bytes = Number(value); return Number.isFinite(bytes) ? String(Math.round(bytes / 1024 ** 3 * 10) / 10) : "1"; }
 function bytesToMiB(value: string) { const bytes = Number(value); return Number.isFinite(bytes) ? String(Math.round(bytes / 1024 ** 2)) : "0"; }

@@ -1,8 +1,12 @@
 package com.ylcloud.service;
 
 import com.ylcloud.DTO.SpaceCreateDTO;
+import com.ylcloud.DTO.SpaceLeaveDTO;
+import com.ylcloud.DTO.SpaceOwnerTransferDTO;
 import com.ylcloud.DTO.SpaceUpdateDTO;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ConflictException;
+import com.ylcloud.Exception.ForbiddenException;
 import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.VO.SpaceVO;
 import com.ylcloud.constant.SpaceConstant;
@@ -13,15 +17,18 @@ import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.entity.SpaceMember;
 import com.ylcloud.entity.SpaceRagConfig;
 import com.ylcloud.mapper.SpaceFileMapper;
+import com.ylcloud.mapper.SpaceDissolutionOutboxMapper;
 import com.ylcloud.mapper.SpaceMapper;
 import com.ylcloud.mapper.SpaceMemberMapper;
 import com.ylcloud.mapper.SpaceRagMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 空间基础业务服务。
@@ -35,6 +42,8 @@ public class SpaceService {
     private final SpacePermissionService spacePermissionService;
     private final RagProperties ragProperties;
     private final InitialFileVersionService initialFileVersionService;
+    private final SpaceDissolutionOutboxMapper dissolutionOutboxMapper;
+    private QuotaService quotaService;
 
     /**
      * 初始化 SpaceService 对象。
@@ -51,7 +60,8 @@ public class SpaceService {
                         SpaceRagMapper spaceRagMapper,
                         SpacePermissionService spacePermissionService,
                         RagProperties ragProperties,
-                        InitialFileVersionService initialFileVersionService) {
+                        InitialFileVersionService initialFileVersionService,
+                        SpaceDissolutionOutboxMapper dissolutionOutboxMapper) {
         this.spaceMapper = spaceMapper;
         this.spaceMemberMapper = spaceMemberMapper;
         this.spaceFileMapper = spaceFileMapper;
@@ -59,6 +69,7 @@ public class SpaceService {
         this.spacePermissionService = spacePermissionService;
         this.ragProperties = ragProperties;
         this.initialFileVersionService = initialFileVersionService;
+        this.dissolutionOutboxMapper = dissolutionOutboxMapper;
     }
 
     /**
@@ -83,7 +94,9 @@ public class SpaceService {
      */
     @Transactional
     public SpaceVO createSpace(SpaceCreateDTO dto, Long userId) {
+        if(quotaService != null) quotaService.requireSpaceCreation(userId);
         Space space = createSpaceInternal(userId,dto.getName(),dto.getDescription(),SpaceConstant.TYPE_TEAM);
+        if(quotaService != null) quotaService.registerTeam(space.getId(),userId);
         SpaceVO vo = toSpaceVO(space);
         vo.setRole(SpaceConstant.ROLE_OWNER);
         return vo;
@@ -141,11 +154,72 @@ public class SpaceService {
      */
     @Transactional
     public Boolean deleteSpace(Long spaceId, Long userId) {
-        spacePermissionService.requireOwner(spaceId,userId);
-        int rows = spaceMapper.disable(spaceId,LocalDateTime.now());
-        if(rows == 0) {
-            throw new BaseException("空间删除失败");
+        Space space = requireSpace(spaceId);
+        if(SpaceConstant.TYPE_PERSONAL.equals(space.getType())) {
+            throw new ForbiddenException("PERSONAL Space 永久私有，不能删除");
         }
+        spacePermissionService.requireOwner(spaceId,userId);
+        throw new ConflictException("TEAM Space 不能直接删除，请通过退出接口并完成高风险解散确认");
+    }
+
+    @Transactional
+    public Boolean transferOwner(Long spaceId, SpaceOwnerTransferDTO dto, Long operatorId) {
+        Space space = requireActiveTeamForUpdate(spaceId);
+        if(!operatorId.equals(space.getOwnerId())) {
+            throw new ForbiddenException("只有当前空间所有者可以转让所有权");
+        }
+        if(operatorId.equals(dto.getTargetUserId())) {
+            throw new BaseException("目标用户已经是空间所有者");
+        }
+        SpaceMember target = spaceMemberMapper.getActiveForUpdate(spaceId,dto.getTargetUserId());
+        if(target == null) {
+            throw new BaseException("目标用户必须是当前空间成员");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if(spaceMemberMapper.updateRole(spaceId,operatorId,SpaceConstant.ROLE_MEMBER,now) != 1
+                || spaceMemberMapper.updateRole(spaceId,dto.getTargetUserId(),SpaceConstant.ROLE_OWNER,now) != 1
+                || spaceMapper.updateOwner(spaceId,dto.getTargetUserId(),now) != 1
+                || spaceMemberMapper.countActiveOwners(spaceId) != 1) {
+            throw new ConflictException("空间所有权转让冲突，请重试");
+        }
+        if(quotaService != null) quotaService.transferTeam(spaceId,dto.getTargetUserId());
+        return true;
+    }
+
+    @Autowired(required=false)
+    public void setQuotaService(QuotaService quotaService) { this.quotaService=quotaService; }
+
+    @Transactional
+    public Boolean leaveSpace(Long spaceId, SpaceLeaveDTO dto, Long userId) {
+        Space space = requireActiveTeamForUpdate(spaceId);
+        SpaceMember member = spaceMemberMapper.getActiveForUpdate(spaceId,userId);
+        if(member == null) {
+            throw new ForbiddenException("当前用户不是空间成员");
+        }
+        if(!SpaceConstant.ROLE_OWNER.equals(member.getRole())) {
+            if(spaceMemberMapper.disable(spaceId,userId,LocalDateTime.now()) != 1) {
+                throw new ConflictException("退出空间冲突，请重试");
+            }
+            return true;
+        }
+
+        int activeMembers = spaceMemberMapper.countActive(spaceId);
+        if(activeMembers > 1) {
+            throw new ConflictException("空间仍有其他成员，请先转让所有权再退出");
+        }
+        if(dto == null || !Boolean.TRUE.equals(dto.getConfirmDissolve())
+                || dto.getConfirmationName() == null
+                || !space.getName().equals(dto.getConfirmationName())) {
+            throw new ConflictException("仅剩所有者时退出将解散空间，请确认解散并准确输入空间名称");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if(spaceMapper.markDissolving(spaceId,now) != 1) {
+            throw new ConflictException("空间状态已变化，请刷新后重试");
+        }
+        dissolutionOutboxMapper.insertRequested(
+                UUID.randomUUID().toString(),spaceId,userId,now
+        );
         return true;
     }
 
@@ -206,6 +280,7 @@ public class SpaceService {
         space.setName(name);
         space.setDescription(description);
         space.setType(type);
+        space.setLifecycleState(SpaceConstant.LIFECYCLE_ACTIVE);
         space.setOwnerId(ownerId);
         space.setRagStatus(StatusConstant.ENABLE);
         space.setVersionEnabled(StatusConstant.ENABLE);
@@ -268,6 +343,7 @@ public class SpaceService {
         vo.setName(space.getName());
         vo.setDescription(space.getDescription());
         vo.setType(space.getType());
+        vo.setLifecycleState(space.getLifecycleState());
         vo.setOwnerId(space.getOwnerId());
         vo.setRootDirId(space.getRootDirId());
         vo.setRagStatus(space.getRagStatus());
@@ -275,5 +351,16 @@ public class SpaceService {
         vo.setCreatetime(space.getCreatetime());
         vo.setUpdatetime(space.getUpdatetime());
         return vo;
+    }
+
+    private Space requireActiveTeamForUpdate(Long spaceId) {
+        Space space = spaceMapper.getByIdForUpdate(spaceId);
+        if(space == null || !SpaceConstant.LIFECYCLE_ACTIVE.equals(space.getLifecycleState())) {
+            throw new NotFoundException("空间不存在或不处于可操作状态");
+        }
+        if(SpaceConstant.TYPE_PERSONAL.equals(space.getType())) {
+            throw new ForbiddenException("PERSONAL Space 永久私有，不能转让、退出或解散");
+        }
+        return space;
     }
 }

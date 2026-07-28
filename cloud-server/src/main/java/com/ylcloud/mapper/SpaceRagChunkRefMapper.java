@@ -57,4 +57,7 @@ public interface SpaceRagChunkRefMapper {
 
     @Select("select file_chunk_id from space_rag_chunk_ref where document_id = #{documentId} and status = 1 order by file_chunk_id")
     List<Long> listActiveChunkIds(@Param("documentId") Long documentId);
+
+    @Update("update space_rag_chunk_ref set status = 0, updatetime = #{now} where space_id = #{spaceId}")
+    int disableBySpaceId(@Param("spaceId") Long spaceId, @Param("now") LocalDateTime now);
 }

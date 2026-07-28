@@ -33,36 +33,19 @@ public class SignService {
 
     @Transactional
     public void signup(UserRegisterDTO userRegisterDTO) {
+        // The guard must be the first database read in this transaction. Under
+        // MySQL REPEATABLE READ, reading site settings first would establish a
+        // stale snapshot while another first-user transaction is still running.
+        signMapper.lockRegistrationGuard();
         if(!Boolean.TRUE.equals(siteSettingService.getBoolean(SiteSettingService.SITE_ALLOW_REGISTER,true))) {
             throw new BaseException("当前站点未开放注册");
         }
-        signMapper.lockRegistrationGuard();
         if(signMapper.countByUsername(userRegisterDTO.getUsername()) > 0) {
             throw new BaseException("用户名已存在");
         }
 
-        String role = signMapper.countAll() == 0 ? ROLE_ADMIN : ROLE_USER;
-        createUser(userRegisterDTO,role,null);
-    }
-
-    /**
-     * Create the first administrator from an explicit deployment secret.
-     * Existing installations are never modified.
-     *
-     * @return true when the administrator was created
-     */
-    @Transactional
-    public boolean bootstrapAdmin(String username, String password, String nickname) {
-        signMapper.lockRegistrationGuard();
-        if(signMapper.countAll() > 0) {
-            return false;
-        }
-        UserRegisterDTO dto = new UserRegisterDTO();
-        dto.setUsername(username);
-        dto.setPassword(password);
-        dto.setNickname(nickname);
-        createUser(dto,ROLE_ADMIN,null);
-        return true;
+        boolean deploymentOwner = signMapper.countAll() == 0;
+        createUser(userRegisterDTO,deploymentOwner ? ROLE_ADMIN : ROLE_USER,null,deploymentOwner);
     }
 
     @Transactional
@@ -74,15 +57,16 @@ public class SignService {
         if(!ROLE_ADMIN.equals(role) && !ROLE_USER.equals(role)) {
             throw new BaseException("用户角色仅支持 ADMIN 或 USER");
         }
-        return createUser(userRegisterDTO,role,email);
+        return createUser(userRegisterDTO,role,email,false);
     }
 
-    private Long createUser(UserRegisterDTO userRegisterDTO, String role, String email) {
+    private Long createUser(UserRegisterDTO userRegisterDTO, String role, String email, boolean deploymentOwner) {
         User user = new User();
         BeanUtils.copyProperties(userRegisterDTO,user);
         user.setPassword(passwordEncoder.encode(userRegisterDTO.getPassword()));
         user.setStatus(StatusConstant.ENABLE);
         user.setRole(role);
+        user.setDeploymentOwner(deploymentOwner);
         user.setCreateTime(LocalDateTime.now());
         user.setUpdateTime(LocalDateTime.now());
         int rows = signMapper.insert(user);
@@ -94,6 +78,7 @@ public class SignService {
         if(rows == 0) {
             throw new RuntimeException("用户根目录绑定失败");
         }
+        signMapper.assignDefaultPermissionGroup(user.getId());
         spaceService.createDefaultPersonalSpace(user.getId(),user.getUsername());
         return user.getId();
     }

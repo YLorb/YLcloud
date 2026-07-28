@@ -10,8 +10,8 @@ public interface SignMapper {
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true,keyProperty = "id",keyColumn = "user_id")
-    @Insert("insert into users(username,password,nickname,status,role,create_time,update_time) " +
-            "values(#{username}, #{password}, #{nickname}, #{status}, #{role}, #{createTime}, #{updateTime})")
+    @Insert("insert into users(username,password,nickname,status,role,deployment_owner,create_time,update_time) " +
+            "values(#{username}, #{password}, #{nickname}, #{status}, #{role}, #{deploymentOwner}, #{createTime}, #{updateTime})")
     int insert(User user);
 
     /**
@@ -22,7 +22,7 @@ public interface SignMapper {
     int countByUsername(String username);
 
     /**
-     * Count all users for first-run bootstrap checks.
+     * Count all users while holding the registration guard.
      */
     @Select("select count(*) from users")
     int countAll();
@@ -42,4 +42,9 @@ public interface SignMapper {
             "set root_id = #{rootId}, email = #{email} " +
             "where user_id = #{userId}")
     int updateAll(@Param("rootId") Long rootId, @Param("userId") Long userId, @Param("email") String email);
+
+    @Insert("insert into user_permission_group(user_id, group_id) " +
+            "select #{userId}, group_id from permission_group where group_name = '默认用户组' " +
+            "on duplicate key update group_id = values(group_id), update_time = now()")
+    int assignDefaultPermissionGroup(@Param("userId") Long userId);
 }

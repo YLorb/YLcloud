@@ -50,6 +50,12 @@ public class CrossStoreOperationService {
         return mapper.get(operationKey);
     }
 
+    public CrossStoreOperation getById(Long id) { return mapper.getById(id); }
+
+    public int bindRecoveryTask(Long id,Integer attempt,Long asyncTaskId,LocalDateTime now) {
+        return mapper.bindRecoveryTask(id,attempt,asyncTaskId,now);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordResultCandidate(String operationKey, String resultRef) {
         mapper.recordResultCandidate(operationKey,resultRef,LocalDateTime.now());

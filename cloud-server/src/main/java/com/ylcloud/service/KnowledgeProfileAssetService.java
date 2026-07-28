@@ -30,6 +30,9 @@ import java.util.Set;
 @Service
 public class KnowledgeProfileAssetService {
     private static final int MAX_QUESTIONS = 8;
+    public static final String ACTIVE = "ACTIVE";
+    public static final String NEEDS_REVIEW = "NEEDS_REVIEW";
+    public static final String FAILED = "FAILED";
 
     private final SpaceKnowledgeDocumentProfileMapper profileMapper;
     private final SpaceKnowledgeProfileVersionMapper versionMapper;
@@ -54,21 +57,90 @@ public class KnowledgeProfileAssetService {
                                                       String sourceType,
                                                       Long createdBy,
                                                       String changeSummary) {
+        return createVersion(profile,questions,sourceType,null,null,createdBy,changeSummary);
+    }
+
+    @Transactional
+    public SpaceKnowledgeProfileVersion createVersion(SpaceKnowledgeDocumentProfile profile,
+                                                       List<String> questions,
+                                                       String sourceType,
+                                                       String modelName,
+                                                       String promptVersion,
+                                                       Long createdBy,
+                                                       String changeSummary) {
+        SpaceKnowledgeDocumentProfile identity = profileMapper.getByDocumentIdForUpdate(profile.getSpaceId(),profile.getDocumentId());
+        if(identity == null) {
+            throw new BaseException("knowledge profile identity not found");
+        }
+        profile.setId(identity.getId());
+        String assetState = assetState(profile);
+        BigDecimal confidence = confidence(profile.getQualityScore());
+        LocalDateTime now = LocalDateTime.now();
+        if(ACTIVE.equals(assetState)) {
+            versionMapper.supersedeActive(profile.getId(),now);
+        }
         SpaceKnowledgeProfileVersion version = new SpaceKnowledgeProfileVersion();
         version.setProfileId(profile.getId());
         version.setSpaceId(profile.getSpaceId());
         version.setDocumentId(profile.getDocumentId());
         version.setVersionNo(versionMapper.maxVersionNo(profile.getId()) + 1);
         version.setSourceType(sourceType);
-        version.setSchemaVersion("profile-v1");
+        version.setModelName(modelName);
+        version.setPromptVersion(promptVersion);
+        version.setSchemaVersion(profile.getProfileSchemaVersion() == null ? "profile-v1" : profile.getProfileSchemaVersion());
         version.setQualityScore(profile.getQualityScore() == null ? BigDecimal.ZERO : profile.getQualityScore());
+        version.setAssetState(assetState);
+        version.setConfidence(confidence);
+        version.setConflictReason(conflictReason(profile,assetState));
+        version.setSourceFileHash(profile.getSourceFileHash());
+        version.setSourceParserVersion(profile.getSourceParserVersion());
         version.setProfileSnapshot(snapshot(profile,questions));
         version.setChangeSummary(changeSummary);
         version.setCreatedBy(createdBy);
-        version.setCreatedTime(LocalDateTime.now());
+        version.setActivatedAt(ACTIVE.equals(assetState) ? now : null);
+        version.setCreatedTime(now);
         versionMapper.insert(version);
-        profileMapper.updateVersionRefs(profile.getId(),version.getId(),version.getId(),LocalDateTime.now());
+        if(ACTIVE.equals(assetState)) {
+            profileMapper.updateActiveVersionRefs(profile.getId(),version.getId(),confidence,now);
+        } else {
+            profileMapper.updateLatestVersionRef(profile.getId(),version.getId(),assetState,confidence,
+                    version.getConflictReason(),now);
+        }
         return version;
+    }
+
+    @Transactional
+    public SpaceKnowledgeDocumentProfile activateVersion(Long spaceId,Long documentId,Long versionId,Long operatorId) {
+        SpaceKnowledgeDocumentProfile current = profileMapper.getByDocumentIdForUpdate(spaceId,documentId);
+        if(current == null) throw new BaseException("knowledge profile not found");
+        SpaceKnowledgeProfileVersion candidate = requireVersion(current,versionId);
+        if(versionId.equals(current.getCurrentVersionId())) return profileMapper.getByDocumentId(spaceId,documentId);
+        if(!versionId.equals(current.getLatestVersionId()) || !NEEDS_REVIEW.equals(candidate.getAssetState())) {
+            throw new BaseException("only the latest review candidate can be activated");
+        }
+        String before = current.getCurrentVersionId() == null ? null : snapshot(current,questions(spaceId,documentId));
+        Map<String,Object> candidateSnapshot = snapshotMap(candidate.getProfileSnapshot());
+        SpaceKnowledgeDocumentProfile activated = applySnapshot(current,candidateSnapshot);
+        LocalDateTime now = LocalDateTime.now();
+        activated.setProfileStatus("VALID");
+        activated.setReviewStatus("APPROVED");
+        activated.setReviewReason("APPROVED_BY_REVIEW");
+        activated.setCurrentVersionId(versionId);
+        activated.setLatestVersionId(versionId);
+        activated.setLatestAssetState(ACTIVE);
+        activated.setLatestConfidence(candidate.getConfidence());
+        activated.setLatestConflictReason(null);
+        activated.setUpdatetime(now);
+        versionMapper.supersedeActive(current.getId(),now);
+        if(versionMapper.activateReviewed(versionId,operatorId,now) != 1) {
+            throw new BaseException("knowledge review candidate changed concurrently");
+        }
+        profileMapper.restoreFromVersion(activated);
+        questionMapper.deleteByDocumentId(spaceId,documentId);
+        saveQuestions(spaceId,documentId,stringList(candidateSnapshot,"questions"));
+        audit(spaceId,operatorId,"PROFILE_APPROVE","KNOWLEDGE_PROFILE",current.getId(),before,
+                snapshot(activated,stringList(candidateSnapshot,"questions")));
+        return profileMapper.getByDocumentId(spaceId,documentId);
     }
 
     public List<SpaceKnowledgeProfileVersionVO> listVersions(Long spaceId, Long documentId) {
@@ -217,9 +289,17 @@ public class KnowledgeProfileAssetService {
         vo.setPromptVersion(version.getPromptVersion());
         vo.setSchemaVersion(version.getSchemaVersion());
         vo.setQualityScore(version.getQualityScore());
+        vo.setAssetState(version.getAssetState());
+        vo.setConfidence(version.getConfidence());
+        vo.setConflictReason(version.getConflictReason());
+        vo.setSourceFileHash(version.getSourceFileHash());
+        vo.setSourceParserVersion(version.getSourceParserVersion());
         vo.setProfileSnapshot(version.getProfileSnapshot());
         vo.setChangeSummary(version.getChangeSummary());
         vo.setCreatedBy(version.getCreatedBy());
+        vo.setReviewedBy(version.getReviewedBy());
+        vo.setActivatedAt(version.getActivatedAt());
+        vo.setSupersededAt(version.getSupersededAt());
         vo.setCreatedTime(version.getCreatedTime());
         return vo;
     }
@@ -331,5 +411,25 @@ public class KnowledgeProfileAssetService {
         } catch (Exception ex) {
             return "{}";
         }
+    }
+
+    private String assetState(SpaceKnowledgeDocumentProfile profile) {
+        if("VALID".equals(profile.getProfileStatus()) || "SUCCESS".equals(profile.getProfileStatus())) return ACTIVE;
+        if("FAILED".equals(profile.getProfileStatus()) || "INVALID".equals(profile.getProfileStatus())) return FAILED;
+        return NEEDS_REVIEW;
+    }
+
+    private BigDecimal confidence(BigDecimal qualityScore) {
+        BigDecimal score = qualityScore == null ? BigDecimal.ZERO : qualityScore;
+        return score.divide(BigDecimal.valueOf(100),4,java.math.RoundingMode.HALF_UP)
+                .max(BigDecimal.ZERO).min(BigDecimal.ONE);
+    }
+
+    private String conflictReason(SpaceKnowledgeDocumentProfile profile,String state) {
+        if(ACTIVE.equals(state)) return null;
+        String reason = profile.getReviewReason();
+        if(reason == null || reason.isBlank()) reason = profile.getErrorMessage();
+        if(reason == null || reason.isBlank()) reason = "QUALITY_THRESHOLD_NOT_MET";
+        return reason.length() > 1000 ? reason.substring(0,1000) : reason;
     }
 }

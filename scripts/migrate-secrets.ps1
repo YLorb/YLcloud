@@ -18,6 +18,7 @@ $secretsPath = Resolve-InputPath $SecretsDirectory
 
 $mapping = [ordered]@{
     YLCLOUD_JWT_SECRET = "jwt_secret"
+    YLCLOUD_SERVICE_JWT_ACTIVE_SECRET = "service_jwt_active_secret"
     YLCLOUD_LLM_API_KEY = "llm_api_key"
     YLCLOUD_ARK_API_KEY = "ark_api_key"
     YLCLOUD_RAG_QUERY_API_KEY = "rag_query_api_key"
@@ -47,7 +48,8 @@ foreach ($entry in $mapping.GetEnumerator()) {
     $environmentName = $entry.Key
     $targetPath = Join-Path $secretsPath $entry.Value
     $sourceValue = $values[$environmentName]
-    if ($environmentName -eq "YLCLOUD_JWT_SECRET" -and [string]::IsNullOrWhiteSpace($sourceValue) -and -not [System.IO.File]::Exists($targetPath)) {
+    if (($environmentName -eq "YLCLOUD_JWT_SECRET" -or $environmentName -eq "YLCLOUD_SERVICE_JWT_ACTIVE_SECRET") `
+            -and [string]::IsNullOrWhiteSpace($sourceValue) -and -not [System.IO.File]::Exists($targetPath)) {
         $sourceValue = New-JwtSecret
     }
     if ($null -eq $sourceValue) {

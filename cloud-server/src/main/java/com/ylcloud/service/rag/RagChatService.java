@@ -1,6 +1,7 @@
 package com.ylcloud.service.rag;
 
 import com.ylcloud.config.RagProperties;
+import com.ylcloud.DTO.RagChatMessageDTO;
 import com.ylcloud.entity.FileRagChunk;
 import com.ylcloud.entity.SpaceRagConfig;
 import org.slf4j.Logger;
@@ -37,7 +38,7 @@ public class RagChatService {
      * @param config 配置对象
      * @return 处理结果
      */
-    public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config) {
+    public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config, List<RagChatMessageDTO> history) {
         if(chunks == null || chunks.isEmpty()) {
             return RagChatResult.noAnswer(properties.getChat().getNoAnswerText());
         }
@@ -51,6 +52,7 @@ public class RagChatService {
             request.setSystemPrompt(properties.getChat().getSystemPrompt());
             request.setQuestion(question);
             request.setContexts(buildContexts(chunks));
+            request.setHistory(history == null ? List.of() : history);
             request.setMaxTokens(properties.getChat().getMaxAnswerTokens());
             request.setTemperature(resolveTemperature(config));
             RagChatResponse response = ragModelClient.chat(request);
@@ -70,6 +72,10 @@ public class RagChatService {
             result.setModelName(resolveChatModel(config));
             return result;
         }
+    }
+
+    public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config) {
+        return answer(question,chunks,config,List.of());
     }
 
     /**

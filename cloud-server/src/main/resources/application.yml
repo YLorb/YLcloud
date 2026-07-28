@@ -16,24 +16,81 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0
     validate-on-migrate: true
+  rabbitmq:
+    host: ${YLCLOUD_RABBITMQ_HOST:127.0.0.1}
+    port: ${YLCLOUD_RABBITMQ_PORT:5672}
+    virtual-host: ${YLCLOUD_RABBITMQ_VHOST:/ylcloud}
+    username: ${YLCLOUD_RABBITMQ_USERNAME:ylcloud_app}
+    password: ${YLCLOUD_RABBITMQ_PASSWORD:ylcloud_rabbit_local}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: ${YLCLOUD_ASYNC_MQ_PREFETCH:1}
+        default-requeue-rejected: false
 
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  knowledge:
+    quality:
+      auto-activate-threshold: ${YLCLOUD_KNOWLEDGE_AUTO_ACTIVATE_THRESHOLD:75}
+  async:
+    mq:
+      enabled: ${YLCLOUD_ASYNC_MQ_ENABLED:false}
+      cleanup: ${YLCLOUD_ASYNC_MQ_CLEANUP:false}
+      maintenance: ${YLCLOUD_ASYNC_MQ_MAINTENANCE:false}
+      memory: ${YLCLOUD_ASYNC_MQ_MEMORY:false}
+      chat: ${YLCLOUD_ASYNC_MQ_CHAT:false}
+      knowledge: ${YLCLOUD_ASYNC_MQ_KNOWLEDGE:false}
+      rag: ${YLCLOUD_ASYNC_MQ_RAG:false}
+      publisher-delay-ms: ${YLCLOUD_ASYNC_MQ_PUBLISHER_DELAY_MS:1000}
+      publisher-batch-size: ${YLCLOUD_ASYNC_MQ_PUBLISHER_BATCH_SIZE:50}
+      publish-lease-seconds: ${YLCLOUD_ASYNC_MQ_PUBLISH_LEASE_SECONDS:30}
+      retry-seconds: ${YLCLOUD_ASYNC_MQ_RETRY_SECONDS:60}
+      max-attempts: ${YLCLOUD_ASYNC_MQ_MAX_ATTEMPTS:4}
+      lease-seconds: ${YLCLOUD_ASYNC_MQ_LEASE_SECONDS:120}
+      heartbeat-seconds: ${YLCLOUD_ASYNC_MQ_HEARTBEAT_SECONDS:30}
+      retention-days: ${YLCLOUD_ASYNC_MQ_RETENTION_DAYS:3}
+      retry-queue-ttl-ms: ${YLCLOUD_ASYNC_MQ_RETRY_QUEUE_TTL_MS:60000}
+      cleanup-concurrency: ${YLCLOUD_ASYNC_MQ_CLEANUP_CONCURRENCY:1}
+      maintenance-concurrency: ${YLCLOUD_ASYNC_MQ_MAINTENANCE_CONCURRENCY:1}
+      memory-concurrency: ${YLCLOUD_ASYNC_MQ_MEMORY_CONCURRENCY:2}
+      chat-concurrency: ${YLCLOUD_ASYNC_MQ_CHAT_CONCURRENCY:3}
+      knowledge-concurrency: ${YLCLOUD_ASYNC_MQ_KNOWLEDGE_CONCURRENCY:2}
+      rag-concurrency: ${YLCLOUD_ASYNC_MQ_RAG_CONCURRENCY:2}
+  workflow:
+    client:
+      enabled: ${YLCLOUD_WORKFLOW_ENABLED:false}
+      base-url: ${YLCLOUD_WORKFLOW_BASE_URL:http://127.0.0.1:8003}
+      connect-timeout-ms: ${YLCLOUD_WORKFLOW_CONNECT_TIMEOUT_MS:2000}
+      read-timeout-ms: ${YLCLOUD_WORKFLOW_READ_TIMEOUT_MS:5000}
+      max-connections: ${YLCLOUD_WORKFLOW_MAX_CONNECTIONS:32}
+      max-connections-per-route: ${YLCLOUD_WORKFLOW_MAX_CONNECTIONS_PER_ROUTE:16}
+      retry-backoff-ms: ${YLCLOUD_WORKFLOW_RETRY_BACKOFF_MS:50}
+      max-response-bytes: ${YLCLOUD_WORKFLOW_MAX_RESPONSE_BYTES:2097152}
   cross-store:
     lease-seconds: 3600
     recovery-delay-ms: 60000
     recovery-initial-delay-ms: 60000
-  bootstrap-admin:
-    enabled: ${YLCLOUD_BOOTSTRAP_ADMIN_ENABLED:false}
-    username: ${YLCLOUD_BOOTSTRAP_ADMIN_USERNAME:}
-    password: ${YLCLOUD_BOOTSTRAP_ADMIN_PASSWORD:}
-    nickname: ${YLCLOUD_BOOTSTRAP_ADMIN_NICKNAME:YLcloud Administrator}
   jwt:
     secret: ${YLCLOUD_JWT_SECRET}
     expiration-ms: ${YLCLOUD_JWT_EXPIRATION_MS:3600000}
+  service-jwt:
+    active-secret: ${YLCLOUD_SERVICE_JWT_ACTIVE_SECRET}
+    previous-secret: ${YLCLOUD_SERVICE_JWT_PREVIOUS_SECRET:}
+    previous-valid-until-epoch-seconds: ${YLCLOUD_SERVICE_JWT_PREVIOUS_VALID_UNTIL_EPOCH_SECONDS:0}
+    issuer: ylcloud-app
+    subject: ylcloud-app
+    workflow-issuer: ylcloud-workflow
+    workflow-subject: ylcloud-workflow
+    max-ttl-seconds: ${YLCLOUD_SERVICE_JWT_MAX_TTL_SECONDS:300}
+    clock-skew-seconds: ${YLCLOUD_SERVICE_JWT_CLOCK_SKEW_SECONDS:30}
   upload:
     max-file-size: 2147483648
     multipart-threshold-bytes: ${YLCLOUD_UPLOAD_MULTIPART_THRESHOLD_BYTES:20971520}
@@ -67,8 +124,17 @@ ylcloud:
       port: ${YLCLOUD_RAG_QDRANT_PORT:6334}
       use-tls: ${YLCLOUD_RAG_QDRANT_USE_TLS:false}
       collection-name: ${YLCLOUD_RAG_QDRANT_COLLECTION_NAME:ylcloud_rag_bge_small_zh_v15}
+      memory-collection-name: ${YLCLOUD_MEMORY_QDRANT_COLLECTION_NAME:ylcloud_user_memory_bge_small_zh_v15}
       payload-text-key: text
       min-score: 0.0
+    memory:
+      enabled: ${YLCLOUD_MEMORY_ENABLED:true}
+      candidate-top-k: ${YLCLOUD_MEMORY_CANDIDATE_TOP_K:12}
+      top-k: ${YLCLOUD_MEMORY_TOP_K:5}
+      max-tokens: ${YLCLOUD_MEMORY_MAX_TOKENS:512}
+      retention-days: ${YLCLOUD_MEMORY_RETENTION_DAYS:0}
+      min-score: ${YLCLOUD_MEMORY_MIN_SCORE:0.25}
+      max-retries: ${YLCLOUD_MEMORY_MAX_RETRIES:8}
     rerank:
       enabled: ${YLCLOUD_RAG_RERANK_ENABLED:true}
       candidate-top-k: ${YLCLOUD_RAG_RERANK_CANDIDATE_TOP_K:5}
@@ -114,6 +180,8 @@ ylcloud:
       max-context-chars: 12000
       max-chunk-chars: 1800
       max-answer-tokens: 1024
+      max-history-tokens: ${YLCLOUD_CHAT_MAX_HISTORY_TOKENS:2048}
+      summary-max-tokens: ${YLCLOUD_CHAT_SUMMARY_MAX_TOKENS:512}
       temperature: 0.2
       no-answer-text: 当前知识库中没有检索到足够的依据，无法回答该问题。
       unavailable-text: 已检索到相关资料，但问答模型暂不可用。请先查看下方引用内容，稍后重试。

@@ -17,6 +17,9 @@ public class SpaceKnowledgeDocumentItemVO {
     private String indexStatus;
     private Integer chunkCount;
     private String profileStatus;
+    private String assetState;
+    private BigDecimal confidence;
+    private String conflictReason;
     private String title;
     private String summary;
     private String category;

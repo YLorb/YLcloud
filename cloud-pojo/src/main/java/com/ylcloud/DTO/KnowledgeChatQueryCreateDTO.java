@@ -18,6 +18,9 @@ public class KnowledgeChatQueryCreateDTO {
     private List<Long> spaceIds;
 
     private String retrievalMode;
-    @Size(max = 10)
-    private List<RagChatMessageDTO> history;
+
+    /**
+     * 服务端写入的调用主体绑定；所有外部 Controller 必须覆盖客户端输入。
+     */
+    private Long apiKeyId;
 }

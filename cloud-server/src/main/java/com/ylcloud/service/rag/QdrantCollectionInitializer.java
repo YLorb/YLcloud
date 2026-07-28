@@ -58,8 +58,14 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
         String collectionName = properties.getQdrant().getCollectionName();
         ensureCollection(collectionName);
         for(String fieldName : INTEGER_PAYLOAD_INDEXES) {
-            ensurePayloadIndex(collectionName,fieldName);
+            ensurePayloadIndex(collectionName,fieldName,"integer");
         }
+        String memoryCollection = properties.getQdrant().getMemoryCollectionName();
+        ensureCollection(memoryCollection);
+        ensurePayloadIndex(memoryCollection,"userId","integer");
+        ensurePayloadIndex(memoryCollection,"memoryId","integer");
+        ensurePayloadIndex(memoryCollection,"corpusType","keyword");
+        ensurePayloadIndex(memoryCollection,"status","keyword");
         log.info("Qdrant collection is ready: {}",collectionName);
     }
 
@@ -138,7 +144,7 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
      * @param collectionName 方法入参
      * @param fieldName 方法入参
      */
-    private void ensurePayloadIndex(String collectionName, String fieldName) {
+    private void ensurePayloadIndex(String collectionName, String fieldName, String fieldSchema) {
         try {
             restClient.put()
                     .uri(uriBuilder -> uriBuilder
@@ -148,7 +154,7 @@ public class QdrantCollectionInitializer implements ApplicationRunner {
                     .header("api-key",safeApiKey())
                     .body(Map.of(
                             "field_name",fieldName,
-                            "field_schema","integer"
+                            "field_schema",fieldSchema
                     ))
                     .retrieve()
                     .toBodilessEntity();

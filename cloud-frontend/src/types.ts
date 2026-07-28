@@ -9,6 +9,7 @@ export type User = {
   username: string;
   nickname: string;
   role?: string;
+  deploymentOwner?: boolean;
   token: string;
 };
 
@@ -32,6 +33,7 @@ export type AdminUser = {
   nickname?: string;
   email?: string;
   role: "ADMIN" | "USER";
+  deploymentOwner: boolean;
   status: number;
   groupId?: number | null;
   groupName?: string | null;
@@ -166,6 +168,11 @@ export type SpaceFile = {
   size?: number;
   versionEnabled?: number | null;
   effectiveVersionEnabled?: boolean;
+  knowledgeState?: "NOT_APPLICABLE" | "INDEX_PENDING" | "INDEXING" | "READY" | "FAILED" | "REMOVAL_PENDING" | "REMOVED";
+  knowledgeVersion?: number;
+  searchable?: boolean;
+  lastKnowledgeError?: string;
+  removedAt?: string;
   createtime?: string;
   updatetime?: string;
   children?: SpaceFile[];
@@ -303,6 +310,9 @@ export type KnowledgeDocument = {
   indexStatus?: string;
   chunkCount?: number;
   profileStatus?: string;
+  assetState?: string;
+  confidence?: number;
+  conflictReason?: string;
   reviewStatus?: string;
   reviewReason?: string;
   qualityIssueJson?: string;
@@ -366,6 +376,9 @@ export type KnowledgeProfile = {
   profileVersion?: number;
   currentVersionId?: number;
   latestVersionId?: number;
+  latestAssetState?: string;
+  latestConfidence?: number;
+  latestConflictReason?: string;
   sourceFileHash?: string;
   sourceParserVersion?: string;
   profileSchemaVersion?: string;
@@ -387,9 +400,17 @@ export type KnowledgeProfileVersion = {
   promptVersion?: string;
   schemaVersion?: string;
   qualityScore?: number;
+  assetState?: string;
+  confidence?: number;
+  conflictReason?: string;
+  sourceFileHash?: string;
+  sourceParserVersion?: string;
   profileSnapshot?: string;
   changeSummary?: string;
   createdBy?: number;
+  reviewedBy?: number;
+  activatedAt?: string;
+  supersededAt?: string;
   createdTime?: string;
 };
 
@@ -412,6 +433,7 @@ export type KnowledgeProfileDiff = {
 export type AsyncTask = {
   id?: string | number;
   taskId?: string | number;
+  parentTaskId?: string | number;
   name?: string;
   title?: string;
   type?: string;
@@ -427,7 +449,8 @@ export type AsyncTask = {
   updateTime?: string;
   createdAt?: string;
   updatedAt?: string;
-  source?: "rag" | "knowledge";
+  source?: "rag" | "knowledge" | "unified";
+  taskDomain?: string;
   spaceId?: number;
   documentId?: number;
   retryable?: boolean;
@@ -483,12 +506,19 @@ export type KnowledgeRagQuery = {
 export type KnowledgeChatMessage = {
   id: number;
   sessionId: number;
+  sequenceNo?: number;
   role: "user" | "assistant" | "system";
   content: string;
   citationsJson?: string;
   taskStatus?: "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED";
   errorMessage?: string;
   retryCount?: number;
+  workflowRunId?: string;
+  workflowExecutionId?: string;
+  workflowExecutionEpoch?: number;
+  workflowStatus?: "QUEUED" | "PLANNING" | "VALIDATING" | "RUNNING" | "SUCCEEDED" | "DEGRADED" | "FAILED" | "TIMED_OUT" | "CANCELLED" | "ABANDONED";
+  degraded?: boolean;
+  statusColor?: "purple" | "blue" | "green" | "red" | "yellow";
   createtime?: string;
   updatetime?: string;
 };
@@ -502,6 +532,119 @@ export type AsyncTaskDetail = AsyncTask & {
   terminalStage?: string;
   terminalReason?: string;
   completionSummary?: string;
+  resourceKey?: string;
+  resourceVersion?: number;
+  attemptVersion?: number;
+  nextRetryAt?: string;
+  lastHeartbeatAt?: string;
+  canRetry?: boolean;
+  canCancel?: boolean;
+  operationReason?: string;
+  legacy?: boolean;
+  attempts?: Array<{
+    attemptVersion?: number;
+    triggerType?: string;
+    workerId?: string;
+    leaseTokenMasked?: string;
+    status?: string;
+    startedAt?: string;
+    lastHeartbeatAt?: string;
+    finishedAt?: string;
+    failureCode?: string;
+    failureMessage?: string;
+    retryable?: boolean;
+    nextRetryAt?: string;
+    durationMs?: number;
+  }>;
+};
+
+export type AgentRiskAuthorization = {
+  id: number;
+  subjectType: "WEB_ACCOUNT" | "API_KEY";
+  apiKeyId?: number | null;
+  mode: "ALLOW_ONCE" | "PERSISTENT";
+  status: "ACTIVE" | "CONSUMED" | "REVOKED" | "EXPIRED";
+  expiresAt?: string | null;
+  consumedInvocationId?: string | null;
+  consumedAt?: string | null;
+  revokedAt?: string | null;
+  createTime: string;
+  updateTime: string;
+};
+
+export type UserApiKey = {
+  id: number;
+  name: string;
+  prefix: string;
+  driveAccess: "NONE" | "READ" | "WRITE";
+  driveRootFileId?: number | null;
+  scopes: Array<"DRIVE_READ" | "DRIVE_WRITE" | "KNOWLEDGE_RETRIEVE" | "KNOWLEDGE_AGENT">;
+  spaceIds: number[];
+  highRiskEnabled: boolean;
+  status: "ACTIVE" | "REVOKED" | "EXPIRED";
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  createTime: string;
+  updateTime: string;
+};
+
+export type UserApiKeyCreated = {
+  apiKey: UserApiKey;
+  plaintext: string;
+};
+
+export type WebhookEventType =
+  | "FILE_CREATED" | "FILE_UPDATED" | "FILE_DELETED"
+  | "KNOWLEDGE_INDEXED" | "KNOWLEDGE_REMOVED" | "KNOWLEDGE_FAILED"
+  | "AGENT_TASK_COMPLETED" | "AGENT_TASK_FAILED" | "SPACE_MEMBER_CHANGED";
+
+export type WebhookSubscription = {
+  id: number;
+  name: string;
+  targetUrl: string;
+  apiKeyId: number;
+  eventTypes: WebhookEventType[];
+  includeContent: boolean;
+  status: "ACTIVE" | "DISABLED";
+  previousSecretValidUntil?: string | null;
+  lastDeliveryAt?: string | null;
+  createTime: string;
+};
+
+export type WebhookSubscriptionCreated = {
+  subscription: WebhookSubscription;
+  secret: string;
+};
+
+export type QuotaPolicy = {
+  groupId: number;
+  storageBytes: number;
+  maxFileBytes: number;
+  spaceLimit: number;
+  monthlyApiCalls: number;
+  monthlyModelTokens: number;
+  monthlyAgentTasks: number;
+  concurrentAgentTasks: number;
+};
+
+export type QuotaUsage = {
+  accountType: "USER" | "TEAM";
+  referenceId: number;
+  periodStart: string;
+  storageBytes: number;
+  storageLimitBytes: number;
+  fileCount: number;
+  spaceCount: number;
+  spaceLimit: number;
+  apiCalls: number;
+  apiCallLimit: number;
+  modelTokens: number;
+  modelTokenLimit: number;
+  agentTasks: number;
+  agentTaskLimit: number;
+  concurrentAgentTasks: number;
+  concurrentAgentTaskLimit: number;
 };
 
 export type KnowledgeChatSession = {
@@ -512,9 +655,31 @@ export type KnowledgeChatSession = {
   spaceIds: number[];
   messageCount?: number;
   messages?: KnowledgeChatMessage[];
+  summaryVersion?: number;
   createtime?: string;
   updatetime?: string;
 };
+
+export type UserMemory = {
+  id: number;
+  sourceSessionId: number;
+  sourceMessageId: number;
+  memoryType: "FACT" | "PREFERENCE" | "CONSTRAINT" | "DECISION";
+  content: string;
+  normalizedKey: string;
+  confidence?: number;
+  userConfirmed: boolean;
+  pinned: boolean;
+  expiresAt?: string;
+  version: number;
+  memoryStatus: string;
+  createtime?: string;
+  updatetime?: string;
+};
+
+export type UserMemorySetting = { enabled: boolean; retentionDays: number };
+export type UserMemoryStats = { activeCount: number; pinnedCount: number; pendingCount: number; failedCount: number; contextTokens: number; feedbackCount: number; helpfulCount: number };
+export type KnowledgeChatEpisode = { id: number; episodeNo: number; startSequenceNo: number; endSequenceNo: number; title: string; summary?: string; messageCount: number; updatetime?: string };
 
 export type RagAnalyticsSummary = {
   spaceId: number;
@@ -553,4 +718,109 @@ export type RagConfigLog = {
   beforeJson?: string;
   afterJson?: string;
   createtime?: string;
+};
+
+// Account Lifecycle Types
+export type AccountStatus = {
+  userId: number;
+  username: string;
+  accountStatus: "ACTIVE" | "CANCELLED" | "PURGING" | "PURGED";
+  cancelledAt?: string;
+  recoverableUntil?: string;
+  purgingStartedAt?: string;
+  purgedAt?: string;
+  canRecover: boolean;
+  isTeamOwner: boolean;
+  ownedTeamCount: number;
+};
+
+export type DataExportJob = {
+  id: number;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "EXPIRED";
+  exportScope?: string;
+  fileSizeBytes?: number;
+  downloadUrl?: string;
+  downloadExpiresAt?: string;
+  decryptionKey?: string;
+  createdAt?: string;
+  finishedAt?: string;
+};
+
+// Security Audit Types
+export type SecurityAuditEvent = {
+  eventId: number;
+  eventType: string;
+  subjectType?: string;
+  subjectId?: number;
+  subjectName?: string;
+  action: string;
+  result: "SUCCESS" | "FAILURE" | "DENIED";
+  retentionPolicy: "STANDARD" | "PERMANENT";
+  targetType?: string;
+  targetId?: string;
+  targetName?: string;
+  ipAddress?: string;
+  traceId?: string;
+  detailJson?: string;
+  errorMessage?: string;
+  occurredAt?: string;
+};
+
+export type AuditRetentionConfig = {
+  configKey: string;
+  retentionDays?: number;
+  permanent: boolean;
+  description?: string;
+  updatedAt?: string;
+};
+
+export type AuditStats = {
+  recentEvents: number;
+  permanentEvents: number;
+};
+
+// Backup Types
+export type BackupRun = {
+  id: number;
+  runKey: string;
+  backupType: string;
+  status: "PENDING" | "RUNNING" | "VERIFYING" | "READY" | "FAILED" | "EXPIRED";
+  archivePath?: string;
+  archiveSizeBytes?: number;
+  archiveHash?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  verifiedAt?: string;
+  publishedAt?: string;
+  createdAt?: string;
+};
+
+export type BackupStats = {
+  readyBackups: number;
+  latestBackup: {
+    exists: boolean;
+    id?: number;
+    runKey?: string;
+    publishedAt?: string;
+    sizeBytes?: number;
+  };
+};
+
+export type RestoreVerification = {
+  exists: boolean;
+  status?: string;
+  restoreEnvironment?: string;
+  mysqlRestored?: boolean;
+  minioRestored?: boolean;
+  qdrantRestored?: boolean;
+  configRestored?: boolean;
+  businessSampleCheck?: boolean;
+  finishedAt?: string;
+};
+
+// Maintenance Mode Types
+export type MaintenanceStatus = {
+  active: boolean;
+  reason?: string;
+  startedAt?: string;
 };

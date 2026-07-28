@@ -46,18 +46,11 @@ JWT、DeepSeek、Ark、RAG Query 和 VLM Key 通过 Compose Secret 以只读文�
 
 所有初始化都不会清空已有数据。资源配置与现有数据不一致时，应用会失败并输出明确错误，避免在错误状态下继续运行。
 
-## 初始管理员
+## 部署所有者
 
-项目不内置固定管理员密码。如需在空数据库首次启动时自动创建管理员，请在 `.env` 中设置：
+项目不提供环境变量或固定密码创建管理员。空数据库中的第一个普通注册用户会在数据库注册锁保护下成为唯一部署所有者，同时创建根目录和默认个人空间。升级已有实例时，Flyway 选择最小 `user_id`，恢复为启用状态并标记为部署所有者。
 
-```dotenv
-YLCLOUD_BOOTSTRAP_ADMIN_ENABLED=true
-YLCLOUD_BOOTSTRAP_ADMIN_USERNAME=admin
-YLCLOUD_BOOTSTRAP_ADMIN_PASSWORD=<at-least-12-characters>
-YLCLOUD_BOOTSTRAP_ADMIN_NICKNAME=YLcloud Administrator
-```
-
-初始化只在 `users` 表为空时执行，并会同时创建用户根目录、默认个人空间和 RAG 配置。重启不会覆盖密码或重复创建用户。
+部署所有者身份不可转移、停用或降级；请在升级前完成全量备份，并妥善保管该账号凭据。
 
 ## 模型运行模式
 

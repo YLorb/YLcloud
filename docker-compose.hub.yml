@@ -10,6 +10,38 @@
 #   docker compose --env-file .env.server -f docker-compose.hub.yml up -d
 
 services:
+  rabbitmq:
+    image: rabbitmq:4.3.4-management
+    container_name: ylcloud-rabbitmq
+    restart: unless-stopped
+    hostname: ylcloud-rabbitmq
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        umask 077
+        printf 'default_user = %s\ndefault_pass = %s\ndefault_vhost = %s\n' \
+          "$$YLCLOUD_RABBITMQ_BOOTSTRAP_USER" "$$(cat /run/secrets/rabbitmq_password)" \
+          "$$YLCLOUD_RABBITMQ_BOOTSTRAP_VHOST" > /tmp/rabbitmq.conf
+        chown rabbitmq:rabbitmq /tmp/rabbitmq.conf
+        export RABBITMQ_CONFIG_FILE=/tmp/rabbitmq
+        exec docker-entrypoint.sh rabbitmq-server
+    secrets:
+      - rabbitmq_password
+    environment:
+      YLCLOUD_RABBITMQ_BOOTSTRAP_USER: ${YLCLOUD_RABBITMQ_USERNAME:-ylcloud_app}
+      YLCLOUD_RABBITMQ_BOOTSTRAP_VHOST: ${YLCLOUD_RABBITMQ_VHOST:-/ylcloud}
+    ports:
+      - "127.0.0.1:${YLCLOUD_RABBITMQ_AMQP_HOST_PORT:-5672}:5672"
+      - "127.0.0.1:${YLCLOUD_RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   mysql:
     image: ${ACR_REGISTRY:?Set ACR_REGISTRY in the env file}/${ACR_NAMESPACE:?Set ACR_NAMESPACE in the env file}/mysql:8.3
     container_name: ylcloud-mysql
@@ -69,11 +101,13 @@ services:
     container_name: ylcloud-model-service
     restart: unless-stopped
     secrets:
+      - service_jwt_active_secret
       - llm_api_key
       - ark_api_key
       - rag_query_api_key
     environment:
       MODEL_CACHE_DIR: /models
+      MODEL_SERVICE_JWT_ACTIVE_SECRET_FILE: /run/secrets/service_jwt_active_secret
       USE_FP16: "false"
       OFFLINE_FALLBACK: ${YLCLOUD_MODEL_SERVICE_OFFLINE_FALLBACK:-true}
       FALLBACK_DIMENSION: ${YLCLOUD_RAG_EMBEDDING_DIMENSION:-512}
@@ -130,11 +164,16 @@ services:
     restart: unless-stopped
     secrets:
       - jwt_secret
+      - service_jwt_active_secret
       - llm_api_key
       - ark_api_key
       - rag_query_api_key
       - vlm_api_key
+      - rabbitmq_password
+      - export_master_key
     depends_on:
+      rabbitmq:
+        condition: service_healthy
       mysql:
         condition: service_healthy
       minio:
@@ -151,20 +190,31 @@ services:
       SPRING_DATASOURCE_USERNAME: ${YLCLOUD_MYSQL_USER:-ylcloud}
       SPRING_DATASOURCE_PASSWORD: ${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}
       YLCLOUD_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      YLCLOUD_SERVICE_JWT_ACTIVE_SECRET_FILE: /run/secrets/service_jwt_active_secret
       YLCLOUD_LLM_API_KEY_FILE: /run/secrets/llm_api_key
       YLCLOUD_ARK_API_KEY_FILE: /run/secrets/ark_api_key
       YLCLOUD_RAG_QUERY_API_KEY_FILE: /run/secrets/rag_query_api_key
       YLCLOUD_VLM_API_KEY_FILE: /run/secrets/vlm_api_key
+      YLCLOUD_EXPORT_MASTER_KEY_FILE: /run/secrets/export_master_key
+      YLCLOUD_DEPLOY_STATE_ROOT: /var/lib/ylcloud-deploy
+      YLCLOUD_RABBITMQ_HOST: rabbitmq
+      YLCLOUD_RABBITMQ_PORT: 5672
+      YLCLOUD_RABBITMQ_VHOST: ${YLCLOUD_RABBITMQ_VHOST:-/ylcloud}
+      YLCLOUD_RABBITMQ_USERNAME: ${YLCLOUD_RABBITMQ_USERNAME:-ylcloud_app}
+      YLCLOUD_RABBITMQ_PASSWORD_FILE: /run/secrets/rabbitmq_password
+      YLCLOUD_ASYNC_MQ_ENABLED: ${YLCLOUD_ASYNC_MQ_ENABLED:-true}
+      YLCLOUD_ASYNC_MQ_CLEANUP: ${YLCLOUD_ASYNC_MQ_CLEANUP:-true}
+      YLCLOUD_ASYNC_MQ_MAINTENANCE: ${YLCLOUD_ASYNC_MQ_MAINTENANCE:-true}
+      YLCLOUD_ASYNC_MQ_MEMORY: ${YLCLOUD_ASYNC_MQ_MEMORY:-true}
+      YLCLOUD_ASYNC_MQ_CHAT: ${YLCLOUD_ASYNC_MQ_CHAT:-true}
+      YLCLOUD_ASYNC_MQ_KNOWLEDGE: ${YLCLOUD_ASYNC_MQ_KNOWLEDGE:-true}
+      YLCLOUD_ASYNC_MQ_RAG: ${YLCLOUD_ASYNC_MQ_RAG:-true}
       YLCLOUD_MINIO_ENDPOINT: http://minio:9000
       YLCLOUD_MINIO_ACCESS_KEY: ${YLCLOUD_MINIO_ACCESS_KEY:-ylcloud_minio}
       YLCLOUD_MINIO_SECRET_KEY: ${YLCLOUD_MINIO_SECRET_KEY:-ylcloud_minio_pwd}
       YLCLOUD_MINIO_BUCKET: ${YLCLOUD_MINIO_BUCKET:-localbucket1}
       YLCLOUD_MINIO_INIT_ENABLED: "true"
       YLCLOUD_MINIO_VERSIONING_ENABLED: "true"
-      YLCLOUD_BOOTSTRAP_ADMIN_ENABLED: ${YLCLOUD_BOOTSTRAP_ADMIN_ENABLED:-false}
-      YLCLOUD_BOOTSTRAP_ADMIN_USERNAME: ${YLCLOUD_BOOTSTRAP_ADMIN_USERNAME:-}
-      YLCLOUD_BOOTSTRAP_ADMIN_PASSWORD: ${YLCLOUD_BOOTSTRAP_ADMIN_PASSWORD:-}
-      YLCLOUD_BOOTSTRAP_ADMIN_NICKNAME: ${YLCLOUD_BOOTSTRAP_ADMIN_NICKNAME:-YLcloud Administrator}
       YLCLOUD_RAG_MODEL_SERVICE_BASE_URL: http://model-service:8001
       YLCLOUD_RAG_PARSER_SERVICE_BASE_URL: http://document-parser-service:8002
       YLCLOUD_RAG_EMBEDDING_DIMENSION: 512
@@ -186,6 +236,8 @@ services:
       YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES: ${YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES:-10}
     ports:
       - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_BACKEND_HOST_PORT:-8080}:8080"
+    volumes:
+      - ylcloud-deploy-state:/var/lib/ylcloud-deploy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/api/site/public-settings"]
       interval: 10s
@@ -213,10 +265,16 @@ volumes:
   minio-data:
   qdrant-data:
   model-cache:
+  rabbitmq-data:
+  ylcloud-deploy-state:
 
 secrets:
+  rabbitmq_password:
+    file: ./.secrets/rabbitmq_password
   jwt_secret:
     file: ./.secrets/jwt_secret
+  service_jwt_active_secret:
+    file: ./.secrets/service_jwt_active_secret
   llm_api_key:
     file: ./.secrets/llm_api_key
   ark_api_key:
@@ -225,3 +283,5 @@ secrets:
     file: ./.secrets/rag_query_api_key
   vlm_api_key:
     file: ./.secrets/vlm_api_key
+  export_master_key:
+    file: ./.secrets/export_master_key
