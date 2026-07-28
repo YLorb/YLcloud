@@ -7,10 +7,12 @@ import com.ylcloud.entity.AgentRiskAuthorization;
 import com.ylcloud.mapper.AgentRiskAuthorizationMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -19,6 +21,12 @@ public class AgentRiskAuthorizationService {
     private static final String ALLOW_ONCE = "ALLOW_ONCE";
     private static final String PERSISTENT = "PERSISTENT";
     private final AgentRiskAuthorizationMapper mapper;
+    private SecurityAuditService auditService;
+
+    @Autowired(required = false)
+    public void setAuditService(SecurityAuditService auditService) {
+        this.auditService = auditService;
+    }
 
     @Transactional
     public AgentRiskAuthorizationVO issueForWeb(Long userId,AgentRiskAuthorizationCreateDTO dto) {
@@ -45,6 +53,24 @@ public class AgentRiskAuthorizationService {
 
     @Transactional
     public void authorizeHighRisk(Long userId,Long apiKeyId,String invocationId) {
+        try {
+            authorizeHighRiskInternal(userId, apiKeyId, invocationId);
+            if(auditService != null) {
+                auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                        .eventType("HIGH_RISK_TOOL").action("AUTHORIZE").subject(userId, null)
+                        .target("AGENT_INVOCATION", invocationId, null).result("SUCCESS")
+                        .detail(Map.of("apiKeyBound", apiKeyId != null)));
+            }
+        } catch(RuntimeException exception) {
+            if(auditService != null) {
+                auditService.recordDenied("HIGH_RISK_TOOL", "AUTHORIZE", userId, null,
+                        "AGENT_INVOCATION", invocationId, null, exception.getMessage());
+            }
+            throw exception;
+        }
+    }
+
+    private void authorizeHighRiskInternal(Long userId,Long apiKeyId,String invocationId) {
         AgentRiskAuthorization authorization = mapper.lockActive(userId,apiKeyId);
         LocalDateTime now = LocalDateTime.now();
         if(authorization == null) throw new BaseException(403,"高风险 Agent 操作未授权");

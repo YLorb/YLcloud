@@ -11,6 +11,8 @@ import com.ylcloud.async.mq.AsyncMqProperties;
 import com.ylcloud.async.mq.RabbitTaskTopology;
 import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.AccessControlMapper;
+import com.ylcloud.service.SecurityAuditService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -32,6 +35,12 @@ public class UnifiedTaskCenterService {
     private final AccessControlMapper auditMapper;
     private final AsyncMqProperties properties;
     private final ObjectMapper objectMapper;
+    private SecurityAuditService securityAuditService;
+
+    @Autowired(required = false)
+    public void setSecurityAuditService(SecurityAuditService securityAuditService) {
+        this.securityAuditService = securityAuditService;
+    }
 
     public UnifiedTaskCenterService(UnifiedAsyncTaskMapper mapper,
                                     TaskAuthorizationService authorizationService,
@@ -184,6 +193,13 @@ public class UnifiedTaskCenterService {
                 failure.message(),retry ? null : expireAt(now),now) != 1) return;
         mapper.finishAttempt(task.getId(),task.getAttemptVersion(),leaseToken,status,
                 failure.type(),failure.code(),failure.message(),failure.retryable(),next,now);
+        if(!retry && securityAuditService != null) {
+            securityAuditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("ASYNC_TASK").action("TERMINAL_FAILURE")
+                    .subject(task.getCreatedBy(), null).target("TASK", String.valueOf(task.getId()), task.getTaskType())
+                    .result("FAILURE").errorMessage(failure.message())
+                    .detail(Map.of("domain", task.getTaskDomain(), "failureCode", failure.code())));
+        }
         if(retry) {
             UnifiedAsyncTask updated = mapper.getById(task.getId());
             enqueue(updated,next);

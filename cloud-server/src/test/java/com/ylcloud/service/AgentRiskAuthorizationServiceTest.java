@@ -92,6 +92,23 @@ class AgentRiskAuthorizationServiceTest {
         assertThrows(BaseException.class,() -> service.revoke(8L,4L));
     }
 
+    @Test
+    void highRiskAuthorizationAuditsBothSuccessAndDenial() {
+        AgentRiskAuthorizationMapper mapper = mock(AgentRiskAuthorizationMapper.class);
+        AgentRiskAuthorization persistent = authorization(4L,7L,null,"PERSISTENT",null);
+        when(mapper.lockActive(7L,null)).thenReturn(persistent, null);
+        SecurityAuditService audit = mock(SecurityAuditService.class);
+        AgentRiskAuthorizationService service = new AgentRiskAuthorizationService(mapper);
+        service.setAuditService(audit);
+
+        service.authorizeHighRisk(7L,null,"allowed");
+        assertThrows(BaseException.class, () -> service.authorizeHighRisk(7L,null,"denied"));
+
+        verify(audit).recordCritical(any());
+        verify(audit).recordDenied(eq("HIGH_RISK_TOOL"), eq("AUTHORIZE"), eq(7L), any(),
+                eq("AGENT_INVOCATION"), eq("denied"), any(), any());
+    }
+
     private AgentRiskAuthorization authorization(Long id,Long userId,Long apiKeyId,String mode,LocalDateTime expiresAt) {
         AgentRiskAuthorization value = new AgentRiskAuthorization();
         value.setId(id);

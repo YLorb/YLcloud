@@ -44,6 +44,12 @@ public interface SecurityAuditMapper {
                                                @Param("limit") int limit);
 
     @Select("select " + COLUMNS + " from security_audit_event " +
+            "where occurred_at >= #{from} and occurred_at < #{to} order by occurred_at desc limit #{limit}")
+    List<SecurityAuditEvent> listByTime(@Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to,
+                                        @Param("limit") int limit);
+
+    @Select("select " + COLUMNS + " from security_audit_event " +
             "where subject_id = #{subjectId} and occurred_at >= #{from} " +
             "order by occurred_at desc limit #{limit}")
     List<SecurityAuditEvent> listBySubject(@Param("subjectId") Long subjectId,

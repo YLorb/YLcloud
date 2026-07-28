@@ -13,6 +13,8 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.ylcloud.service.SecurityAuditService;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -29,6 +31,12 @@ public class UnifiedTaskConsumer {
     private final TaskFailureClassifier classifier;
     private final MeterRegistry meterRegistry;
     private final String workerId = "worker-" + UUID.randomUUID();
+    private SecurityAuditService auditService;
+
+    @Autowired(required = false)
+    public void setAuditService(SecurityAuditService auditService) {
+        this.auditService = auditService;
+    }
 
     public UnifiedTaskConsumer(ObjectMapper objectMapper,
                                UnifiedAsyncTaskMapper mapper,
@@ -91,6 +99,12 @@ public class UnifiedTaskConsumer {
             }
         } catch(Exception protocolError) {
             meterRegistry.counter("ylcloud.async.consumer.dead").increment();
+            if(auditService != null) {
+                auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                        .eventType("ASYNC_DLQ").action("REJECT_PROTOCOL").subjectType("SYSTEM")
+                        .subject(null, workerId).target("RABBIT_MESSAGE", "UNKNOWN", null)
+                        .result("FAILURE").errorMessage(protocolError.getMessage()));
+            }
             channel.basicReject(tag,false);
             return;
         }

@@ -6,6 +6,7 @@ import com.ylcloud.VO.AuditRetentionConfigVO;
 import com.ylcloud.VO.SecurityAuditEventVO;
 import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.SecurityAuditService;
+import com.ylcloud.context.BaseContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,7 +30,13 @@ public class SecurityAuditController {
     @PostMapping("/query")
     public Result<List<SecurityAuditEventVO>> query(@RequestBody AuditQueryDTO dto) {
         adminPermissionService.requireAdmin();
-        return Result.success(auditService.query(dto));
+        Long operatorId = BaseContext.getCurrentId();
+        List<SecurityAuditEventVO> result = auditService.query(dto);
+        auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                .eventType("AUDIT_ADMIN").action("QUERY").subject(operatorId, null)
+                .target("AUDIT_LOG", "QUERY", null).result("SUCCESS")
+                .detail(Map.of("resultCount", result.size())));
+        return Result.success(result);
     }
 
     /**
@@ -60,6 +67,20 @@ public class SecurityAuditController {
             @RequestParam(required = false) Boolean permanent,
             @RequestParam(required = false) String description) {
         adminPermissionService.requireAdmin();
-        return Result.success(auditService.updateRetentionConfig(configKey, retentionDays, permanent, description));
+        Long operatorId = BaseContext.getCurrentId();
+        try {
+            AuditRetentionConfigVO updated = auditService.updateRetentionConfig(
+                    configKey, retentionDays, permanent, description);
+            auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("AUDIT_ADMIN").action("RETENTION_UPDATE").subject(operatorId, null)
+                    .target("AUDIT_RETENTION", configKey, null).result("SUCCESS")
+                    .detail(Map.of("permanent", Boolean.TRUE.equals(updated.getPermanent()),
+                            "retentionDays", updated.getRetentionDays() == null ? -1 : updated.getRetentionDays())));
+            return Result.success(updated);
+        } catch (Exception exception) {
+            auditService.recordDenied("AUDIT_ADMIN", "RETENTION_UPDATE", operatorId, null,
+                    "AUDIT_RETENTION", configKey, null, exception.getMessage());
+            throw exception;
+        }
     }
 }

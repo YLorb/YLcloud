@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -139,7 +140,7 @@ public class SecurityAuditService {
         } else if (dto.getEventType() != null) {
             events = mapper.listByTypeAndTime(dto.getEventType(), from, to, limit);
         } else {
-            events = mapper.listByTypeAndTime("SECURITY", from, to, limit);
+            events = mapper.listByTime(from, to, limit);
         }
 
         return events.stream().map(this::toVO).toList();
@@ -238,14 +239,35 @@ public class SecurityAuditService {
     private void sanitizeMap(Map<String, Object> map) {
         for (String key : map.keySet()) {
             String lowerKey = key.toLowerCase();
-            if (SENSITIVE_FIELDS.stream().anyMatch(lowerKey::contains)) {
+            if (SENSITIVE_FIELDS.stream().map(String::toLowerCase).anyMatch(lowerKey::contains)) {
                 map.put(key, "[REDACTED]");
             } else if (map.get(key) instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> nested = (Map<String, Object>) map.get(key);
                 sanitizeMap(nested);
+            } else if (map.get(key) instanceof List<?> list) {
+                map.put(key, sanitizeList(list));
+            } else if (map.get(key) instanceof String text) {
+                map.put(key, sanitizeText(text));
             }
         }
+    }
+
+    private List<Object> sanitizeList(List<?> list) {
+        List<Object> sanitized = new ArrayList<>(list.size());
+        for (Object value : list) {
+            if (value instanceof Map<?, ?> raw) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> nested = (Map<String, Object>) raw;
+                sanitizeMap(nested);
+                sanitized.add(nested);
+            } else if (value instanceof List<?> nested) {
+                sanitized.add(sanitizeList(nested));
+            } else {
+                sanitized.add(value instanceof String text ? sanitizeText(text) : value);
+            }
+        }
+        return sanitized;
     }
 
     private String sanitizeText(String text) {
@@ -383,6 +405,9 @@ public class SecurityAuditService {
         }
 
         public SecurityAuditEvent build() {
+            if(eventType == null || eventType.isBlank()) throw new IllegalArgumentException("audit eventType is required");
+            if(action == null || action.isBlank()) throw new IllegalArgumentException("audit action is required");
+            if(result == null || result.isBlank()) throw new IllegalArgumentException("audit result is required");
             SecurityAuditEvent event = new SecurityAuditEvent();
             event.setEventKey(UUID.randomUUID().toString());
             event.setEventType(eventType);
@@ -394,7 +419,7 @@ public class SecurityAuditService {
             event.setTargetName(targetName);
             event.setAction(action);
             event.setResult(result);
-            event.setTraceId(traceId);
+            event.setTraceId(traceId == null || traceId.isBlank() ? UUID.randomUUID().toString() : traceId);
             event.setRequestId(requestId);
             event.setIpAddress(ipAddress);
             event.setUserAgent(userAgent);

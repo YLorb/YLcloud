@@ -10,10 +10,12 @@ import com.ylcloud.context.BaseContext;
 import com.ylcloud.service.AccountLifecycleService;
 import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.DataExportService;
+import com.ylcloud.service.SecurityAuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * TASK-010: 账号生命周期控制器。
@@ -26,6 +28,7 @@ public class AccountLifecycleController {
     private final AccountLifecycleService lifecycleService;
     private final DataExportService exportService;
     private final AdminPermissionService adminPermissionService;
+    private final SecurityAuditService auditService;
 
     /**
      * 获取当前用户账号状态。
@@ -63,7 +66,19 @@ public class AccountLifecycleController {
     public Result<DataExportJobVO> requestExport(@RequestBody(required = false) DataExportRequestDTO dto) {
         Long userId = BaseContext.getCurrentId();
         String scope = dto != null ? dto.getExportScope() : null;
-        return Result.success(exportService.requestExport(userId, scope));
+        try {
+            DataExportJobVO job = exportService.requestExport(userId, scope);
+            auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("DATA_EXPORT").action("REQUEST").subject(userId, null)
+                    .target("EXPORT_JOB", String.valueOf(job.getId()), null).result("SUCCESS")
+                    .detail(Map.of("scope", scope == null ? "FULL" : scope)));
+            return Result.success(job);
+        } catch (Exception exception) {
+            auditService.recordFailure("DATA_EXPORT", "REQUEST", userId, null,
+                    "ACCOUNT", String.valueOf(userId), null, exception.getMessage(),
+                    Map.of("scope", scope == null ? "FULL" : scope));
+            throw exception;
+        }
     }
 
     /**
@@ -81,6 +96,16 @@ public class AccountLifecycleController {
     @GetMapping("/export/{jobId}")
     public Result<DataExportJobVO> getExport(@PathVariable Long jobId) {
         Long userId = BaseContext.getCurrentId();
-        return Result.success(exportService.getExport(userId, jobId));
+        try {
+            DataExportJobVO export = exportService.getExport(userId, jobId);
+            auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("DATA_EXPORT").action("ACCESS_DOWNLOAD_CREDENTIAL").subject(userId, null)
+                    .target("EXPORT_JOB", jobId.toString(), null).result("SUCCESS"));
+            return Result.success(export);
+        } catch (Exception exception) {
+            auditService.recordDenied("DATA_EXPORT", "ACCESS_DOWNLOAD_CREDENTIAL", userId, null,
+                    "EXPORT_JOB", jobId.toString(), null, exception.getMessage());
+            throw exception;
+        }
     }
 }
