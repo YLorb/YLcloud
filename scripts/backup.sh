@@ -26,6 +26,14 @@ ARCHIVE_FILE="$BACKUP_ROOT/ylcloud-backup-$STAMP.tar.gz.enc"
 die() { echo "ERROR: $*" >&2; exit 1; }
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >&2; }
 
+cleanup_staging() {
+    local code=$?
+    if [[ "$code" -ne 0 && -d "$BACKUP_DIR" ]]; then
+        rm -rf "$BACKUP_DIR"
+    fi
+}
+trap cleanup_staging EXIT
+
 # Preflight checks
 preflight() {
     command -v docker >/dev/null || die "docker not found"
@@ -36,6 +44,8 @@ preflight() {
 
     [[ -f "$COMPOSE_FILE" ]] || die "compose file not found: $COMPOSE_FILE"
     [[ -f "$ENV_FILE" ]] || die "env file not found: $ENV_FILE"
+
+    mkdir -p "$BACKUP_ROOT" "$LOG_ROOT"
 
     # Check encryption key
     if [[ ! -f "$ENCRYPTION_KEY_FILE" ]]; then
@@ -52,7 +62,6 @@ preflight() {
     free_kb="$(df -Pk "$BACKUP_ROOT" | awk 'NR==2 {print $4}')"
     [[ "$free_kb" -ge 10485760 ]] || die "insufficient disk space: ${free_kb}KB available, need 10GB"
 
-    mkdir -p "$BACKUP_ROOT" "$LOG_ROOT"
 }
 
 # Acquire lock
@@ -129,13 +138,13 @@ backup_qdrant() {
 
     for collection in $collections; do
         log "Creating snapshot for collection: $collection"
-        curl -s -X POST "$qdrant_url/collections/$collection/snapshots" > /dev/null || true
+        curl --fail --silent --show-error -X POST "$qdrant_url/collections/$collection/snapshots" > /dev/null \
+            || die "Qdrant snapshot creation failed for collection: $collection"
     done
 
     # Copy Qdrant data
-    docker cp "$QDRANT_CONTAINER:/qdrant/storage" "$qdrant_dir/" 2>/dev/null || {
-        log "WARNING: Qdrant backup via docker cp failed"
-    }
+    docker cp "$QDRANT_CONTAINER:/qdrant/storage" "$qdrant_dir/" 2>/dev/null \
+        || die "Qdrant snapshot copy failed"
 
     local hash
     hash="$(find "$qdrant_dir" -type f -exec sha256sum {} \; 2>/dev/null | sort | sha256sum | cut -d' ' -f1)"
@@ -293,11 +302,10 @@ rotate_backups() {
 # Record backup completion to backend database
 # This makes the backup discoverable by deploy.sh check_backup_gate via API query
 record_backup_to_db() {
-    local archive="$1" hash="$2" size="$3" manifest="$4"
+    local archive="$1" hash="$2" size="$3" manifest="$4" key_id="$5"
 
     if [[ -z "$AUTH_TOKEN" ]]; then
-        log "WARNING: YLCLOUD_DEPLOY_AUTH_TOKEN not set, skipping DB record"
-        return 0
+        die "YLCLOUD_DEPLOY_AUTH_TOKEN is required to publish backup state"
     fi
 
     log "Recording backup to database..."
@@ -309,16 +317,20 @@ record_backup_to_db() {
         -F "archivePath=$archive" \
         -F "archiveSize=$size" \
         -F "archiveHash=$hash" \
+        -F "encryptionKeyId=$key_id" \
         -F "manifestJson=$manifest" \
         "$BACKEND_URL/api/admin/backup/record" 2>/dev/null || true)"
     http_code="$(echo "$response" | tail -1)"
 
     if [[ "$http_code" == "200" ]]; then
-        log "Backup recorded to database successfully"
-        return 0
+        local body backup_id
+        body="$(echo "$response" | sed '$d')"
+        backup_id="$(echo "$body" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p' | head -1)"
+        [[ -n "$backup_id" ]] || die "backup record response did not contain an id"
+        log "Backup recorded as VERIFYING: id=$backup_id"
+        echo "$backup_id"
     else
-        log "WARNING: Failed to record backup to database (HTTP $http_code)"
-        return 0  # non-fatal: backup files are still valid
+        die "failed to record backup state (HTTP $http_code)"
     fi
 }
 
@@ -331,6 +343,7 @@ main() {
     load_env
 
     mkdir -p "$BACKUP_DIR"
+    chmod 700 "$BACKUP_DIR"
 
     # Execute backup steps
     backup_mysql
@@ -354,7 +367,13 @@ main() {
     verify_archive "$archive" "$hash"
 
     # Record backup completion to database for deploy.sh gate
-    record_backup_to_db "$archive" "$hash" "$size" "$manifest_json"
+    local backup_id
+    local encryption_key_id
+    encryption_key_id="sha256:$(sha256sum "$ENCRYPTION_KEY_FILE" | cut -d' ' -f1)"
+    backup_id="$(record_backup_to_db "$archive" "$hash" "$size" "$manifest_json" "$encryption_key_id")"
+
+    # A backup is not READY until every store is restored in disposable containers.
+    bash "$(dirname "$0")/restore.sh" "$archive" --isolated-verify --backup-id "$backup_id"
 
     # Rotate old backups
     rotate_backups

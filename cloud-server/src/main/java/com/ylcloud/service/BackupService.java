@@ -3,6 +3,8 @@ package com.ylcloud.service;
 import com.ylcloud.VO.BackupRunVO;
 import com.ylcloud.entity.BackupRun;
 import com.ylcloud.entity.RestoreVerification;
+import com.ylcloud.DTO.RestoreVerificationDTO;
+import com.ylcloud.Exception.BaseException;
 import com.ylcloud.mapper.BackupMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -56,18 +58,29 @@ public class BackupService {
      * 记录备份完成（由外部脚本调用）。
      */
     public BackupRunVO recordBackupCompletion(String runKey, String archivePath, Long archiveSize,
-                                               String archiveHash, String manifestJson) {
+                                               String archiveHash, String encryptionKeyId, String manifestJson) {
+        if (runKey == null || runKey.isBlank() || archivePath == null || archivePath.isBlank()
+                || archiveSize == null || archiveSize <= 0
+                || archiveHash == null || !archiveHash.matches("(?i)[0-9a-f]{64}")) {
+            throw new BaseException("备份归档元数据无效");
+        }
+        if (encryptionKeyId == null || encryptionKeyId.isBlank()) {
+            throw new BaseException("备份加密密钥标识不能为空");
+        }
         BackupRun existing = backupMapper.getBackupByKey(runKey);
         LocalDateTime now = LocalDateTime.now();
 
         if (existing != null) {
-            existing.setStatus("READY");
+            if ("READY".equals(existing.getStatus())) return toVO(existing);
+            existing.setStatus("VERIFYING");
             existing.setArchivePath(archivePath);
             existing.setArchiveSizeBytes(archiveSize);
             existing.setArchiveHash(archiveHash);
+            existing.setEncryptionKeyId(encryptionKeyId);
             existing.setManifestJson(manifestJson);
-            existing.setVerifiedAt(now);
-            existing.setPublishedAt(now);
+            existing.setFinishedAt(now);
+            existing.setVerifiedAt(null);
+            existing.setPublishedAt(null);
             existing.setUpdatedAt(now);
             backupMapper.updateBackup(existing);
             return toVO(existing);
@@ -76,23 +89,78 @@ public class BackupService {
         BackupRun backup = new BackupRun();
         backup.setRunKey(runKey);
         backup.setBackupType("FULL");
-        backup.setStatus("READY");
+        backup.setStatus("VERIFYING");
         backup.setArchivePath(archivePath);
         backup.setArchiveSizeBytes(archiveSize);
         backup.setArchiveHash(archiveHash);
+        backup.setEncryptionKeyId(encryptionKeyId);
         backup.setManifestJson(manifestJson);
         backup.setStartedAt(now);
         backup.setFinishedAt(now);
-        backup.setVerifiedAt(now);
-        backup.setPublishedAt(now);
+        backup.setVerifiedAt(null);
+        backup.setPublishedAt(null);
         backup.setCreatedAt(now);
         backup.setUpdatedAt(now);
         backupMapper.insertBackup(backup);
 
-        // 轮换旧备份
-        rotateOldBackups();
-
         return toVO(backup);
+    }
+
+    /**
+     * 记录隔离恢复结果。只有五项验证全部成功，VERIFYING 才能原子转为 READY。
+     */
+    public BackupRunVO recordRestoreVerification(Long backupId, RestoreVerificationDTO dto) {
+        BackupRun backup = backupMapper.getBackupById(backupId);
+        if (backup == null) throw new BaseException("备份不存在");
+        if (dto == null || dto.getVerificationKey() == null || dto.getVerificationKey().isBlank()) {
+            throw new BaseException("恢复验证标识不能为空");
+        }
+        RestoreVerification duplicate = backupMapper.getVerificationByKey(dto.getVerificationKey());
+        if (duplicate != null) return toVO(backup);
+        if (!"VERIFYING".equals(backup.getStatus())) {
+            throw new BaseException("只有 VERIFYING 备份可以提交恢复验证");
+        }
+        boolean isolated = dto.getRestoreEnvironment() != null &&
+                dto.getRestoreEnvironment().toUpperCase().startsWith("ISOLATED");
+        boolean checksPassed = Boolean.TRUE.equals(dto.getMysqlRestored())
+                && Boolean.TRUE.equals(dto.getMinioRestored())
+                && Boolean.TRUE.equals(dto.getQdrantRestored())
+                && Boolean.TRUE.equals(dto.getConfigRestored())
+                && Boolean.TRUE.equals(dto.getBusinessSampleCheck());
+        boolean success = "SUCCESS".equalsIgnoreCase(dto.getStatus()) && isolated && checksPassed;
+        LocalDateTime now = LocalDateTime.now();
+        RestoreVerification verification = new RestoreVerification();
+        verification.setBackupRunId(backupId);
+        verification.setVerificationKey(dto.getVerificationKey());
+        verification.setStatus(success ? "SUCCESS" : "FAILED");
+        verification.setRestoreEnvironment(dto.getRestoreEnvironment());
+        verification.setMysqlRestored(Boolean.TRUE.equals(dto.getMysqlRestored()));
+        verification.setMinioRestored(Boolean.TRUE.equals(dto.getMinioRestored()));
+        verification.setQdrantRestored(Boolean.TRUE.equals(dto.getQdrantRestored()));
+        verification.setConfigRestored(Boolean.TRUE.equals(dto.getConfigRestored()));
+        verification.setBusinessSampleCheck(Boolean.TRUE.equals(dto.getBusinessSampleCheck()));
+        verification.setStartedAt(now);
+        verification.setFinishedAt(now);
+        verification.setLastError(success ? null : truncate(dto.getErrorMessage()));
+        verification.setCreatedAt(now);
+        verification.setUpdatedAt(now);
+        backupMapper.insertVerification(verification);
+        if (!success) {
+            backupMapper.markFailed(backupId,
+                    truncate(dto.getErrorMessage() == null ? "隔离恢复验证未全部通过" : dto.getErrorMessage()),
+                    now, now);
+            return toVO(backupMapper.getBackupById(backupId));
+        }
+        if (backupMapper.markReady(backupId, now, now, now) != 1) {
+            throw new BaseException("备份状态已变化，无法发布");
+        }
+        rotateOldBackups();
+        return toVO(backupMapper.getBackupById(backupId));
+    }
+
+    private String truncate(String message) {
+        if (message == null) return null;
+        return message.length() > 1000 ? message.substring(0, 1000) : message;
     }
 
     /**

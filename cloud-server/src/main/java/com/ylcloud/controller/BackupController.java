@@ -5,6 +5,8 @@ import com.ylcloud.VO.BackupRunVO;
 import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.BackupService;
 import com.ylcloud.service.SecurityAuditService;
+import com.ylcloud.DTO.RestoreVerificationDTO;
+import com.ylcloud.context.BaseContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -72,6 +74,29 @@ public class BackupController {
         return Result.success(backupService.getLatestRestoreVerification(backupId));
     }
 
+    @PostMapping("/{backupId}/restore-verification")
+    public Result<BackupRunVO> recordRestoreVerification(@PathVariable Long backupId,
+                                                          @RequestBody RestoreVerificationDTO dto) {
+        adminPermissionService.requireAdmin();
+        Long operatorId = BaseContext.getCurrentId();
+        try {
+            BackupRunVO result = backupService.recordRestoreVerification(backupId, dto);
+            boolean published = "READY".equals(result.getStatus());
+            auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("RESTORE_VERIFICATION").action("PUBLISH_BACKUP").subject(operatorId, null)
+                    .target("BACKUP", backupId.toString(), result.getRunKey())
+                    .result(published ? "SUCCESS" : "FAILURE")
+                    .errorMessage(published ? null : "隔离恢复验证未全部通过"));
+            return Result.success(result);
+        } catch (Exception exception) {
+            auditService.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                    .eventType("RESTORE_VERIFICATION").action("PUBLISH_BACKUP").subject(operatorId, null)
+                    .target("BACKUP", backupId.toString(), null).result("FAILURE")
+                    .errorMessage(exception.getMessage()));
+            throw exception;
+        }
+    }
+
     /**
      * 记录备份完成（由外部脚本调用）。
      */
@@ -81,11 +106,12 @@ public class BackupController {
             @RequestParam String archivePath,
             @RequestParam Long archiveSize,
             @RequestParam String archiveHash,
+            @RequestParam String encryptionKeyId,
             @RequestParam(required = false) String manifestJson) {
         adminPermissionService.requireAdmin();
         try {
             BackupRunVO result = backupService.recordBackupCompletion(
-                    runKey, archivePath, archiveSize, archiveHash, manifestJson);
+                    runKey, archivePath, archiveSize, archiveHash, encryptionKeyId, manifestJson);
             auditService.recordSuccess("BACKUP", "RECORD", null, "SCRIPT",
                     "BACKUP", result.getId() != null ? result.getId().toString() : null, runKey,
                     Map.of("archivePath", archivePath, "archiveSize", archiveSize));

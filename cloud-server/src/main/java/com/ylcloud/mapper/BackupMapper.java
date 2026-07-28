@@ -50,18 +50,18 @@ public interface BackupMapper {
 
     @Update("update backup_run set status = #{status}, manifest_json = #{manifestJson}, " +
             "archive_path = #{archivePath}, archive_size_bytes = #{archiveSizeBytes}, " +
-            "archive_hash = #{archiveHash}, started_at = #{startedAt}, finished_at = #{finishedAt}, " +
+            "archive_hash = #{archiveHash}, encryption_key_id = #{encryptionKeyId}, started_at = #{startedAt}, finished_at = #{finishedAt}, " +
             "verified_at = #{verifiedAt}, published_at = #{publishedAt}, last_error = #{lastError}, " +
             "updated_at = #{updatedAt} where id = #{id}")
     int updateBackup(BackupRun backup);
 
     @Update("update backup_run set status = 'READY', verified_at = #{verifiedAt}, " +
-            "published_at = #{publishedAt}, updated_at = #{updatedAt} where id = #{id}")
+            "published_at = #{publishedAt}, updated_at = #{updatedAt} where id = #{id} and status = 'VERIFYING'")
     int markReady(@Param("id") Long id, @Param("verifiedAt") LocalDateTime verifiedAt,
                   @Param("publishedAt") LocalDateTime publishedAt, @Param("updatedAt") LocalDateTime updatedAt);
 
     @Update("update backup_run set status = 'FAILED', last_error = #{error}, " +
-            "finished_at = #{finishedAt}, updated_at = #{updatedAt} where id = #{id}")
+            "finished_at = #{finishedAt}, updated_at = #{updatedAt} where id = #{id} and status <> 'READY'")
     int markFailed(@Param("id") Long id, @Param("error") String error,
                    @Param("finishedAt") LocalDateTime finishedAt, @Param("updatedAt") LocalDateTime updatedAt);
 
@@ -95,6 +95,9 @@ public interface BackupMapper {
     @Select("select " + RESTORE_COLUMNS + " from restore_verification where backup_run_id = #{backupRunId} " +
             "order by created_at desc limit #{limit}")
     List<RestoreVerification> listVerificationsByBackup(@Param("backupRunId") Long backupRunId, @Param("limit") int limit);
+
+    @Select("select " + RESTORE_COLUMNS + " from restore_verification where verification_key = #{verificationKey}")
+    RestoreVerification getVerificationByKey(@Param("verificationKey") String verificationKey);
 
     @Update("update restore_verification set status = #{status}, mysql_restored = #{mysqlRestored}, " +
             "minio_restored = #{minioRestored}, qdrant_restored = #{qdrantRestored}, " +

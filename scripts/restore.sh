@@ -15,6 +15,12 @@ QDRANT_CONTAINER="${YLCLOUD_QDRANT_CONTAINER:-qdrant}"
 RESTORE_DIR="${YLCLOUD_RESTORE_DIR:-/var/lib/ylcloud-restore}"
 LOCK_FILE="${YLCLOUD_RESTORE_LOCK_FILE:-/var/lock/ylcloud-restore.lock}"
 LOG_ROOT="${YLCLOUD_RESTORE_LOG_ROOT:-/var/log/ylcloud-restore}"
+BACKEND_URL="${YLCLOUD_DEPLOY_BACKEND_URL:-http://127.0.0.1:8080}"
+AUTH_TOKEN="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+MYSQL_VERIFY_IMAGE="${YLCLOUD_RESTORE_MYSQL_IMAGE:-mysql:8.3}"
+MINIO_VERIFY_IMAGE="${YLCLOUD_RESTORE_MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}"
+QDRANT_VERIFY_IMAGE="${YLCLOUD_RESTORE_QDRANT_IMAGE:-qdrant/qdrant:v1.15.4}"
+CURL_VERIFY_IMAGE="${YLCLOUD_RESTORE_CURL_IMAGE:-curlimages/curl:8.12.1}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
@@ -30,6 +36,8 @@ Arguments:
 
 Options:
     --verify-only     Only verify backup integrity, do not restore
+    --isolated-verify Restore all stores into disposable Docker containers and publish verification
+    --backup-id ID    backup_run id used with --isolated-verify
     --skip-mysql      Skip MySQL restore
     --skip-minio      Skip MinIO restore
     --skip-qdrant     Skip Qdrant restore
@@ -58,10 +66,14 @@ SKIP_MINIO=0
 SKIP_QDRANT=0
 SKIP_CONFIG=0
 DRY_RUN=0
+ISOLATED_VERIFY=0
+BACKUP_ID=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --verify-only) VERIFY_ONLY=1; shift ;;
+        --isolated-verify) ISOLATED_VERIFY=1; shift ;;
+        --backup-id) BACKUP_ID="${2:-}"; shift 2 ;;
         --skip-mysql) SKIP_MYSQL=1; shift ;;
         --skip-minio) SKIP_MINIO=1; shift ;;
         --skip-qdrant) SKIP_QDRANT=1; shift ;;
@@ -79,7 +91,7 @@ done
 # Preflight checks
 preflight() {
     command -v docker >/dev/null || die "docker not found"
-    command -v mysql >/dev/null || die "mysql client not found"
+    if [[ $ISOLATED_VERIFY -eq 0 ]]; then command -v mysql >/dev/null || die "mysql client not found"; fi
     command -v openssl >/dev/null || die "openssl not found"
     command -v sha256sum >/dev/null || die "sha256sum not found"
     command -v flock >/dev/null || die "flock not found"
@@ -274,6 +286,97 @@ cleanup() {
     rm -rf "$RESTORE_DIR"/*
 }
 
+ISOLATED_NETWORK=""
+ISOLATED_MYSQL=""
+ISOLATED_MINIO=""
+ISOLATED_QDRANT=""
+MYSQL_OK=false
+MINIO_OK=false
+QDRANT_OK=false
+CONFIG_OK=false
+SAMPLE_OK=false
+
+cleanup_isolated() {
+    [[ -z "$ISOLATED_MYSQL" ]] || docker rm -f "$ISOLATED_MYSQL" >/dev/null 2>&1 || true
+    [[ -z "$ISOLATED_MINIO" ]] || docker rm -f "$ISOLATED_MINIO" >/dev/null 2>&1 || true
+    [[ -z "$ISOLATED_QDRANT" ]] || docker rm -f "$ISOLATED_QDRANT" >/dev/null 2>&1 || true
+    [[ -z "$ISOLATED_NETWORK" ]] || docker network rm "$ISOLATED_NETWORK" >/dev/null 2>&1 || true
+}
+
+report_verification() {
+    local status="$1" error="${2:-}" key="restore-$BACKUP_ID-$STAMP"
+    [[ -n "$AUTH_TOKEN" && -n "$BACKUP_ID" ]] || die "AUTH token and --backup-id are required to publish restore verification"
+    local escaped_error
+    escaped_error="$(printf '%s' "$error" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    curl --fail --silent --show-error -X POST \
+        -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+        --data "{\"verificationKey\":\"$key\",\"status\":\"$status\",\"restoreEnvironment\":\"ISOLATED_DOCKER\",\"mysqlRestored\":$MYSQL_OK,\"minioRestored\":$MINIO_OK,\"qdrantRestored\":$QDRANT_OK,\"configRestored\":$CONFIG_OK,\"businessSampleCheck\":$SAMPLE_OK,\"errorMessage\":\"$escaped_error\"}" \
+        "$BACKEND_URL/api/admin/backup/$BACKUP_ID/restore-verification"
+}
+
+isolated_failure() {
+    local code=$?
+    trap - ERR
+    set +e
+    report_verification FAILED "isolated restore failed (exit $code)" >/dev/null
+    exit "$code"
+}
+
+wait_mysql() {
+    for _ in $(seq 1 60); do
+        docker exec "$ISOLATED_MYSQL" mysqladmin ping -h 127.0.0.1 -uroot -pverify-root --silent >/dev/null 2>&1 && return 0
+        sleep 2
+    done
+    die "isolated MySQL did not become ready"
+}
+
+isolated_restore_verify() {
+    [[ -n "$BACKUP_ID" ]] || die "--backup-id is required with --isolated-verify"
+    [[ -n "$AUTH_TOKEN" ]] || die "YLCLOUD_DEPLOY_AUTH_TOKEN is required with --isolated-verify"
+    ISOLATED_NETWORK="ylcloud-restore-$STAMP"
+    ISOLATED_MYSQL="ylcloud-restore-mysql-$STAMP"
+    ISOLATED_MINIO="ylcloud-restore-minio-$STAMP"
+    ISOLATED_QDRANT="ylcloud-restore-qdrant-$STAMP"
+    trap cleanup_isolated EXIT
+    trap isolated_failure ERR
+    docker network create "$ISOLATED_NETWORK" >/dev/null
+
+    docker run -d --name "$ISOLATED_MYSQL" --network "$ISOLATED_NETWORK" \
+        -e MYSQL_ROOT_PASSWORD=verify-root "$MYSQL_VERIFY_IMAGE" >/dev/null
+    wait_mysql
+    docker exec -i "$ISOLATED_MYSQL" mysql -uroot -pverify-root < "$EXTRACTED_DIR/mysql-dump.sql"
+    MYSQL_OK=true
+
+    [[ -d "$EXTRACTED_DIR/minio/data" ]] || die "isolated MinIO data is missing"
+    docker run -d --name "$ISOLATED_MINIO" --network "$ISOLATED_NETWORK" \
+        -e MINIO_ROOT_USER=verify -e MINIO_ROOT_PASSWORD=verify-password \
+        -v "$EXTRACTED_DIR/minio/data:/data" "$MINIO_VERIFY_IMAGE" server /data >/dev/null
+    docker run --rm --network "$ISOLATED_NETWORK" "$CURL_VERIFY_IMAGE" \
+        --retry 30 --retry-delay 2 --retry-connrefused --fail http://"$ISOLATED_MINIO":9000/minio/health/ready >/dev/null
+    MINIO_OK=true
+
+    [[ -d "$EXTRACTED_DIR/qdrant/storage" ]] || die "isolated Qdrant data is missing"
+    docker run -d --name "$ISOLATED_QDRANT" --network "$ISOLATED_NETWORK" \
+        -v "$EXTRACTED_DIR/qdrant/storage:/qdrant/storage" "$QDRANT_VERIFY_IMAGE" >/dev/null
+    docker run --rm --network "$ISOLATED_NETWORK" "$CURL_VERIFY_IMAGE" \
+        --retry 30 --retry-delay 2 --retry-connrefused --fail http://"$ISOLATED_QDRANT":6333/collections >/dev/null
+    QDRANT_OK=true
+
+    [[ -s "$EXTRACTED_DIR/config/$(basename "$COMPOSE_FILE")" ]] || die "isolated config snapshot is missing"
+    [[ -d "$EXTRACTED_DIR/config/secrets" ]] || die "isolated secret snapshot is missing"
+    find "$EXTRACTED_DIR/config/secrets" -type f -empty -print -quit | grep -q . && die "isolated secret snapshot contains empty files"
+    CONFIG_OK=true
+
+    docker exec "$ISOLATED_MYSQL" mysql -uroot -pverify-root -Nse \
+        "select count(*) from information_schema.tables where table_schema not in ('mysql','information_schema','performance_schema','sys')" \
+        | grep -Eq '^[1-9][0-9]*$' || die "restored MySQL contains no application tables"
+    SAMPLE_OK=true
+
+    report_verification SUCCESS ""
+    trap - ERR
+    log "=== Isolated restore verification completed successfully ==="
+}
+
 # Main restore flow
 main() {
     log "=== Starting restore from: $ARCHIVE_FILE ==="
@@ -291,6 +394,12 @@ main() {
 
     extract_backup
     read_manifest
+
+    if [[ $ISOLATED_VERIFY -eq 1 ]]; then
+        isolated_restore_verify
+        cleanup
+        exit 0
+    fi
 
     # Confirm restore
     if [[ $DRY_RUN -eq 0 ]]; then
