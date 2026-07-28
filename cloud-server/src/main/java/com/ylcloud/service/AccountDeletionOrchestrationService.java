@@ -16,6 +16,7 @@ import com.ylcloud.mapper.UserApiKeyMapper;
 import com.ylcloud.mapper.UserLifecycleMapper;
 import com.ylcloud.mapper.WebhookMapper;
 import com.ylcloud.service.memory.UserMemoryService;
+import com.ylcloud.service.rag.QdrantVectorStoreService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +52,7 @@ public class AccountDeletionOrchestrationService {
     private final KnowledgeChatMessageMapper messageMapper;
     private final FileInfoMapper fileInfoMapper;
     private final PhysicalFileCleanupService cleanupService;
+    private final QdrantVectorStoreService qdrantVectorStoreService;
     private final SecurityAuditService auditService;
     private final ObjectMapper objectMapper;
 
@@ -64,6 +66,7 @@ public class AccountDeletionOrchestrationService {
                                                KnowledgeChatMessageMapper messageMapper,
                                                FileInfoMapper fileInfoMapper,
                                                PhysicalFileCleanupService cleanupService,
+                                               QdrantVectorStoreService qdrantVectorStoreService,
                                                SecurityAuditService auditService,
                                                ObjectMapper objectMapper) {
         this.jobMapper = jobMapper;
@@ -76,6 +79,7 @@ public class AccountDeletionOrchestrationService {
         this.messageMapper = messageMapper;
         this.fileInfoMapper = fileInfoMapper;
         this.cleanupService = cleanupService;
+        this.qdrantVectorStoreService = qdrantVectorStoreService;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
     }
@@ -310,7 +314,8 @@ public class AccountDeletionOrchestrationService {
 
     /**
      * 清理用户关联的向量数据。
-     * 对应用户拥有的 Team Space，通过 RAG 维护管线标记向量待清理。
+     * 对应用户拥有的 Team Space，通过 QdrantVectorStoreService 删除该 Space 的全部向量点，
+     * 确保账号删除后不留向量残留。
      */
     private Map<String, Object> cleanupUserVectors(Long userId) {
         List<Long> teamIds = userLifecycleMapper.listOwnedTeamIds(userId);
@@ -322,19 +327,25 @@ public class AccountDeletionOrchestrationService {
             return result;
         }
 
-        // 遍历用户拥有的 Team Space，通过 Space 服务标记 RAG 向量待清理
-        int queued = 0;
+        int deleted = 0;
+        List<String> errors = new ArrayList<>();
         for (Long teamId : teamIds) {
             try {
-                // 标记该 Space 的向量数据进入清理管线
-                // SpaceRagService / SpaceLifecycleService 会处理具体的向量删除
-                queued++;
+                qdrantVectorStoreService.deleteBySpace(teamId);
+                deleted++;
+                log.info("Vector cleanup executed for teamId={}, userId={}", teamId, userId);
             } catch (Exception e) {
-                log.warn("Failed to queue vector cleanup for teamId={}, userId={}: {}", teamId, userId, e.getMessage());
+                String err = "teamId=" + teamId + ": " + e.getMessage();
+                errors.add(err);
+                log.warn("Failed to cleanup vectors for teamId={}, userId={}: {}", teamId, userId, e.getMessage());
             }
         }
-        result.put("vectorsQueued", queued);
-        log.info("Vector cleanup queued for userId={}: {} of {} teams", userId, queued, teamIds.size());
+        result.put("vectorsDeleted", deleted);
+        result.put("vectorsTotal", teamIds.size());
+        result.put("vectorErrors", errors);
+        if (!errors.isEmpty()) {
+            throw new BaseException("向量清理失败: " + errors);
+        }
         return result;
     }
 
