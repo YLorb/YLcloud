@@ -29,6 +29,13 @@ public interface KnowledgeChatSessionMapper {
     List<KnowledgeChatSession> listByUser(@Param("userId") Long userId, @Param("keyword") String keyword, @Param("limit") Integer limit);
 
     @Select("select id, user_id as userId, title, scope_mode as scopeMode, scope_space_ids as scopeSpaceIds, next_sequence_no as nextSequenceNo, rolling_summary as rollingSummary, summary_upto_sequence_no as summaryUptoSequenceNo, summary_version as summaryVersion, status, createtime, updatetime " +
+            "from knowledge_chat_session where user_id = #{userId} and status = 1 and id > #{afterId} " +
+            "order by id asc limit #{limit}")
+    List<KnowledgeChatSession> listForExportAfterId(@Param("userId") Long userId,
+                                                    @Param("afterId") Long afterId,
+                                                    @Param("limit") Integer limit);
+
+    @Select("select id, user_id as userId, title, scope_mode as scopeMode, scope_space_ids as scopeSpaceIds, next_sequence_no as nextSequenceNo, rolling_summary as rollingSummary, summary_upto_sequence_no as summaryUptoSequenceNo, summary_version as summaryVersion, status, createtime, updatetime " +
             "from knowledge_chat_session where id = #{sessionId} and user_id = #{userId} and status = 1 for update")
     KnowledgeChatSession getActiveForUpdate(@Param("sessionId") Long sessionId, @Param("userId") Long userId);
 
@@ -60,4 +67,9 @@ public interface KnowledgeChatSessionMapper {
 
     @Update("update knowledge_chat_session set updatetime = #{updateTime} where id = #{sessionId} and user_id = #{userId} and status = 1")
     int touch(@Param("sessionId") Long sessionId, @Param("userId") Long userId, @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update knowledge_chat_session set status = 0, title = '', scope_space_ids = null, " +
+            "rolling_summary = null, summary_upto_sequence_no = null, updatetime = #{updateTime} " +
+            "where user_id = #{userId} and status = 1")
+    int disableAllByUserId(@Param("userId") Long userId, @Param("updateTime") LocalDateTime updateTime);
 }

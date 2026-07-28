@@ -1,28 +1,25 @@
 package com.ylcloud.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.async.task.DomainTaskPayload;
 import com.ylcloud.async.task.TaskCreateCommand;
 import com.ylcloud.async.task.UnifiedTaskCenterService;
 import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.entity.AccountDeletionJob;
-import com.ylcloud.entity.File;
 import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.AccountDeletionJobMapper;
-import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.UserApiKeyMapper;
 import com.ylcloud.mapper.UserLifecycleMapper;
 import com.ylcloud.mapper.WebhookMapper;
 import com.ylcloud.service.memory.UserMemoryService;
-import com.ylcloud.service.rag.QdrantVectorStoreService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,9 +36,6 @@ import java.util.Map;
 public class AccountDeletionOrchestrationService {
     private static final String TASK_DOMAIN = "maintenance";
     private static final String TASK_TYPE = "ACCOUNT_DELETION";
-    /** 文件清理单次可重试最大次数 */
-    private static final int MAX_FILE_CLEANUP_RETRIES = 3;
-
     private final AccountDeletionJobMapper jobMapper;
     private final UserLifecycleMapper userLifecycleMapper;
     private final UnifiedTaskCenterService taskCenter;
@@ -50,9 +44,7 @@ public class AccountDeletionOrchestrationService {
     private final WebhookMapper webhookMapper;
     private final KnowledgeChatSessionService chatSessionService;
     private final KnowledgeChatMessageMapper messageMapper;
-    private final FileInfoMapper fileInfoMapper;
-    private final PhysicalFileCleanupService cleanupService;
-    private final QdrantVectorStoreService qdrantVectorStoreService;
+    private final AccountDeletionDataCleanupService dataCleanupService;
     private final SecurityAuditService auditService;
     private final ObjectMapper objectMapper;
 
@@ -64,9 +56,7 @@ public class AccountDeletionOrchestrationService {
                                                WebhookMapper webhookMapper,
                                                KnowledgeChatSessionService chatSessionService,
                                                KnowledgeChatMessageMapper messageMapper,
-                                               FileInfoMapper fileInfoMapper,
-                                               PhysicalFileCleanupService cleanupService,
-                                               QdrantVectorStoreService qdrantVectorStoreService,
+                                               AccountDeletionDataCleanupService dataCleanupService,
                                                SecurityAuditService auditService,
                                                ObjectMapper objectMapper) {
         this.jobMapper = jobMapper;
@@ -77,9 +67,7 @@ public class AccountDeletionOrchestrationService {
         this.webhookMapper = webhookMapper;
         this.chatSessionService = chatSessionService;
         this.messageMapper = messageMapper;
-        this.fileInfoMapper = fileInfoMapper;
-        this.cleanupService = cleanupService;
-        this.qdrantVectorStoreService = qdrantVectorStoreService;
+        this.dataCleanupService = dataCleanupService;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
     }
@@ -148,8 +136,7 @@ public class AccountDeletionOrchestrationService {
 
         Long userId = job.getUserId();
         String currentStep = job.getCurrentStep() == null ? "INIT" : job.getCurrentStep();
-        Map<String, Object> results = new HashMap<>();
-        List<String> cleanupErrors = new ArrayList<>();
+        Map<String, Object> results = restoreResults(job.getStepResultJson());
 
         try {
             // 步骤1: 取消所有活跃会话（保留消息用于后续删除步骤）
@@ -163,7 +150,7 @@ public class AccountDeletionOrchestrationService {
             // 步骤2: 删除所有个人聊天消息
             if (shouldExecuteStep(currentStep, "DELETE_MESSAGES")) {
                 context.checkpoint();
-                int deleted = messageMapper.disableByUserId(userId);
+                int deleted = messageMapper.redactByUserId(userId);
                 results.put("deletedMessages", deleted);
                 log.info("Deleted {} chat messages for userId={}", deleted, userId);
                 advanceStep(job, "DELETE_MESSAGES", results);
@@ -180,23 +167,34 @@ public class AccountDeletionOrchestrationService {
             // 步骤4: 清理个人文件 — 查询用户所有文件并提交物理清理
             if (shouldExecuteStep(currentStep, "CLEANUP_FILES")) {
                 context.checkpoint();
-                Map<String, Object> fileResult = cleanupUserFiles(userId);
+                Map<String, Object> fileResult = dataCleanupService.releasePersonalReferences(userId);
                 results.putAll(fileResult);
-                @SuppressWarnings("unchecked")
-                List<String> fileErrors = (List<String>) fileResult.getOrDefault("errors", List.of());
-                cleanupErrors.addAll(fileErrors);
                 advanceStep(job, "CLEANUP_FILES", results);
             }
 
-            // 步骤5: 清理向量数据 — 标记向量待清理并提交异步任务
+            // 步骤5: 仅清理个人空间向量。团队空间内容由团队继续持有。
             if (shouldExecuteStep(currentStep, "CLEANUP_VECTORS")) {
                 context.checkpoint();
-                Map<String, Object> vectorResult = cleanupUserVectors(userId);
-                results.putAll(vectorResult);
+                Long personalSpaceId = longResult(results, "personalSpaceId");
+                dataCleanupService.cleanupPersonalVectors(personalSpaceId);
+                results.put("personalVectorsCleaned", personalSpaceId != null && personalSpaceId > 0);
                 advanceStep(job, "CLEANUP_VECTORS", results);
             }
 
-            // 步骤6: 吊销 API Key
+            // 步骤6: 验证异步副作用均已完成，再允许进入不可逆的 PII/PURGED 终态。
+            if (shouldExecuteStep(currentStep, "VERIFY_CLEANUP")) {
+                context.checkpoint();
+                dataCleanupService.verifyPhysicalCleanup(stringListResult(results, "queuedFileUuids"));
+                if (memoryService.countDeletePending(userId) > 0) {
+                    throw new com.ylcloud.async.task.RetryableTaskException("用户记忆向量清理尚未完成");
+                }
+                memoryService.redactDeleted(userId);
+                dataCleanupService.finalizePersonalSpace(userId, longResult(results, "personalSpaceId"));
+                results.put("cleanupVerified", true);
+                advanceStep(job, "VERIFY_CLEANUP", results);
+            }
+
+            // 步骤7: 吊销 API Key
             if (shouldExecuteStep(currentStep, "REVOKE_API_KEYS")) {
                 context.checkpoint();
                 int revoked = apiKeyMapper.revokeAllByUserId(userId);
@@ -204,7 +202,7 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "REVOKE_API_KEYS", results);
             }
 
-            // 步骤7: 删除 Webhook 订阅
+            // 步骤8: 删除 Webhook 订阅
             if (shouldExecuteStep(currentStep, "DELETE_WEBHOOKS")) {
                 context.checkpoint();
                 int deleted = webhookMapper.deleteByUserId(userId);
@@ -212,7 +210,7 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "DELETE_WEBHOOKS", results);
             }
 
-            // 步骤8: 清除 PII 数据 — 将用户个人信息匿名化
+            // 步骤9: 清除 PII 数据 — 将用户个人信息匿名化
             if (shouldExecuteStep(currentStep, "CLEAR_PII")) {
                 context.checkpoint();
                 int piiCleared = userLifecycleMapper.clearPii(userId, LocalDateTime.now());
@@ -223,13 +221,12 @@ public class AccountDeletionOrchestrationService {
                 advanceStep(job, "CLEAR_PII", results);
             }
 
-            // 步骤9: 标记为 PURGED — 仅当所有清理步骤完成后执行
+            // 步骤10: 标记为 PURGED — 仅当所有清理步骤验证完成后执行
             if (shouldExecuteStep(currentStep, "MARK_PURGED")) {
                 context.checkpoint();
 
-                // 最终验证：确保关键清理步骤已执行
-                if (!cleanupErrors.isEmpty()) {
-                    log.warn("Some file cleanups had errors for userId={}: {}", userId, cleanupErrors);
+                if (!Boolean.TRUE.equals(results.get("cleanupVerified"))) {
+                    throw new BaseException("清理结果尚未验证，拒绝标记 PURGED");
                 }
 
                 LocalDateTime now = LocalDateTime.now();
@@ -237,16 +234,11 @@ public class AccountDeletionOrchestrationService {
                     throw new BaseException("标记 PURGED 失败，账号状态可能已变化");
                 }
                 results.put("markedPurged", true);
-                if (!cleanupErrors.isEmpty()) {
-                    results.put("cleanupWarnings", cleanupErrors);
-                }
                 advanceStep(job, "MARK_PURGED", results);
             }
 
             // 完成
             jobMapper.markCompleted(job.getId(), LocalDateTime.now());
-            results.put("cleanupErrors", cleanupErrors);
-
             auditService.record(new SecurityAuditService.AuditEventBuilder()
                     .eventType("ACCOUNT_DELETION")
                     .action("PURGE_COMPLETED")
@@ -270,88 +262,9 @@ public class AccountDeletionOrchestrationService {
         }
     }
 
-    /**
-     * 清理用户所有个人文件，返回清理计数和错误列表。
-     * 单文件清理失败不中断整个步骤，但会累积错误供后续核查。
-     */
-    private Map<String, Object> cleanupUserFiles(Long userId) {
-        List<File> userFiles = fileInfoMapper.listAllByUserId(userId);
-        int cleaned = 0;
-        List<String> errors = new ArrayList<>();
-
-        for (File file : userFiles) {
-            if (file.getFileUuid() == null) continue;
-
-            boolean ok = false;
-            Exception lastEx = null;
-            for (int attempt = 1; attempt <= MAX_FILE_CLEANUP_RETRIES; attempt++) {
-                try {
-                    fileInfoMapper.softDeleteByFileUuid(file.getFileUuid(), userId);
-                    cleanupService.enqueue(file.getFileUuid());
-                    cleaned++;
-                    ok = true;
-                    break;
-                } catch (Exception e) {
-                    lastEx = e;
-                    log.warn("File cleanup attempt {}/{} failed for fileUuid={}, userId={}: {}",
-                            attempt, MAX_FILE_CLEANUP_RETRIES, file.getFileUuid(), userId, e.getMessage());
-                }
-            }
-            if (!ok && lastEx != null) {
-                String err = "fileUuid=" + file.getFileUuid() + ": " + lastEx.getMessage();
-                errors.add(err);
-                log.error("File cleanup FAILED after {} retries for userId={}: {}",
-                        MAX_FILE_CLEANUP_RETRIES, userId, err);
-            }
-        }
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("filesCleaned", cleaned);
-        result.put("filesTotal", userFiles.size());
-        result.put("errors", errors);
-        return result;
-    }
-
-    /**
-     * 清理用户关联的向量数据。
-     * 对应用户拥有的 Team Space，通过 QdrantVectorStoreService 删除该 Space 的全部向量点，
-     * 确保账号删除后不留向量残留。
-     */
-    private Map<String, Object> cleanupUserVectors(Long userId) {
-        List<Long> teamIds = userLifecycleMapper.listOwnedTeamIds(userId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("teamsFound", teamIds == null ? 0 : teamIds.size());
-        result.put("teamsQueuedForVectorCleanup", teamIds);
-
-        if (teamIds == null || teamIds.isEmpty()) {
-            return result;
-        }
-
-        int deleted = 0;
-        List<String> errors = new ArrayList<>();
-        for (Long teamId : teamIds) {
-            try {
-                qdrantVectorStoreService.deleteBySpace(teamId);
-                deleted++;
-                log.info("Vector cleanup executed for teamId={}, userId={}", teamId, userId);
-            } catch (Exception e) {
-                String err = "teamId=" + teamId + ": " + e.getMessage();
-                errors.add(err);
-                log.warn("Failed to cleanup vectors for teamId={}, userId={}: {}", teamId, userId, e.getMessage());
-            }
-        }
-        result.put("vectorsDeleted", deleted);
-        result.put("vectorsTotal", teamIds.size());
-        result.put("vectorErrors", errors);
-        if (!errors.isEmpty()) {
-            throw new BaseException("向量清理失败: " + errors);
-        }
-        return result;
-    }
-
     private boolean shouldExecuteStep(String currentStep, String targetStep) {
         String[] steps = {"INIT", "CANCEL_SESSIONS", "DELETE_MESSAGES", "CLEAR_MEMORY",
-                "CLEANUP_FILES", "CLEANUP_VECTORS", "REVOKE_API_KEYS", "DELETE_WEBHOOKS",
+                "CLEANUP_FILES", "CLEANUP_VECTORS", "VERIFY_CLEANUP", "REVOKE_API_KEYS", "DELETE_WEBHOOKS",
                 "CLEAR_PII", "MARK_PURGED", "DONE"};
 
         int currentIndex = -1;
@@ -362,6 +275,26 @@ public class AccountDeletionOrchestrationService {
         }
 
         return targetIndex > currentIndex;
+    }
+
+    private Map<String, Object> restoreResults(String json) {
+        if (json == null || json.isBlank()) return new HashMap<>();
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (Exception exception) {
+            throw new BaseException("删除任务断点数据损坏，拒绝继续");
+        }
+    }
+
+    private Long longResult(Map<String, Object> results, String key) {
+        Object value = results.get(key);
+        return value instanceof Number number ? number.longValue() : null;
+    }
+
+    private List<String> stringListResult(Map<String, Object> results, String key) {
+        Object value = results.get(key);
+        if (!(value instanceof List<?> values)) return List.of();
+        return values.stream().filter(String.class::isInstance).map(String.class::cast).toList();
     }
 
     private void advanceStep(AccountDeletionJob job, String step, Map<String, Object> results) {

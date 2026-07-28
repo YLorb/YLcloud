@@ -12,6 +12,8 @@ import com.ylcloud.async.worker.TaskCanceledException;
 import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.entity.UserMemoryItem;
 import com.ylcloud.mapper.UserMemoryItemMapper;
+import com.ylcloud.mapper.UserMemoryExtractionTaskMapper;
+import com.ylcloud.mapper.UserLifecycleMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -35,11 +38,20 @@ public class UserMemoryService {
     private final RagProperties properties;
     private AsyncMqProperties mqProperties;
     private UnifiedTaskCenterService taskCenter;
+    private UserMemoryExtractionTaskMapper extractionTaskMapper;
+    private UserLifecycleMapper userLifecycleMapper;
 
     public UserMemoryService(UserMemoryItemMapper mapper, UserMemoryVectorStoreService vectorStore, RagProperties properties) {
         this.mapper = mapper;
         this.vectorStore = vectorStore;
         this.properties = properties;
+    }
+
+    @Autowired(required = false)
+    public void setDeletionFences(UserMemoryExtractionTaskMapper extractionTaskMapper,
+                                  UserLifecycleMapper userLifecycleMapper) {
+        this.extractionTaskMapper = extractionTaskMapper;
+        this.userLifecycleMapper = userLifecycleMapper;
     }
 
     @Transactional
@@ -60,6 +72,10 @@ public class UserMemoryService {
 
     private UserMemoryItem acceptInternal(Long userId, Long sessionId, Long sourceMessageId, String sourceText,
                                           UserMemoryCandidate candidate, boolean requireEnabled,Long originAsyncTaskId) {
+        if(userLifecycleMapper != null) {
+            com.ylcloud.entity.User user = userLifecycleMapper.getAccountStatus(userId);
+            if(user == null || !"ACTIVE".equals(user.getAccountStatus())) return null;
+        }
         if((requireEnabled && !enabled(userId)) || candidate == null || candidate.content() == null || candidate.content().isBlank()) return null;
         String key = normalize(candidate.key() == null || candidate.key().isBlank() ? candidate.content() : candidate.key(),190);
         String sourceHash = sha256(sourceText == null ? "" : sourceText);
@@ -185,10 +201,26 @@ public class UserMemoryService {
 
     @Transactional
     public void clear(Long userId) {
+        if(extractionTaskMapper != null) extractionTaskMapper.cancelByUserId(userId,LocalDateTime.now());
         mapper.clear(userId,LocalDateTime.now());
-        mapper.listDeletePending(500).stream().filter(item -> userId.equals(item.getUserId())).forEach(item -> {
-            if(usesUnifiedTasks()) registerDelete(item); else processDelete(item.getId());
-        });
+        long afterId = 0L;
+        while (true) {
+            List<UserMemoryItem> batch = mapper.listDeletePendingByUserAfter(userId, afterId, 500);
+            if (batch.isEmpty()) break;
+            for (UserMemoryItem item : batch) {
+                if(usesUnifiedTasks()) registerDelete(item); else processDelete(item.getId());
+                afterId = item.getId();
+            }
+        }
+    }
+
+    public int countDeletePending(Long userId) {
+        return mapper.countDeletePendingByUser(userId);
+    }
+
+    @Transactional
+    public int redactDeleted(Long userId) {
+        return mapper.redactDeletedByUser(userId, LocalDateTime.now());
     }
 
     public boolean enabled(Long userId) {

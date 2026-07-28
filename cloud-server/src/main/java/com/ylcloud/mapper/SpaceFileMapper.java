@@ -128,4 +128,14 @@ public interface SpaceFileMapper {
                        @Param("fileId") Long fileId,
                        @Param("fileName") String fileName,
                        @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update space_file set status = 0, removed_at = #{now}, updatetime = #{now} " +
+            "where space_id = #{spaceId} and file_uuid = #{fileUuid} and status = 1")
+    int disableAllByFileUuid(@Param("spaceId") Long spaceId, @Param("fileUuid") String fileUuid,
+                             @Param("now") LocalDateTime now);
+
+    @Update("update space_file set status = 0, file_name = concat('deleted-', id), path = null, " +
+            "searchable = 0, last_knowledge_error = null, removed_at = #{now}, updatetime = #{now} " +
+            "where space_id = #{spaceId}")
+    int purgeBySpaceId(@Param("spaceId") Long spaceId, @Param("now") LocalDateTime now);
 }

@@ -260,11 +260,14 @@ public interface KnowledgeChatMessageMapper {
             "async_task_id=null,async_task_type=null where session_id = #{sessionId}")
     int disableBySessionId(@Param("sessionId") Long sessionId);
 
-    /** 删除指定用户的所有聊天消息（用于账号删除）。 */
-    @Update("update knowledge_chat_message set status = 0, context_snapshot_json = null, context_hash = null, " +
-            "context_version = null, context_token_count = null, async_version = async_version + 1, " +
-            "async_task_id = null, async_task_type = null where user_id = #{userId}")
-    int disableByUserId(@Param("userId") Long userId);
+    /** 清除指定用户的全部聊天正文和派生敏感字段，并以版本栅栏阻止迟到回调。 */
+    @Update("update knowledge_chat_message set status = 0, content = '', citations_json = null, " +
+            "error_message = null, request_key = null, request_json = null, context_snapshot_json = null, " +
+            "context_hash = null, context_version = null, context_token_count = null, " +
+            "workflow_run_id = null, workflow_execution_id = null, workflow_result_hash = null, " +
+            "workflow_snapshot_hash = null, workflow_result_json = null, async_version = async_version + 1, " +
+            "async_task_id = null, async_task_type = null, updatetime = now() where user_id = #{userId}")
+    int redactByUserId(@Param("userId") Long userId);
 
     @Select("select coalesce(sum(context_token_count),0) from knowledge_chat_message where user_id=#{userId} and task_status='SUCCESS' and status=1")
     Long sumContextTokens(@Param("userId") Long userId);

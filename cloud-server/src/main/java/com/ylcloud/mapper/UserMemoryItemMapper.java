@@ -134,6 +134,12 @@ public interface UserMemoryItemMapper {
     List<UserMemoryItem> listManaged(@Param("userId") Long userId, @Param("type") String type,
                                      @Param("keyword") String keyword, @Param("limit") int limit);
 
+    @Select("select " + COLUMNS + " from user_memory_item where user_id=#{userId} and status=1 " +
+            "and memory_status not in ('DELETED','SUPERSEDED') and id > #{afterId} order by id asc limit #{limit}")
+    List<UserMemoryItem> listForExportAfterId(@Param("userId") Long userId,
+                                              @Param("afterId") Long afterId,
+                                              @Param("limit") int limit);
+
     @Select("select " + COLUMNS + " from user_memory_item where id=#{id} and user_id=#{userId} and status=1")
     UserMemoryItem getOwned(@Param("id") Long id, @Param("userId") Long userId);
 
@@ -154,6 +160,22 @@ public interface UserMemoryItemMapper {
             "profile_async_task_id=null,vector_async_task_id=null,updatetime=#{now} " +
             "where user_id=#{userId} and status=1 and memory_status not in ('DELETED','DELETE_PENDING')")
     int clear(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    @Select("select " + COLUMNS + " from user_memory_item where user_id=#{userId} and status=1 " +
+            "and embedding_status='DELETE_PENDING' and id > #{afterId} order by id asc limit #{limit}")
+    List<UserMemoryItem> listDeletePendingByUserAfter(@Param("userId") Long userId,
+                                                       @Param("afterId") Long afterId,
+                                                       @Param("limit") int limit);
+
+    @Select("select count(*) from user_memory_item where user_id=#{userId} and status=1 " +
+            "and (memory_status='DELETE_PENDING' or embedding_status='DELETE_PENDING')")
+    int countDeletePendingByUser(@Param("userId") Long userId);
+
+    @Update("update user_memory_item set content='', normalized_key=concat('deleted:',id), " +
+            "content_hash=repeat('0',64), source_hash=repeat('0',64), qdrant_point_id=null, " +
+            "memory_status='DELETED', embedding_status='DELETED', error_message=null, status=0, updatetime=#{now} " +
+            "where user_id=#{userId} and status=0 and memory_status='DELETED' and embedding_status='DELETED'")
+    int redactDeletedByUser(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     @Insert("insert into user_memory_setting(user_id,enabled,retention_days,createtime,updatetime) values(#{userId},#{enabled},#{retentionDays},#{now},#{now}) " +
             "on duplicate key update enabled=values(enabled),retention_days=values(retention_days),updatetime=values(updatetime)")

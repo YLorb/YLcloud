@@ -85,4 +85,7 @@ public interface SpaceMemberMapper {
     int disable(@Param("spaceId") Long spaceId,
                 @Param("userId") Long userId,
                 @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update space_member set status = 0, updatetime = #{now} where space_id = #{spaceId}")
+    int disableAllBySpaceId(@Param("spaceId") Long spaceId, @Param("now") LocalDateTime now);
 }

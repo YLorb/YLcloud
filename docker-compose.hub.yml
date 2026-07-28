@@ -170,6 +170,7 @@ services:
       - rag_query_api_key
       - vlm_api_key
       - rabbitmq_password
+      - export_master_key
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -194,6 +195,7 @@ services:
       YLCLOUD_ARK_API_KEY_FILE: /run/secrets/ark_api_key
       YLCLOUD_RAG_QUERY_API_KEY_FILE: /run/secrets/rag_query_api_key
       YLCLOUD_VLM_API_KEY_FILE: /run/secrets/vlm_api_key
+      YLCLOUD_EXPORT_MASTER_KEY_FILE: /run/secrets/export_master_key
       YLCLOUD_RABBITMQ_HOST: rabbitmq
       YLCLOUD_RABBITMQ_PORT: 5672
       YLCLOUD_RABBITMQ_VHOST: ${YLCLOUD_RABBITMQ_VHOST:-/ylcloud}
@@ -277,3 +279,5 @@ secrets:
     file: ./.secrets/rag_query_api_key
   vlm_api_key:
     file: ./.secrets/vlm_api_key
+  export_master_key:
+    file: ./.secrets/export_master_key

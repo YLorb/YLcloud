@@ -600,4 +600,8 @@ public interface FileInfoMapper {
     @Update("update user_file set status = 0, updatetime = now() " +
             "where file_uuid = #{fileUuid} and user_id = #{userId} and status = 1")
     int softDeleteByFileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
+
+    @Update("update user_file set status = 0, file_name = concat('deleted-', ID), path = null, " +
+            "updatetime = #{now} where user_id = #{userId} and status in (1,2)")
+    int purgeRemainingByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

@@ -73,4 +73,9 @@ public interface UserMemoryExtractionTaskMapper {
     @Update("update user_memory_extraction_task set task_status='FAILED_RETRYABLE',error_message='Legacy worker stopped during extraction',updatetime=#{now} " +
             "where task_status='RUNNING' and async_task_id is null and updatetime < #{cutoff}")
     int recoverUnboundInterrupted(@Param("cutoff") LocalDateTime cutoff,@Param("now") LocalDateTime now);
+
+    @Update("update user_memory_extraction_task set task_status='CANCELED', resource_version=resource_version+1, " +
+            "async_task_id=null, error_message='Account deletion', updatetime=#{now} " +
+            "where user_id=#{userId} and task_status in ('PENDING','RUNNING','FAILED_RETRYABLE')")
+    int cancelByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

@@ -264,4 +264,10 @@ public interface SpaceRagDocumentMapper {
     int completeConsistencyValidation(@Param("id") Long id,@Param("version") Long version,
                                       @Param("asyncTaskId") Long asyncTaskId);
 
+    @Update("update space_rag_document set file_uuid = concat('deleted-', id), file_name = '', file_hash = null, file_type = null, " +
+            "index_status = 'FAILED', vector_state = 'CLEAN', consistency_version = consistency_version + 1, " +
+            "consistency_async_task_id = null, chunk_count = 0, error_message = 'Account purged', status = 0, " +
+            "updatetime = #{now} where space_id = #{spaceId}")
+    int purgeBySpaceId(@Param("spaceId") Long spaceId, @Param("now") LocalDateTime now);
+
 }

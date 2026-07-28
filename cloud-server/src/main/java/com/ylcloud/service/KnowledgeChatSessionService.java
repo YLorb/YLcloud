@@ -247,15 +247,6 @@ public class KnowledgeChatSessionService {
      */
     @Transactional
     public int cancelAllUserSessions(Long userId) {
-        List<KnowledgeChatSession> sessions = sessionMapper.listByUser(userId, null, 1000);
-        int cancelled = 0;
-        LocalDateTime now = LocalDateTime.now();
-        for (KnowledgeChatSession session : sessions) {
-            messageMapper.disableBySessionId(session.getId());
-            if (sessionMapper.disable(session.getId(), userId, now) > 0) {
-                cancelled++;
-            }
-        }
-        return cancelled;
+        return sessionMapper.disableAllByUserId(userId, LocalDateTime.now());
     }
 }

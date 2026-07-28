@@ -41,6 +41,11 @@ public interface SpaceMapper {
             "from spaces where id = #{spaceId} and status = 1 for update")
     Space getByIdForUpdate(@Param("spaceId") Long spaceId);
 
+    @Select("select id, name, description, type, lifecycle_state as lifecycleState, owner_id as ownerId, root_dir_id as rootDirId, " +
+            "rag_status as ragStatus, version_enabled as versionEnabled, status, createtime, updatetime " +
+            "from spaces where owner_id = #{userId} and type = 'PERSONAL' and status = 1 and lifecycle_state = 'ACTIVE' limit 1")
+    Space getActivePersonalByOwnerId(@Param("userId") Long userId);
+
     /**
      * 查询 listByUserId 相关逻辑。
      * @return 列表结果
@@ -98,4 +103,10 @@ public interface SpaceMapper {
      */
     @Update("update spaces set status = 0, updatetime = #{updateTime} where id = #{spaceId} and status = 1")
     int disable(@Param("spaceId") Long spaceId, @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update spaces set name = concat('deleted-personal-space-', id), description = null, " +
+            "lifecycle_state = 'DISSOLVED', rag_status = 0, status = 0, updatetime = #{now} " +
+            "where id = #{spaceId} and owner_id = #{userId} and type = 'PERSONAL'")
+    int purgePersonal(@Param("spaceId") Long spaceId, @Param("userId") Long userId,
+                      @Param("now") LocalDateTime now);
 }

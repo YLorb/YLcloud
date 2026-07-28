@@ -302,6 +302,12 @@ public class QdrantVectorStoreService {
             return;
         }
         embeddingStore.removeAll(new IsEqualTo(SPACE_ID,spaceId));
+        awaitCountBySpace(spaceId,0);
+    }
+
+    public int countBySpaceStrict(Long spaceId) {
+        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) return 0;
+        return count(Map.of(SPACE_ID,spaceId));
     }
 
     /**
@@ -349,6 +355,17 @@ public class QdrantVectorStoreService {
         }
         throw new IllegalStateException("Qdrant point count mismatch for spaceId=" + spaceId +
                 ", spaceFileId=" + spaceFileId + ": expected " + expectedCount + ", got " + actual);
+    }
+
+    private void awaitCountBySpace(Long spaceId, int expectedCount) {
+        int actual = -1;
+        for(int attempt = 1; attempt <= 5; attempt++) {
+            actual = countBySpaceStrict(spaceId);
+            if(actual == expectedCount) return;
+            if(attempt < 5) sleepForVerification(100L * attempt);
+        }
+        throw new IllegalStateException("Qdrant point count mismatch for spaceId=" + spaceId +
+                ": expected=" + expectedCount + ", actual=" + actual);
     }
 
     @SuppressWarnings("unchecked")

@@ -2,6 +2,9 @@ package com.ylcloud.service.memory;
 
 import com.ylcloud.config.RagProperties;
 import com.ylcloud.entity.UserMemoryItem;
+import com.ylcloud.entity.User;
+import com.ylcloud.mapper.UserLifecycleMapper;
+import com.ylcloud.mapper.UserMemoryExtractionTaskMapper;
 import com.ylcloud.mapper.UserMemoryItemMapper;
 import org.junit.jupiter.api.Test;
 
@@ -38,5 +41,26 @@ class UserMemoryServiceTest {
 
         assertThat(result.getExpiresAt()).isNull();
         verify(mapper).insert(result);
+    }
+
+    @Test
+    void accountDeletionCancelsExtractionAndBlocksLateMemoryWrite() {
+        UserMemoryItemMapper mapper = mock(UserMemoryItemMapper.class);
+        UserMemoryExtractionTaskMapper extractionTasks = mock(UserMemoryExtractionTaskMapper.class);
+        UserLifecycleMapper lifecycle = mock(UserLifecycleMapper.class);
+        User purging = new User();
+        purging.setAccountStatus("PURGING");
+        when(lifecycle.getAccountStatus(7L)).thenReturn(purging);
+        UserMemoryService service = new UserMemoryService(
+                mapper, mock(UserMemoryVectorStoreService.class), new RagProperties());
+        service.setDeletionFences(extractionTasks, lifecycle);
+
+        service.clear(7L);
+        UserMemoryItem result = service.acceptFromTask(7L, 9L, 11L, "late",
+                new UserMemoryCandidate("FACT", "late", "late", 1.0, false), 99L);
+
+        assertThat(result).isNull();
+        verify(extractionTasks).cancelByUserId(eq(7L), any());
+        verify(mapper, never()).insert(any());
     }
 }

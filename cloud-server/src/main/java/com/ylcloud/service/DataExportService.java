@@ -5,6 +5,7 @@ import com.ylcloud.Exception.BaseException;
 import com.ylcloud.Exception.ConflictException;
 import com.ylcloud.VO.DataExportJobVO;
 import com.ylcloud.VO.FileVO;
+import com.ylcloud.VO.SpaceVO;
 import com.ylcloud.async.task.DomainTaskPayload;
 import com.ylcloud.async.task.TaskCreateCommand;
 import com.ylcloud.async.task.UnifiedTaskCenterService;
@@ -15,12 +16,15 @@ import com.ylcloud.entity.KnowledgeChatSession;
 import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.entity.User;
 import com.ylcloud.entity.UserMemoryItem;
+import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.mapper.DataExportJobMapper;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
 import com.ylcloud.mapper.LoginMapper;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.UserMemoryItemMapper;
+import com.ylcloud.mapper.SpaceFileMapper;
+import com.ylcloud.mapper.SpaceMapper;
 import com.ylcloud.utils.MinioclientUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +37,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -58,8 +63,7 @@ public class DataExportService {
     private static final int GCM_TAG_LENGTH = 128;
     private static final int GCM_IV_LENGTH = 12;
     private static final int AES_KEY_SIZE = 256;
-    private static final int MAX_CHAT_SESSIONS = 200;
-    private static final int MAX_MEMORY_ITEMS = 2000;
+    private static final int EXPORT_BATCH_SIZE = 500;
 
     private final DataExportJobMapper jobMapper;
     private final UnifiedTaskCenterService taskCenter;
@@ -70,6 +74,8 @@ public class DataExportService {
     private final KnowledgeChatSessionMapper sessionMapper;
     private final KnowledgeChatMessageMapper messageMapper;
     private final UserMemoryItemMapper memoryMapper;
+    private final SpaceMapper spaceMapper;
+    private final SpaceFileMapper spaceFileMapper;
 
     @Value("${ylcloud.export.download-expiry-hours:24}")
     private int downloadExpiryHours;
@@ -91,7 +97,9 @@ public class DataExportService {
                              FileInfoMapper fileInfoMapper,
                              KnowledgeChatSessionMapper sessionMapper,
                              KnowledgeChatMessageMapper messageMapper,
-                             UserMemoryItemMapper memoryMapper) {
+                             UserMemoryItemMapper memoryMapper,
+                             SpaceMapper spaceMapper,
+                             SpaceFileMapper spaceFileMapper) {
         this.jobMapper = jobMapper;
         this.taskCenter = taskCenter;
         this.minioUtil = minioUtil;
@@ -101,6 +109,8 @@ public class DataExportService {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.memoryMapper = memoryMapper;
+        this.spaceMapper = spaceMapper;
+        this.spaceFileMapper = spaceFileMapper;
     }
 
     /**
@@ -179,7 +189,7 @@ public class DataExportService {
             String keyId = "ek-" + jobId + "-" + System.currentTimeMillis();
 
             // 打包并加密
-            byte[] zipData = packageAsZip(exportData);
+            byte[] zipData = packageAsZip(exportData, scope);
             byte[] encryptedData = encryptAesGcm(zipData, dataKey, iv);
 
             // 用主密钥包裹数据密钥，持久化到数据库
@@ -246,8 +256,12 @@ public class DataExportService {
             throw new BaseException("导出任务不存在");
         }
         DataExportJobVO vo = toVO(job);
-        if ("COMPLETED".equals(job.getStatus()) && job.getEncryptedKey() != null) {
+        boolean unexpired = job.getDownloadExpiresAt() != null &&
+                job.getDownloadExpiresAt().isAfter(LocalDateTime.now());
+        if ("COMPLETED".equals(job.getStatus()) && unexpired && job.getEncryptedKey() != null) {
             vo.setDecryptionKey(unwrapToBase64(job.getEncryptedKey()));
+        } else if (!unexpired) {
+            vo.setDownloadUrl(null);
         }
         return vo;
     }
@@ -266,6 +280,7 @@ public class DataExportService {
                 data.put("files", collectFiles(userId));
                 data.put("chatHistory", collectChatHistory(userId));
                 data.put("memory", collectMemory(userId));
+                data.put("spaces", collectSpaces(userId));
                 break;
             case "PERSONAL_FILES":
                 data.put("files", collectFiles(userId));
@@ -275,6 +290,9 @@ public class DataExportService {
                 break;
             case "MEMORY":
                 data.put("memory", collectMemory(userId));
+                break;
+            case "SPACE_DATA":
+                data.put("spaces", collectSpaces(userId));
                 break;
             default:
                 data.put("profile", collectProfile(userId));
@@ -318,60 +336,138 @@ public class DataExportService {
     }
 
     private List<Map<String, Object>> collectChatHistory(Long userId) {
-        List<KnowledgeChatSession> sessions = sessionMapper.listByUser(userId, null, MAX_CHAT_SESSIONS);
         List<Map<String, Object>> result = new ArrayList<>();
-        for (KnowledgeChatSession session : sessions) {
-            Map<String, Object> sessionData = new HashMap<>();
-            sessionData.put("sessionId", session.getId());
-            sessionData.put("title", session.getTitle());
-            sessionData.put("scopeMode", session.getScopeMode());
-            sessionData.put("createtime", session.getCreatetime() != null ? session.getCreatetime().toString() : null);
-            sessionData.put("updatetime", session.getUpdatetime() != null ? session.getUpdatetime().toString() : null);
+        long afterId = 0L;
+        while (true) {
+            List<KnowledgeChatSession> sessions = sessionMapper.listForExportAfterId(userId, afterId, EXPORT_BATCH_SIZE);
+            if (sessions.isEmpty()) break;
+            for (KnowledgeChatSession session : sessions) {
+                Map<String, Object> sessionData = new HashMap<>();
+                sessionData.put("sessionId", session.getId());
+                sessionData.put("title", session.getTitle());
+                sessionData.put("scopeMode", session.getScopeMode());
+                sessionData.put("createtime", session.getCreatetime() != null ? session.getCreatetime().toString() : null);
+                sessionData.put("updatetime", session.getUpdatetime() != null ? session.getUpdatetime().toString() : null);
 
-            List<KnowledgeChatMessage> messages = messageMapper.listBySessionId(session.getId());
-            List<Map<String, Object>> msgList = new ArrayList<>();
-            for (KnowledgeChatMessage msg : messages) {
-                Map<String, Object> msgData = new HashMap<>();
-                msgData.put("sequenceNo", msg.getSequenceNo());
-                msgData.put("role", msg.getRole());
-                msgData.put("content", msg.getContent());
-                msgData.put("taskStatus", msg.getTaskStatus());
-                msgData.put("createtime", msg.getCreatetime() != null ? msg.getCreatetime().toString() : null);
-                msgList.add(msgData);
+                List<KnowledgeChatMessage> messages = messageMapper.listBySessionId(session.getId());
+                List<Map<String, Object>> msgList = new ArrayList<>();
+                for (KnowledgeChatMessage msg : messages) {
+                    Map<String, Object> msgData = new HashMap<>();
+                    msgData.put("sequenceNo", msg.getSequenceNo());
+                    msgData.put("role", msg.getRole());
+                    msgData.put("content", msg.getContent());
+                    msgData.put("taskStatus", msg.getTaskStatus());
+                    msgData.put("createtime", msg.getCreatetime() != null ? msg.getCreatetime().toString() : null);
+                    msgList.add(msgData);
+                }
+                sessionData.put("messages", msgList);
+                result.add(sessionData);
+                afterId = session.getId();
             }
-            sessionData.put("messages", msgList);
-            result.add(sessionData);
         }
         return result;
     }
 
     private List<Map<String, Object>> collectMemory(Long userId) {
-        List<UserMemoryItem> items = memoryMapper.listManaged(userId, null, null, MAX_MEMORY_ITEMS);
         List<Map<String, Object>> result = new ArrayList<>();
-        for (UserMemoryItem item : items) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("memoryType", item.getMemoryType());
-            m.put("content", item.getContent());
-            m.put("normalizedKey", item.getNormalizedKey());
-            m.put("confidence", item.getConfidence());
-            m.put("pinned", item.getPinned());
-            m.put("memoryStatus", item.getMemoryStatus());
-            m.put("createtime", item.getCreatetime() != null ? item.getCreatetime().toString() : null);
-            result.add(m);
+        long afterId = 0L;
+        while (true) {
+            List<UserMemoryItem> items = memoryMapper.listForExportAfterId(userId, afterId, EXPORT_BATCH_SIZE);
+            if (items.isEmpty()) break;
+            for (UserMemoryItem item : items) {
+                Map<String, Object> m = new HashMap<>();
+                m.put("memoryType", item.getMemoryType());
+                m.put("content", item.getContent());
+                m.put("normalizedKey", item.getNormalizedKey());
+                m.put("confidence", item.getConfidence());
+                m.put("pinned", item.getPinned());
+                m.put("memoryStatus", item.getMemoryStatus());
+                m.put("createtime", item.getCreatetime() != null ? item.getCreatetime().toString() : null);
+                result.add(m);
+                afterId = item.getId();
+            }
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> collectSpaces(Long userId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (SpaceVO space : spaceMapper.listByUserId(userId)) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("spaceId", space.getId());
+            item.put("name", space.getName());
+            item.put("type", space.getType());
+            item.put("role", space.getRole());
+            item.put("lifecycleState", space.getLifecycleState());
+            // Team Space 只导出成员关系元数据，不导出团队共同持有的内容。
+            if ("PERSONAL".equals(space.getType()) && userId.equals(space.getOwnerId())) {
+                item.put("files", collectSpaceFiles(space.getId()));
+            }
+            result.add(item);
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> collectSpaceFiles(Long spaceId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (SpaceFile file : spaceFileMapper.listAll(spaceId)) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("fileId", file.getId());
+            item.put("fileUuid", file.getFileUuid());
+            item.put("name", file.getFileName());
+            item.put("dir", Integer.valueOf(1).equals(file.getDir()));
+            item.put("path", file.getPath());
+            result.add(item);
         }
         return result;
     }
 
     // ─── 加密工具 ───────────────────────────────────────────────
 
-    private byte[] packageAsZip(Map<String, Object> data) throws Exception {
+    byte[] packageAsZip(Map<String, Object> data, String scope) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(baos)) {
             zos.putNextEntry(new ZipEntry("export.json"));
             zos.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(data));
             zos.closeEntry();
+            if ("FULL".equals(scope) || "PERSONAL_FILES".equals(scope)) {
+                writeFileEntries(zos, "files", listOfMaps(data.get("files")));
+            }
+            if ("FULL".equals(scope) || "SPACE_DATA".equals(scope)) {
+                for (Map<String, Object> space : listOfMaps(data.get("spaces"))) {
+                    if ("PERSONAL".equals(space.get("type")) && space.containsKey("files")) {
+                        writeFileEntries(zos, "spaces/" + space.get("spaceId") + "/files",
+                                listOfMaps(space.get("files")));
+                    }
+                }
+            }
         }
         return baos.toByteArray();
+    }
+
+    private void writeFileEntries(ZipOutputStream zos, String prefix,
+                                  List<Map<String, Object>> files) throws Exception {
+        for (Map<String, Object> file : files) {
+            Object uuid = file.get("fileUuid");
+            if (uuid == null || Boolean.TRUE.equals(file.get("dir"))) continue;
+            String id = String.valueOf(file.getOrDefault("fileId", "file"));
+            String name = safeEntryName(String.valueOf(file.getOrDefault("name", "unnamed")));
+            zos.putNextEntry(new ZipEntry(prefix + "/" + id + "-" + name));
+            try (InputStream input = minioUtil.getObjectStream(uuid.toString())) {
+                input.transferTo(zos);
+            }
+            zos.closeEntry();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> listOfMaps(Object value) {
+        return value instanceof List<?> list ? (List<Map<String, Object>>) list : List.of();
+    }
+
+    private String safeEntryName(String name) {
+        String safe = name.replace('\\', '_').replace('/', '_').replace("..", "_");
+        return safe.isBlank() ? "unnamed" : safe;
     }
 
     private SecretKey generateAesKey() throws Exception {
@@ -403,7 +499,7 @@ public class DataExportService {
      * 生产环境必须通过环境变量 YLCLOUD_EXPORT_MASTER_KEY 配置固定的主密钥。
      * 使用 volatile 缓存确保同一 JVM 生命周期内 wrap 和 unwrap 使用同一密钥。
      */
-    private SecretKey resolveMasterKey() {
+    SecretKey resolveMasterKey() {
         SecretKey cached = cachedMasterKey;
         if (cached != null) return cached;
 
@@ -423,7 +519,7 @@ public class DataExportService {
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Failed to read master key from file {}: {}", masterKeyFile, e.getMessage());
+                    throw new IllegalStateException("无法读取数据导出主密钥文件", e);
                 }
             }
 
@@ -434,16 +530,9 @@ public class DataExportService {
                     log.info("Export master key loaded from configuration");
                     return cachedMasterKey;
                 }
-                log.warn("Configured master key is not 32 bytes, generating temporary key");
+                throw new IllegalStateException("数据导出主密钥必须为 32 字节");
             }
-            log.error("!!! No ylcloud.export.master-key configured — data export keys will NOT survive restarts. " +
-                    "Set YLCLOUD_EXPORT_MASTER_KEY env var with a base64-encoded 256-bit AES key.");
-            try {
-                cachedMasterKey = generateAesKey();
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to generate fallback master key", e);
-            }
-            return cachedMasterKey;
+            throw new IllegalStateException("未配置稳定的数据导出主密钥");
         }
     }
 
