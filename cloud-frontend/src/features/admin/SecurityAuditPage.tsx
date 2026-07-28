@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Database, Download, RefreshCw, Search, Shield, XCircle } from "lucide-react";
+import { RefreshCw, Search, Shield } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../api";
@@ -10,24 +10,18 @@ import { formatTime } from "../../fileUtils";
 import type { AuditRetentionConfig, SecurityAuditEvent } from "../../types";
 
 const outcomeTone: Record<string, StatusTone> = { SUCCESS: "success", FAILURE: "danger", DENIED: "warning" };
-const severityTone: Record<string, StatusTone> = { INFO: "info", WARNING: "warning", CRITICAL: "danger" };
+const PAGE_SIZE = 50;
 
 export function SecurityAuditPage() {
   const client = useQueryClient();
   const [query, setQuery] = useState("");
-  const [outcomeFilter, setOutcomeFilter] = useState("all");
-  const [severityFilter, setSeverityFilter] = useState("all");
+  const [resultFilter, setResultFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [selectedEvent, setSelectedEvent] = useState<SecurityAuditEvent | null>(null);
 
   const events = useQuery({
-    queryKey: ["audit-events", outcomeFilter, severityFilter, page],
-    queryFn: () => api.queryAuditEvents({
-      outcome: outcomeFilter === "all" ? undefined : outcomeFilter,
-      severity: severityFilter === "all" ? undefined : severityFilter,
-      page,
-      pageSize: 50
-    }),
+    queryKey: ["audit-events"],
+    queryFn: () => api.queryAuditEvents({ limit: 1000 }),
     refetchInterval: 30_000
   });
 
@@ -35,16 +29,20 @@ export function SecurityAuditPage() {
   const retentionConfigs = useQuery({ queryKey: ["audit-retention"], queryFn: api.listRetentionConfigs });
 
   const filtered = useMemo(() => {
-    const records = events.data?.records || [];
+    const records = (events.data || []).filter((event) =>
+      resultFilter === "all" || event.result === resultFilter);
     if (!query) return records;
     const lower = query.toLowerCase();
     return records.filter((event) =>
       event.eventType.toLowerCase().includes(lower) ||
-      event.actorName?.toLowerCase().includes(lower) ||
+      event.action.toLowerCase().includes(lower) ||
+      event.subjectName?.toLowerCase().includes(lower) ||
       event.targetName?.toLowerCase().includes(lower) ||
       event.traceId?.toLowerCase().includes(lower)
     );
-  }, [events.data, query]);
+  }, [events.data, query, resultFilter]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageRecords = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const updateRetention = useMutation({
     mutationFn: ({ configKey, retentionDays }: { configKey: string; retentionDays: number }) =>
@@ -70,12 +68,8 @@ export function SecurityAuditPage() {
     </section>
 
     {stats.data && <div className="metrics-grid">
-      <Metric label="总事件数" value={stats.data.totalEvents} tone="info" />
-      <Metric label="成功" value={stats.data.successCount} tone="success" />
-      <Metric label="失败" value={stats.data.failureCount} tone={stats.data.failureCount ? "danger" : "neutral"} />
-      <Metric label="拒绝" value={stats.data.deniedCount} tone={stats.data.deniedCount ? "warning" : "neutral"} />
-      <Metric label="CRITICAL" value={stats.data.criticalCount} tone={stats.data.criticalCount ? "danger" : "neutral"} />
-      <Metric label="永久保留" value={stats.data.permanentCount} tone="info" />
+      <Metric label="近 7 天事件" value={stats.data.recentEvents} tone="info" />
+      <Metric label="永久保留" value={stats.data.permanentEvents} tone="info" />
     </div>}
 
     <section className="panel">
@@ -84,17 +78,11 @@ export function SecurityAuditPage() {
           <Search size={17} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索事件类型、用户、目标或 Trace ID" />
         </label>
-        <select value={outcomeFilter} onChange={(event) => { setOutcomeFilter(event.target.value); setPage(1); }} aria-label="结果筛选">
+        <select value={resultFilter} onChange={(event) => { setResultFilter(event.target.value); setPage(1); }} aria-label="结果筛选">
           <option value="all">全部结果</option>
           <option value="SUCCESS">成功</option>
           <option value="FAILURE">失败</option>
           <option value="DENIED">拒绝</option>
-        </select>
-        <select value={severityFilter} onChange={(event) => { setSeverityFilter(event.target.value); setPage(1); }} aria-label="严重级别筛选">
-          <option value="all">全部级别</option>
-          <option value="INFO">INFO</option>
-          <option value="WARNING">WARNING</option>
-          <option value="CRITICAL">CRITICAL</option>
         </select>
         <Button variant="ghost" onClick={() => { events.refetch(); stats.refetch(); }}><RefreshCw size={16} />刷新</Button>
       </div>
@@ -108,7 +96,7 @@ export function SecurityAuditPage() {
               <tr>
                 <th>事件类型</th>
                 <th>结果</th>
-                <th>级别</th>
+                <th>操作</th>
                 <th>操作者</th>
                 <th>目标</th>
                 <th>时间</th>
@@ -116,14 +104,14 @@ export function SecurityAuditPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((event) => (
+              {pageRecords.map((event) => (
                 <tr key={event.eventId}>
                   <td><code>{event.eventType}</code></td>
-                  <td><StatusBadge tone={outcomeTone[event.outcome] || "neutral"}>{event.outcome}</StatusBadge></td>
-                  <td><StatusBadge tone={severityTone[event.severity] || "neutral"}>{event.severity}</StatusBadge></td>
-                  <td>{event.actorName || `#${event.actorId || "—"}`}</td>
+                  <td><StatusBadge tone={outcomeTone[event.result] || "neutral"}>{event.result}</StatusBadge></td>
+                  <td>{event.action}</td>
+                  <td>{event.subjectName || `#${event.subjectId || "—"}`}</td>
                   <td>{event.targetName || (event.targetType ? `${event.targetType}#${event.targetId}` : "—")}</td>
-                  <td>{formatTime(event.createTime)}</td>
+                  <td>{formatTime(event.occurredAt)}</td>
                   <td><Button variant="ghost" size="sm" onClick={() => setSelectedEvent(event)}>详情</Button></td>
                 </tr>
               ))}
@@ -134,8 +122,8 @@ export function SecurityAuditPage() {
 
       <div className="pagination-bar">
         <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>上一页</Button>
-        <span>第 {page} 页 / 共 {Math.ceil((events.data?.total || 0) / 50)} 页</span>
-        <Button variant="ghost" size="sm" disabled={page >= Math.ceil((events.data?.total || 0) / 50)} onClick={() => setPage((p) => p + 1)}>下一页</Button>
+        <span>第 {Math.min(page, pageCount)} 页 / 共 {pageCount} 页</span>
+        <Button variant="ghost" size="sm" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>下一页</Button>
       </div>
     </section>
 
@@ -166,20 +154,19 @@ export function SecurityAuditPage() {
           <dl className="detail-grid">
             <div><dt>事件 ID</dt><dd>{selectedEvent.eventId}</dd></div>
             <div><dt>事件类型</dt><dd><code>{selectedEvent.eventType}</code></dd></div>
-            <div><dt>事件类别</dt><dd>{selectedEvent.eventCategory}</dd></div>
-            <div><dt>结果</dt><dd><StatusBadge tone={outcomeTone[selectedEvent.outcome] || "neutral"}>{selectedEvent.outcome}</StatusBadge></dd></div>
-            <div><dt>严重级别</dt><dd><StatusBadge tone={severityTone[selectedEvent.severity] || "neutral"}>{selectedEvent.severity}</StatusBadge></dd></div>
+            <div><dt>操作</dt><dd>{selectedEvent.action}</dd></div>
+            <div><dt>结果</dt><dd><StatusBadge tone={outcomeTone[selectedEvent.result] || "neutral"}>{selectedEvent.result}</StatusBadge></dd></div>
             <div><dt>保留策略</dt><dd>{selectedEvent.retentionPolicy}</dd></div>
-            <div><dt>操作者</dt><dd>{selectedEvent.actorName || `#${selectedEvent.actorId || "—"}`} ({selectedEvent.actorType || "—"})</dd></div>
+            <div><dt>操作者</dt><dd>{selectedEvent.subjectName || `#${selectedEvent.subjectId || "—"}`} ({selectedEvent.subjectType || "—"})</dd></div>
             <div><dt>目标</dt><dd>{selectedEvent.targetName || `${selectedEvent.targetType || "—"}#${selectedEvent.targetId || "—"}`}</dd></div>
             <div><dt>IP 地址</dt><dd>{selectedEvent.ipAddress || "—"}</dd></div>
             <div><dt>Trace ID</dt><dd><code>{selectedEvent.traceId || "—"}</code></dd></div>
-            <div><dt>时间</dt><dd>{formatTime(selectedEvent.createTime)}</dd></div>
+            <div><dt>时间</dt><dd>{formatTime(selectedEvent.occurredAt)}</dd></div>
           </dl>
           {selectedEvent.detailJson && (
             <details className="detail-json">
               <summary>详细信息 (JSON)</summary>
-              <pre>{JSON.stringify(JSON.parse(selectedEvent.detailJson), null, 2)}</pre>
+              <pre>{formatDetail(selectedEvent.detailJson)}</pre>
             </details>
           )}
         </div>
@@ -193,7 +180,13 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: St
 }
 
 function RetentionConfigRow({ config, onUpdate, updating }: { config: AuditRetentionConfig; onUpdate: (days: number) => void; updating: boolean }) {
-  const [days, setDays] = useState(config.retentionDays);
+  const [days, setDays] = useState(config.retentionDays || 1);
+  if (config.permanent) {
+    return <div className="retention-config-row">
+      <div><strong>{config.configKey}</strong><p>{config.description || "—"}</p></div>
+      <StatusBadge tone="info">永久保留</StatusBadge>
+    </div>;
+  }
   const changed = days !== config.retentionDays;
   return <div className="retention-config-row">
     <div>
@@ -208,4 +201,12 @@ function RetentionConfigRow({ config, onUpdate, updating }: { config: AuditReten
       <Button variant="confirm" size="sm" disabled={!changed || updating} loading={updating} onClick={() => onUpdate(days)}>保存</Button>
     </div>
   </div>;
+}
+
+function formatDetail(detail: string): string {
+  try {
+    return JSON.stringify(JSON.parse(detail), null, 2);
+  } catch {
+    return detail;
+  }
 }

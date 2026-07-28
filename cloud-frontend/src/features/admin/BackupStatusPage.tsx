@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Clock, Database, Download, HardDrive, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Database, HardDrive, RefreshCw, XCircle } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../api";
 import { Button } from "../../components/ui/Button";
@@ -32,6 +32,11 @@ export function BackupStatusPage() {
   const stats = useQuery({ queryKey: ["backup-stats"], queryFn: api.backupStats, refetchInterval: 60_000 });
   const readyBackups = useQuery({ queryKey: ["backup-ready"], queryFn: api.listReadyBackups, refetchInterval: 60_000 });
   const recentBackups = useQuery({ queryKey: ["backup-recent"], queryFn: () => api.listRecentBackups(20), refetchInterval: 30_000 });
+  const restoreVerification = useQuery({
+    queryKey: ["backup-restore-verification", selectedBackup?.id],
+    queryFn: () => api.getRestoreVerification(selectedBackup!.id),
+    enabled: selectedBackup != null
+  });
 
   if (stats.isLoading || recentBackups.isLoading) return <LoadingState label="正在加载备份状态" />;
   if (stats.isError) return <ErrorState message={stats.error instanceof Error ? stats.error.message : "无法加载备份状态"} onRetry={() => stats.refetch()} />;
@@ -49,10 +54,10 @@ export function BackupStatusPage() {
     </section>
 
     {stats.data && <div className="metrics-grid">
-      <Metric label="总备份数" value={stats.data.totalBackups} tone="info" icon={<Database size={18} />} />
       <Metric label="就绪备份" value={stats.data.readyBackups} tone={stats.data.readyBackups > 0 ? "success" : "danger"} icon={<CheckCircle2 size={18} />} />
-      <Metric label="失败备份" value={stats.data.failedBackups} tone={stats.data.failedBackups > 0 ? "warning" : "neutral"} icon={<XCircle size={18} />} />
-      <Metric label="总大小" value={formatBytes(stats.data.totalSizeBytes)} tone="info" icon={<HardDrive size={18} />} />
+      <Metric label="最近失败" value={(recentBackups.data || []).filter((backup) => backup.status === "FAILED").length} tone="warning" icon={<XCircle size={18} />} />
+      <Metric label="最新就绪备份大小" value={formatBytes(stats.data.latestBackup.sizeBytes)} tone="info" icon={<HardDrive size={18} />} />
+      <Metric label="最新发布时间" value={formatTime(stats.data.latestBackup.publishedAt)} tone="info" icon={<Clock size={18} />} />
     </div>}
 
     <section className="panel">
@@ -85,13 +90,13 @@ export function BackupStatusPage() {
             </thead>
             <tbody>
               {(readyBackups.data || []).map((backup) => (
-                <tr key={backup.backupId}>
-                  <td><code>#{backup.backupId}</code></td>
+                <tr key={backup.id}>
+                  <td><code>#{backup.id}</code></td>
                   <td>{backup.backupType}</td>
                   <td><StatusBadge tone={statusTone[backup.status] || "neutral"}>{statusLabel[backup.status] || backup.status}</StatusBadge></td>
-                  <td>{formatBytes(backup.sizeBytes)}</td>
-                  <td>{backup.encryptionEnabled ? <StatusBadge tone="success">已加密</StatusBadge> : <StatusBadge tone="neutral">未加密</StatusBadge>}</td>
-                  <td>{formatTime(backup.completedAt || backup.createTime)}</td>
+                  <td>{formatBytes(backup.archiveSizeBytes)}</td>
+                  <td><StatusBadge tone="success">已加密</StatusBadge></td>
+                  <td>{formatTime(backup.finishedAt || backup.createdAt)}</td>
                   <td><Button variant="ghost" size="sm" onClick={() => setSelectedBackup(backup)}>详情</Button></td>
                 </tr>
               ))}
@@ -128,13 +133,13 @@ export function BackupStatusPage() {
             </thead>
             <tbody>
               {(recentBackups.data || []).map((backup) => (
-                <tr key={backup.backupId}>
-                  <td><code>#{backup.backupId}</code></td>
+                <tr key={backup.id}>
+                  <td><code>#{backup.id}</code></td>
                   <td>{backup.backupType}</td>
                   <td><StatusBadge tone={statusTone[backup.status] || "neutral"}>{statusLabel[backup.status] || backup.status}</StatusBadge></td>
-                  <td>{formatBytes(backup.sizeBytes)}</td>
-                  <td>{formatTime(backup.startedAt || backup.createTime)}</td>
-                  <td>{formatTime(backup.completedAt)}</td>
+                  <td>{formatBytes(backup.archiveSizeBytes)}</td>
+                  <td>{formatTime(backup.startedAt || backup.createdAt)}</td>
+                  <td>{formatTime(backup.finishedAt)}</td>
                   <td><Button variant="ghost" size="sm" onClick={() => setSelectedBackup(backup)}>详情</Button></td>
                 </tr>
               ))}
@@ -148,26 +153,27 @@ export function BackupStatusPage() {
       <div className="modal-overlay" onClick={() => setSelectedBackup(null)}>
         <div className="modal-content backup-detail-modal" onClick={(event) => event.stopPropagation()}>
           <header>
-            <h3>备份详情 #{selectedBackup.backupId}</h3>
+            <h3>备份详情 #{selectedBackup.id}</h3>
             <Button variant="ghost" size="sm" onClick={() => setSelectedBackup(null)}>关闭</Button>
           </header>
           <dl className="detail-grid">
             <div><dt>备份类型</dt><dd>{selectedBackup.backupType}</dd></div>
             <div><dt>状态</dt><dd><StatusBadge tone={statusTone[selectedBackup.status] || "neutral"}>{statusLabel[selectedBackup.status] || selectedBackup.status}</StatusBadge></dd></div>
-            <div><dt>备份路径</dt><dd><code>{selectedBackup.backupPath || "—"}</code></dd></div>
-            <div><dt>清单路径</dt><dd><code>{selectedBackup.manifestPath || "—"}</code></dd></div>
-            <div><dt>加密</dt><dd>{selectedBackup.encryptionEnabled ? "AES-256-CBC 已启用" : "未加密"}</dd></div>
-            <div><dt>大小</dt><dd>{formatBytes(selectedBackup.sizeBytes)}</dd></div>
-            <div><dt>校验和</dt><dd><code>{selectedBackup.checksum || "—"}</code></dd></div>
-            <div><dt>验证状态</dt><dd>{selectedBackup.verificationStatus || "—"}</dd></div>
-            <div><dt>验证消息</dt><dd>{selectedBackup.verificationMessage || "—"}</dd></div>
+            <div><dt>运行标识</dt><dd><code>{selectedBackup.runKey}</code></dd></div>
+            <div><dt>归档路径</dt><dd><code>{selectedBackup.archivePath || "—"}</code></dd></div>
+            <div><dt>加密</dt><dd>AES-256-CBC（PBKDF2）已启用</dd></div>
+            <div><dt>大小</dt><dd>{formatBytes(selectedBackup.archiveSizeBytes)}</dd></div>
+            <div><dt>SHA-256</dt><dd><code>{selectedBackup.archiveHash || "—"}</code></dd></div>
+            <div><dt>恢复验证</dt><dd>{restoreVerification.isLoading ? "查询中" : restoreVerification.data?.status || "无记录"}</dd></div>
+            <div><dt>验证环境</dt><dd>{restoreVerification.data?.restoreEnvironment || "—"}</dd></div>
             <div><dt>开始时间</dt><dd>{formatTime(selectedBackup.startedAt)}</dd></div>
-            <div><dt>完成时间</dt><dd>{formatTime(selectedBackup.completedAt)}</dd></div>
-            <div><dt>过期时间</dt><dd>{formatTime(selectedBackup.expiresAt)}</dd></div>
+            <div><dt>完成时间</dt><dd>{formatTime(selectedBackup.finishedAt)}</dd></div>
+            <div><dt>验证时间</dt><dd>{formatTime(selectedBackup.verifiedAt)}</dd></div>
+            <div><dt>发布时间</dt><dd>{formatTime(selectedBackup.publishedAt)}</dd></div>
           </dl>
           <div className="backup-restore-hint">
             <Clock size={16} />
-            <p>恢复此备份请运行: <code>scripts/restore.sh --backup-id {selectedBackup.backupId}</code></p>
+            <p>恢复此备份请运行: <code>scripts/restore.sh --backup-id {selectedBackup.id}</code></p>
           </div>
         </div>
       </div>

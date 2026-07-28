@@ -57,7 +57,8 @@ import type {
   AuditStats,
   BackupRun,
   BackupStats,
-  MaintenanceStatus
+  MaintenanceStatus,
+  RestoreVerification
 } from "./types";
 
 const TOKEN_KEY = "ylcloud_token";
@@ -571,7 +572,7 @@ export const api = {
 
   // Account Lifecycle
   accountStatus: () => request<AccountStatus>("/api/account/status"),
-  cancelAccount: (payload: { reason?: string; confirmTeams?: boolean }) =>
+  cancelAccount: (payload: { reason?: string; confirmTeamOwnerTransfer?: boolean }) =>
     request<AccountStatus>("/api/account/cancel", { method: "POST", body: JSON.stringify(payload) }),
   recoverAccount: (payload: { userId: number; reason?: string }) =>
     request<AccountStatus>("/api/account/recover", { method: "POST", body: JSON.stringify(payload) }),
@@ -583,16 +584,14 @@ export const api = {
   // Security Audit
   queryAuditEvents: (payload: {
     eventType?: string;
-    outcome?: string;
-    severity?: string;
-    actorId?: number;
+    subjectId?: number;
     targetType?: string;
-    targetId?: number;
-    startTime?: string;
-    endTime?: string;
-    page?: number;
-    pageSize?: number;
-  }) => request<{ records: SecurityAuditEvent[]; total: number }>("/api/admin/audit/query", {
+    targetId?: string;
+    traceId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) => request<SecurityAuditEvent[]>("/api/admin/audit/query", {
     method: "POST",
     body: JSON.stringify(payload)
   }),
@@ -600,29 +599,21 @@ export const api = {
     request<AuditStats>(`/api/admin/audit/stats?${params(payload || {})}`),
   listRetentionConfigs: () => request<AuditRetentionConfig[]>("/api/admin/audit/retention"),
   updateRetentionConfig: (configKey: string, retentionDays: number) =>
-    request<AuditRetentionConfig>(`/api/admin/audit/retention/${configKey}`, {
-      method: "PUT",
-      body: JSON.stringify({ retentionDays })
-    }),
+    request<AuditRetentionConfig>(`/api/admin/audit/retention/${configKey}?${params({ retentionDays })}`, { method: "PUT" }),
 
   // Backup
   listReadyBackups: () => request<BackupRun[]>("/api/admin/backup/ready"),
   listRecentBackups: (limit = 20) => request<BackupRun[]>(`/api/admin/backup/recent?${params({ limit })}`),
   getBackup: (backupId: number) => request<BackupRun>(`/api/admin/backup/${backupId}`),
+  getRestoreVerification: (backupId: number) =>
+    request<RestoreVerification>(`/api/admin/backup/${backupId}/restore-verification`),
   backupStats: () => request<BackupStats>("/api/admin/backup/stats"),
-  recordBackup: (payload: {
-    backupType: string;
-    backupPath: string;
-    manifestPath?: string;
-    encryptionEnabled?: boolean;
-    sizeBytes?: number;
-    checksum?: string;
-  }) => request<BackupRun>("/api/admin/backup/record", { method: "POST", body: JSON.stringify(payload) }),
 
   // Maintenance Mode
   maintenanceStatus: () => request<MaintenanceStatus>("/api/admin/maintenance/status"),
   enableMaintenance: (payload: { reason: string }) =>
-    request<MaintenanceStatus>("/api/admin/maintenance/enable", { method: "POST", body: JSON.stringify(payload) }),
+    request<{ status: string; message: string }>(
+      `/api/admin/maintenance/enable?${params({ reason: payload.reason })}`, { method: "POST" }),
   disableMaintenance: () =>
-    request<MaintenanceStatus>("/api/admin/maintenance/disable", { method: "POST" })
+    request<{ status: string; message: string }>("/api/admin/maintenance/disable", { method: "POST" })
 };

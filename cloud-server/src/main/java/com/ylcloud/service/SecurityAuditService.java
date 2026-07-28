@@ -164,12 +164,16 @@ public class SecurityAuditService {
             throw new IllegalArgumentException("保留配置不存在: " + configKey);
         }
 
+        Integer effectiveDays = retentionDays != null ? retentionDays : existing.getRetentionDays();
+        Boolean effectivePermanent = permanent != null ? permanent : existing.getPermanent();
+        String effectiveDescription = description != null ? description : existing.getDescription();
         // 永久保留配置不能被改为非永久
-        if (Boolean.TRUE.equals(existing.getPermanent()) && !Boolean.TRUE.equals(permanent)) {
+        if (Boolean.TRUE.equals(existing.getPermanent()) && !Boolean.TRUE.equals(effectivePermanent)) {
             throw new IllegalArgumentException("永久保留配置不能降级为非永久");
         }
 
-        mapper.updateRetentionConfig(configKey, retentionDays, permanent, description, LocalDateTime.now());
+        mapper.updateRetentionConfig(configKey, effectiveDays, effectivePermanent,
+                effectiveDescription, LocalDateTime.now());
         return toConfigVO(mapper.getRetentionConfig(configKey));
     }
 

@@ -32,12 +32,13 @@ export function AccountSettingsPage() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [confirmTeams, setConfirmTeams] = useState(false);
+  const [exportCredential, setExportCredential] = useState<DataExportJob | null>(null);
 
   const accountStatus = useQuery({ queryKey: ["account-status"], queryFn: api.accountStatus });
   const exports = useQuery({ queryKey: ["data-exports"], queryFn: api.listDataExports, refetchInterval: 10_000 });
 
   const cancelAccount = useMutation({
-    mutationFn: () => api.cancelAccount({ reason: cancelReason, confirmTeams }),
+    mutationFn: () => api.cancelAccount({ reason: cancelReason, confirmTeamOwnerTransfer: confirmTeams }),
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["account-status"] });
       setCancelDialogOpen(false);
@@ -56,6 +57,11 @@ export function AccountSettingsPage() {
       toast.success("数据导出任务已提交");
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "数据导出请求失败")
+  });
+  const loadExportCredential = useMutation({
+    mutationFn: (jobId: number) => api.getDataExport(jobId),
+    onSuccess: setExportCredential,
+    onError: (error) => toast.error(error instanceof Error ? error.message : "获取下载凭据失败")
   });
 
   if (accountStatus.isLoading) return <LoadingState label="正在加载账号状态" />;
@@ -149,7 +155,8 @@ export function AccountSettingsPage() {
             </thead>
             <tbody>
               {(exports.data || []).map((job) => (
-                <ExportRow key={job.jobId} job={job} />
+                <ExportRow key={job.id} job={job} onDownload={() => loadExportCredential.mutate(job.id)}
+                  loading={loadExportCredential.isPending && loadExportCredential.variables === job.id} />
               ))}
             </tbody>
           </table>
@@ -180,6 +187,28 @@ export function AccountSettingsPage() {
           <li>API Key 和 Webhook 配置（不含密钥明文）</li>
         </ul>
         <p className="hint">导出完成后，下载链接有效期为 24 小时。</p>
+      </div>
+    </Dialog>
+
+    <Dialog
+      open={exportCredential != null}
+      onOpenChange={(open) => { if (!open) setExportCredential(null); }}
+      title="数据导出下载凭据"
+      description="解密密钥属于敏感凭据，请通过安全渠道保存。"
+      footer={
+        <>
+          <Button onClick={() => setExportCredential(null)}>关闭</Button>
+          {exportCredential?.downloadUrl && <Button variant="confirm" asChild>
+            <a href={exportCredential.downloadUrl}>下载加密归档</a>
+          </Button>}
+        </>
+      }
+    >
+      <div className="dialog-form">
+        <label htmlFor="export-decryption-key">AES-256-GCM 解密密钥（Base64）</label>
+        <textarea id="export-decryption-key" readOnly rows={3}
+          value={exportCredential?.decryptionKey || "凭据不可用或已过期"} />
+        <p className="hint">下载链接有效期至 {formatTime(exportCredential?.downloadExpiresAt)}。请勿在日志、工单或聊天中粘贴此密钥。</p>
       </div>
     </Dialog>
 
@@ -238,24 +267,22 @@ export function AccountSettingsPage() {
   </div>;
 }
 
-function ExportRow({ job }: { job: DataExportJob }) {
+function ExportRow({ job, onDownload, loading }: { job: DataExportJob; onDownload: () => void; loading: boolean }) {
   const canDownload = job.status === "COMPLETED" && job.downloadUrl;
   return (
     <tr>
-      <td><code>#{job.jobId}</code></td>
+      <td><code>#{job.id}</code></td>
       <td><StatusBadge tone={exportStatusTone[job.status] || "neutral"}>{exportStatusLabel[job.status] || job.status}</StatusBadge></td>
       <td>{job.exportScope || "FULL"}</td>
-      <td>{formatTime(job.createTime)}</td>
-      <td>{formatTime(job.expiresAt)}</td>
+      <td>{formatTime(job.createdAt)}</td>
+      <td>{formatTime(job.downloadExpiresAt)}</td>
       <td>
         {canDownload ? (
-          <Button variant="confirm" size="sm" asChild>
-            <a href={job.downloadUrl} target="_blank" rel="noopener noreferrer">
-              <Download size={15} />下载
-            </a>
+          <Button variant="confirm" size="sm" onClick={onDownload} loading={loading}>
+            <Download size={15} />获取下载凭据
           </Button>
         ) : job.status === "FAILED" ? (
-          <span className="muted-text">{job.errorMessage || "导出失败"}</span>
+          <span className="muted-text">导出失败</span>
         ) : null}
       </td>
     </tr>

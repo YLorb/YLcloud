@@ -18,7 +18,7 @@ export function SystemOperationsPage() {
   const maintenance = useQuery({
     queryKey: ["maintenance-status"],
     queryFn: api.maintenanceStatus,
-    refetchInterval: (result) => result.state.data?.enabled ? 5_000 : 30_000
+    refetchInterval: (result) => result.state.data?.active ? 5_000 : 30_000
   });
 
   const enableMaintenance = useMutation({
@@ -45,7 +45,7 @@ export function SystemOperationsPage() {
   if (maintenance.isLoading) return <LoadingState label="正在加载系统状态" />;
   if (maintenance.isError) return <ErrorState message={maintenance.error instanceof Error ? maintenance.error.message : "无法加载系统状态"} onRetry={() => maintenance.refetch()} />;
 
-  const isEnabled = maintenance.data?.enabled;
+  const isEnabled = maintenance.data?.active;
 
   return <div className="system-operations-page">
     <section className={`admin-security-note ${isEnabled ? "admin-security-note--warning" : ""}`}>
@@ -66,7 +66,7 @@ export function SystemOperationsPage() {
           <strong>系统正在维护中</strong>
           <p>
             原因: {maintenance.data?.reason || "未指定"}
-            {maintenance.data?.enabledAt && <span> · 启用时间: {formatTime(maintenance.data.enabledAt)}</span>}
+            {maintenance.data?.startedAt && <span> · 启用时间: {formatTime(maintenance.data.startedAt)}</span>}
           </p>
         </div>
         <Button variant="danger" onClick={() => setDisableDialogOpen(true)}>
@@ -85,7 +85,7 @@ export function SystemOperationsPage() {
         <dl className="operation-facts">
           <div><dt>当前状态</dt><dd><StatusBadge tone={isEnabled ? "warning" : "success"}>{isEnabled ? "已启用" : "已禁用"}</StatusBadge></dd></div>
           {isEnabled && maintenance.data?.reason && <div><dt>原因</dt><dd>{maintenance.data.reason}</dd></div>}
-          {isEnabled && maintenance.data?.enabledAt && <div><dt>启用时间</dt><dd>{formatTime(maintenance.data.enabledAt)}</dd></div>}
+          {isEnabled && maintenance.data?.startedAt && <div><dt>启用时间</dt><dd>{formatTime(maintenance.data.startedAt)}</dd></div>}
         </dl>
         <div className="operation-actions">
           {isEnabled ? (

@@ -83,6 +83,23 @@ class SecurityAuditServiceTest {
     }
 
     @Test
+    void partialRetentionUpdatePreservesPermanentFlagAndDescription() {
+        SecurityAuditMapper mapper = mock(SecurityAuditMapper.class);
+        AuditRetentionConfig existing = new AuditRetentionConfig();
+        existing.setConfigKey("SECURITY_CRITICAL");
+        existing.setRetentionDays(365);
+        existing.setPermanent(true);
+        existing.setDescription("critical events");
+        when(mapper.getRetentionConfig("SECURITY_CRITICAL")).thenReturn(existing);
+        SecurityAuditService service = new SecurityAuditService(mapper, new ObjectMapper());
+
+        service.updateRetentionConfig("SECURITY_CRITICAL", 730, null, null);
+
+        verify(mapper).updateRetentionConfig(eq("SECURITY_CRITICAL"), eq(730),
+                eq(true), eq("critical events"), any());
+    }
+
+    @Test
     void unfilteredAdminQueryReturnsAllEventTypesInWindow() {
         SecurityAuditMapper mapper = mock(SecurityAuditMapper.class);
         when(mapper.listByTime(any(), any(), eq(100))).thenReturn(List.of());

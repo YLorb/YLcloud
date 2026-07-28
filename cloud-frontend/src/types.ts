@@ -726,96 +726,101 @@ export type AccountStatus = {
   username: string;
   accountStatus: "ACTIVE" | "CANCELLED" | "PURGING" | "PURGED";
   cancelledAt?: string;
-  cancelRequestedBy?: number;
   recoverableUntil?: string;
   purgingStartedAt?: string;
   purgedAt?: string;
+  canRecover: boolean;
+  isTeamOwner: boolean;
   ownedTeamCount: number;
 };
 
 export type DataExportJob = {
-  jobId: number;
-  userId: number;
+  id: number;
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "EXPIRED";
   exportScope?: string;
-  fileKey?: string;
+  fileSizeBytes?: number;
   downloadUrl?: string;
-  expiresAt?: string;
-  errorMessage?: string;
-  createTime?: string;
-  updateTime?: string;
+  downloadExpiresAt?: string;
+  decryptionKey?: string;
+  createdAt?: string;
+  finishedAt?: string;
 };
 
 // Security Audit Types
 export type SecurityAuditEvent = {
   eventId: number;
   eventType: string;
-  eventCategory: string;
-  outcome: "SUCCESS" | "FAILURE" | "DENIED";
-  severity: "INFO" | "WARNING" | "CRITICAL";
+  subjectType?: string;
+  subjectId?: number;
+  subjectName?: string;
+  action: string;
+  result: "SUCCESS" | "FAILURE" | "DENIED";
   retentionPolicy: "STANDARD" | "PERMANENT";
-  actorType?: string;
-  actorId?: number;
-  actorName?: string;
   targetType?: string;
-  targetId?: number;
+  targetId?: string;
   targetName?: string;
   ipAddress?: string;
-  userAgent?: string;
   traceId?: string;
   detailJson?: string;
-  createTime?: string;
+  errorMessage?: string;
+  occurredAt?: string;
 };
 
 export type AuditRetentionConfig = {
   configKey: string;
-  retentionDays: number;
+  retentionDays?: number;
+  permanent: boolean;
   description?: string;
-  updateTime?: string;
+  updatedAt?: string;
 };
 
 export type AuditStats = {
-  totalEvents: number;
-  successCount: number;
-  failureCount: number;
-  deniedCount: number;
-  criticalCount: number;
-  permanentCount: number;
-  eventsByType: Array<{ eventType: string; count: number }>;
-  eventsByDay: Array<{ date: string; count: number }>;
+  recentEvents: number;
+  permanentEvents: number;
 };
 
 // Backup Types
 export type BackupRun = {
-  backupId: number;
+  id: number;
+  runKey: string;
   backupType: string;
   status: "PENDING" | "RUNNING" | "VERIFYING" | "READY" | "FAILED" | "EXPIRED";
-  backupPath?: string;
-  manifestPath?: string;
-  encryptionEnabled: boolean;
-  sizeBytes?: number;
-  checksum?: string;
-  verificationStatus?: string;
-  verificationMessage?: string;
+  archivePath?: string;
+  archiveSizeBytes?: number;
+  archiveHash?: string;
   startedAt?: string;
-  completedAt?: string;
-  expiresAt?: string;
-  createTime?: string;
+  finishedAt?: string;
+  verifiedAt?: string;
+  publishedAt?: string;
+  createdAt?: string;
 };
 
 export type BackupStats = {
-  totalBackups: number;
   readyBackups: number;
-  failedBackups: number;
-  lastBackupAt?: string;
-  lastReadyAt?: string;
-  totalSizeBytes: number;
+  latestBackup: {
+    exists: boolean;
+    id?: number;
+    runKey?: string;
+    publishedAt?: string;
+    sizeBytes?: number;
+  };
+};
+
+export type RestoreVerification = {
+  exists: boolean;
+  status?: string;
+  restoreEnvironment?: string;
+  mysqlRestored?: boolean;
+  minioRestored?: boolean;
+  qdrantRestored?: boolean;
+  configRestored?: boolean;
+  businessSampleCheck?: boolean;
+  finishedAt?: string;
 };
 
 // Maintenance Mode Types
 export type MaintenanceStatus = {
-  enabled: boolean;
+  active: boolean;
   reason?: string;
-  enabledAt?: string;
-  enabledBy?: number;
+  startedAt?: string;
 };
