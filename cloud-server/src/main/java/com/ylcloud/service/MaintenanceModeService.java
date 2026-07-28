@@ -110,8 +110,11 @@ public class MaintenanceModeService {
             return true;
         }
 
-        // Allow maintenance disable endpoint
-        if (path.contains("/api/admin/maintenance/disable")) {
+        // Allow only the two controlled release operations. Both continue through
+        // JWT and controller authorization; the smoke endpoint additionally
+        // requires the immutable deployment owner.
+        if ("/api/admin/maintenance/disable".equals(path)
+                || "/api/admin/async/smoke".equals(path)) {
             return true;
         }
 

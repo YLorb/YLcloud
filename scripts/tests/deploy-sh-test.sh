@@ -39,6 +39,7 @@ if [[ "$args" == *" compose "* ]]; then
   [[ "$args" == *" pull "* ]] && exit 0
   if [[ "$args" == *" ps -q "* ]]; then
     service="${!#}"
+    [[ "${FAKE_DOCKER_MISSING_SERVICE:-}" != "$service" ]] || exit 0
     printf '%s-cid\n' "$service"
     exit 0
   fi
@@ -97,10 +98,19 @@ fi
 printf '\n'
 EOF
 
-chmod +x "$FAKE_BIN/docker" "$FAKE_BIN/curl"
+cat > "$FAKE_BIN/restore" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+: > "${FAKE_RESTORE_MARKER:?}"
+[[ " $* " == *" --yes "* ]]
+[[ " $* " == *" --no-start "* ]]
+[[ " $* " == *" --skip-config "* ]]
+EOF
+
+chmod +x "$FAKE_BIN/docker" "$FAKE_BIN/curl" "$FAKE_BIN/restore"
 
 run_case() {
-  local name="$1" expected="$2" injection="${3:-}" fail_service="${4:-}"
+  local name="$1" expected="$2" injection="${3:-}" fail_service="${4:-}" missing_service="${5:-}"
   local case_state="$RUN_ROOT/state-$name" output="$RUN_ROOT/$name.out"
   mkdir -p "$case_state"
   printf 'old-v1\n' > "$case_state/current-version"
@@ -116,11 +126,14 @@ run_case() {
     YLCLOUD_DEPLOY_LOCK_FILE="$RUN_ROOT/lock/$name.lock" \
     YLCLOUD_DEPLOY_MIN_FREE_KB=1 \
     YLCLOUD_DEPLOY_AUTH_TOKEN=test-token \
+    YLCLOUD_DEPLOY_RESTORE_SCRIPT="$FAKE_BIN/restore" \
     YLCLOUD_DEPLOY_INJECT_FAILURE="$injection" \
     FAKE_DOCKER_FAIL_SERVICE="$fail_service" \
+    FAKE_DOCKER_MISSING_SERVICE="$missing_service" \
     FAKE_BACKUP_ARCHIVE="$RUN_ROOT/verified-backup.tar.gz.enc" \
     FAKE_BACKUP_HASH="$BACKUP_HASH" \
     FAKE_MAINTENANCE_STATE="$case_state/maintenance-api-state" \
+    FAKE_RESTORE_MARKER="$case_state/restore-called" \
     bash "$ROOT/scripts/deploy.sh" mq-v1
   ) > "$output" 2>&1
   code=$?
@@ -133,10 +146,12 @@ run_case() {
   if [[ "$expected" -eq 0 ]]; then
     grep -q 'deploy_success' "$output"
     grep -qx 'mq-v1' "$case_state/current-version"
+    [[ ! -f "$case_state/restore-called" ]]
   elif [[ "$injection" != "rollback" ]]; then
     grep -q 'Rollback completed' "$output"
     grep -qx 'old-v1' "$case_state/current-version"
     grep -qx 'false' "$case_state/maintenance-api-state"
+    [[ -f "$case_state/restore-called" ]]
   else
     grep -q 'injected rollback failure' "$output"
     grep -qx 'true' "$case_state/maintenance-api-state"
@@ -148,6 +163,7 @@ run_case app-failure 1 app
 run_case frontend-failure 1 frontend
 run_case smoke-failure 1 smoke
 run_case rollback-failure 86 rollback ylcloud-app
+run_case critical-service-missing 1 "" "" mysql
 
 gate_state="$RUN_ROOT/state-gate-failure"
 gate_output="$RUN_ROOT/gate-failure.out"
@@ -197,9 +213,11 @@ set +e
   YLCLOUD_DEPLOY_LOCK_FILE="$RUN_ROOT/lock/signal.lock" \
   YLCLOUD_DEPLOY_MIN_FREE_KB=1 \
   YLCLOUD_DEPLOY_AUTH_TOKEN=test-token \
+  YLCLOUD_DEPLOY_RESTORE_SCRIPT="$FAKE_BIN/restore" \
   FAKE_BACKUP_ARCHIVE="$RUN_ROOT/verified-backup.tar.gz.enc" \
   FAKE_BACKUP_HASH="$BACKUP_HASH" \
   FAKE_MAINTENANCE_STATE="$signal_state/maintenance-api-state" \
+  FAKE_RESTORE_MARKER="$signal_state/restore-called" \
   bash "$ROOT/scripts/deploy.sh" mq-v1
 ) > "$signal_output" 2>&1 &
 signal_pid=$!
@@ -212,5 +230,6 @@ set -e
 grep -q 'Rollback completed' "$signal_output"
 grep -qx 'old-v1' "$signal_state/current-version"
 grep -qx 'false' "$signal_state/maintenance-api-state"
+[[ -f "$signal_state/restore-called" ]]
 
-printf 'deploy.sh test matrix: 7/7 passed\n'
+printf 'deploy.sh test matrix: 8/8 passed\n'

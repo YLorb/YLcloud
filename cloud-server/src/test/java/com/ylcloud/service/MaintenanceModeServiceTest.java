@@ -39,4 +39,15 @@ class MaintenanceModeServiceTest {
                 () -> service.enableMaintenanceMode("upgrade"));
         assertFalse(service.getStatus().active());
     }
+
+    @Test
+    void maintenanceAllowsOnlyControlledReleaseSmokeWrite() {
+        MaintenanceModeService service = new MaintenanceModeService(tempDir.toString());
+        service.enableMaintenanceMode("upgrade");
+
+        assertTrue(service.isRequestAllowed("POST", "/api/admin/async/smoke"));
+        assertTrue(service.isRequestAllowed("POST", "/api/admin/maintenance/disable"));
+        assertFalse(service.isRequestAllowed("POST", "/api/admin/async/retry/42"));
+        assertFalse(service.isRequestAllowed("POST", "/api/space/7/files"));
+    }
 }

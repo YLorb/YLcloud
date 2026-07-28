@@ -9,9 +9,9 @@ ENCRYPTION_KEY_FILE="${YLCLOUD_BACKUP_KEY_FILE:-/var/lib/ylcloud-backup/.encrypt
 COMPOSE_FILE="${YLCLOUD_DEPLOY_COMPOSE_FILE:-docker-compose.hub.yml}"
 ENV_FILE="${YLCLOUD_DEPLOY_ENV_FILE:-.env.server}"
 PROJECT="${YLCLOUD_DEPLOY_PROJECT:-ylcloud}"
-MYSQL_CONTAINER="${YLCLOUD_MYSQL_CONTAINER:-mysql}"
-MINIO_CONTAINER="${YLCLOUD_MINIO_CONTAINER:-minio}"
-QDRANT_CONTAINER="${YLCLOUD_QDRANT_CONTAINER:-qdrant}"
+MYSQL_CONTAINER="${YLCLOUD_MYSQL_CONTAINER:-ylcloud-mysql}"
+MINIO_CONTAINER="${YLCLOUD_MINIO_CONTAINER:-ylcloud-minio}"
+QDRANT_CONTAINER="${YLCLOUD_QDRANT_CONTAINER:-ylcloud-qdrant}"
 RESTORE_DIR="${YLCLOUD_RESTORE_DIR:-/var/lib/ylcloud-restore}"
 LOCK_FILE="${YLCLOUD_RESTORE_LOCK_FILE:-/var/lock/ylcloud-restore.lock}"
 LOG_ROOT="${YLCLOUD_RESTORE_LOG_ROOT:-/var/log/ylcloud-restore}"
@@ -43,6 +43,8 @@ Options:
     --skip-qdrant     Skip Qdrant restore
     --skip-config     Skip config restore
     --dry-run         Show what would be restored without making changes
+    --yes             Do not prompt before restoring
+    --no-start        Restore data but leave the application stopped
     -h, --help        Show this help message
 
 Environment Variables:
@@ -68,6 +70,8 @@ SKIP_CONFIG=0
 DRY_RUN=0
 ISOLATED_VERIFY=0
 BACKUP_ID=""
+ASSUME_YES=0
+NO_START=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -79,6 +83,8 @@ while [[ $# -gt 0 ]]; do
         --skip-qdrant) SKIP_QDRANT=1; shift ;;
         --skip-config) SKIP_CONFIG=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        --yes) ASSUME_YES=1; shift ;;
+        --no-start) NO_START=1; shift ;;
         -h|--help) usage ;;
         -*) die "Unknown option: $1" ;;
         *) ARCHIVE_FILE="$1"; shift ;;
@@ -91,13 +97,13 @@ done
 # Preflight checks
 preflight() {
     command -v docker >/dev/null || die "docker not found"
-    if [[ $ISOLATED_VERIFY -eq 0 ]]; then command -v mysql >/dev/null || die "mysql client not found"; fi
     command -v openssl >/dev/null || die "openssl not found"
     command -v sha256sum >/dev/null || die "sha256sum not found"
     command -v flock >/dev/null || die "flock not found"
 
     [[ -f "$ENCRYPTION_KEY_FILE" ]] || die "encryption key file not found: $ENCRYPTION_KEY_FILE"
     [[ -s "$ENCRYPTION_KEY_FILE" ]] || die "encryption key file is empty"
+    [[ -f "$ENV_FILE" ]] || die "environment file not found: $ENV_FILE"
 
     mkdir -p "$RESTORE_DIR" "$LOG_ROOT"
 }
@@ -186,9 +192,12 @@ restore_mysql() {
 
     # Restore MySQL
     log "Importing MySQL dump..."
+    local mysql_user="${YLCLOUD_BACKUP_MYSQL_USER:-root}"
+    local mysql_password="${YLCLOUD_BACKUP_MYSQL_PASSWORD:-${YLCLOUD_MYSQL_ROOT_PASSWORD:-}}"
+    [[ -n "$mysql_password" ]] || die "MySQL restore password is empty"
     docker exec -i "$MYSQL_CONTAINER" mysql \
-        -u"${MYSQL_USER:-root}" \
-        -p"${MYSQL_PASSWORD:-}" \
+        -u"$mysql_user" \
+        -p"$mysql_password" \
         < "$dump_file" || die "MySQL restore failed"
 
     log "MySQL restore completed"
@@ -201,7 +210,7 @@ restore_minio() {
 
     log "Restoring MinIO..."
     local minio_dir="$EXTRACTED_DIR/minio"
-    [[ -d "$minio_dir" ]] || { log "WARNING: MinIO data not found in backup"; return 0; }
+    [[ -d "$minio_dir/data" ]] || die "MinIO data not found in backup"
 
     # Stop MinIO
     docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" stop minio 2>/dev/null || true
@@ -223,7 +232,7 @@ restore_qdrant() {
 
     log "Restoring Qdrant..."
     local qdrant_dir="$EXTRACTED_DIR/qdrant"
-    [[ -d "$qdrant_dir" ]] || { log "WARNING: Qdrant data not found in backup"; return 0; }
+    [[ -d "$qdrant_dir/storage" ]] || die "Qdrant data not found in backup"
 
     # Stop Qdrant
     docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" stop qdrant 2>/dev/null || true
@@ -245,7 +254,14 @@ restore_config() {
 
     log "Restoring configuration..."
     local config_dir="$EXTRACTED_DIR/config"
-    [[ -d "$config_dir" ]] || { log "WARNING: Config not found in backup"; return 0; }
+    [[ -d "$config_dir" ]] || die "Config not found in backup"
+
+    local compose_snapshot="$config_dir/$(basename "$COMPOSE_FILE")"
+    local env_snapshot="$config_dir/$(basename "$ENV_FILE")"
+    [[ -s "$compose_snapshot" ]] || die "Compose snapshot not found in backup"
+    [[ -s "$env_snapshot" ]] || die "Environment snapshot not found in backup"
+    cp "$compose_snapshot" "$COMPOSE_FILE"
+    cp "$env_snapshot" "$ENV_FILE"
 
     # Restore secrets
     if [[ -d "$config_dir/secrets" ]]; then
@@ -267,7 +283,7 @@ verify_business_sample() {
     # Wait for health
     local deadline=$((SECONDS + 180))
     while (( SECONDS < deadline )); do
-        if curl -s "http://localhost:8080/actuator/health" | grep -q '"status":"UP"'; then
+        if curl --fail --silent "$BACKEND_URL/actuator/health" | grep -q '"status":"UP"'; then
             log "Application is healthy"
             break
         fi
@@ -275,7 +291,8 @@ verify_business_sample() {
     done
 
     # Sample checks
-    curl -s "http://localhost:8080/api/site/public-settings" > /dev/null || die "public settings check failed"
+    curl --fail --silent --show-error "$BACKEND_URL/api/site/public-settings" > /dev/null \
+        || die "public settings check failed"
 
     log "Business sample verification passed"
 }
@@ -402,7 +419,7 @@ main() {
     fi
 
     # Confirm restore
-    if [[ $DRY_RUN -eq 0 ]]; then
+    if [[ $DRY_RUN -eq 0 && $ASSUME_YES -eq 0 ]]; then
         echo ""
         echo "WARNING: This will restore data from backup and may overwrite current data."
         echo "Press Ctrl+C to cancel, or Enter to continue..."
@@ -415,7 +432,11 @@ main() {
     restore_config
 
     if [[ $DRY_RUN -eq 0 ]]; then
-        verify_business_sample
+        if [[ $NO_START -eq 0 ]]; then
+            verify_business_sample
+        else
+            log "Application start and business sample check deferred to deployment rollback"
+        fi
         cleanup
     fi
 

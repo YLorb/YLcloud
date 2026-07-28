@@ -37,7 +37,6 @@ trap cleanup_staging EXIT
 # Preflight checks
 preflight() {
     command -v docker >/dev/null || die "docker not found"
-    command -v mysqldump >/dev/null || die "mysqldump not found"
     command -v openssl >/dev/null || die "openssl not found"
     command -v sha256sum >/dev/null || die "sha256sum not found"
     command -v flock >/dev/null || die "flock not found"
@@ -81,10 +80,13 @@ load_env() {
 backup_mysql() {
     log "Backing up MySQL..."
     local dump_file="$BACKUP_DIR/mysql-dump.sql"
+    local mysql_user="${YLCLOUD_BACKUP_MYSQL_USER:-root}"
+    local mysql_password="${YLCLOUD_BACKUP_MYSQL_PASSWORD:-${YLCLOUD_MYSQL_ROOT_PASSWORD:-}}"
+    [[ -n "$mysql_password" ]] || die "MySQL backup password is empty"
 
     docker exec "$MYSQL_CONTAINER" mysqldump \
-        -u"${YLCLOUD_MYSQL_USER:-root}" \
-        -p"${YLCLOUD_MYSQL_PASSWORD:-}" \
+        -u"$mysql_user" \
+        -p"$mysql_password" \
         --all-databases \
         --single-transaction \
         --routines \
@@ -111,8 +113,11 @@ backup_minio() {
         log "WARNING: MinIO backup via docker cp failed, trying mc mirror..."
         # Alternative: use mc if available
         if command -v mc >/dev/null; then
-            mc alias set local "http://localhost:9000" "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}"
-            mc mirror --quiet local/ "$minio_dir/"
+            local minio_url="${YLCLOUD_BACKUP_MINIO_URL:-http://127.0.0.1:${YLCLOUD_MINIO_API_HOST_PORT:-9000}}"
+            mc alias set local "$minio_url" \
+                "${YLCLOUD_MINIO_ACCESS_KEY:-minioadmin}" "${YLCLOUD_MINIO_SECRET_KEY:-minioadmin}"
+            mkdir -p "$minio_dir/data"
+            mc mirror --quiet local/ "$minio_dir/data/"
         else
             die "MinIO backup failed: neither docker cp nor mc available"
         fi
@@ -132,9 +137,11 @@ backup_qdrant() {
     mkdir -p "$qdrant_dir"
 
     # Trigger Qdrant snapshot via API
-    local qdrant_url="http://localhost:6333"
-    local collections
-    collections="$(curl -s "$qdrant_url/collections" | grep -o '"name":"[^"]*"' | cut -d'"' -f4 || true)"
+    local qdrant_url="${YLCLOUD_BACKUP_QDRANT_URL:-http://127.0.0.1:${YLCLOUD_QDRANT_REST_HOST_PORT:-6333}}"
+    local collections collection_json
+    collection_json="$(curl --fail --silent --show-error "$qdrant_url/collections")" \
+        || die "Qdrant collection discovery failed"
+    collections="$(printf '%s' "$collection_json" | grep -o '"name":"[^"]*"' | cut -d'"' -f4 || true)"
 
     for collection in $collections; do
         log "Creating snapshot for collection: $collection"

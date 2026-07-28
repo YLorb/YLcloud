@@ -16,12 +16,14 @@ LOCK_FILE="${YLCLOUD_DEPLOY_LOCK_FILE:-/var/lock/ylcloud-deploy.lock}"
 BACKEND_URL="${YLCLOUD_DEPLOY_BACKEND_URL:-http://127.0.0.1:8080}"
 FRONTEND_URL="${YLCLOUD_DEPLOY_FRONTEND_URL:-http://127.0.0.1:5173}"
 BACKUP_ROOT="${YLCLOUD_BACKUP_ROOT:-/var/lib/ylcloud-backup}"
+RESTORE_SCRIPT="${YLCLOUD_DEPLOY_RESTORE_SCRIPT:-$(dirname "$0")/restore.sh}"
 START_EPOCH="$(date +%s)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 CHANGED_APP=0
 CHANGED_FRONTEND=0
 ROLLING_BACK=0
 MAINTENANCE_MODE=0
+READY_BACKUP_ARCHIVE=""
 
 die() { echo "ERROR: $*" >&2; return 1; }
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
@@ -178,6 +180,7 @@ check_backup_gate() {
   fi
 
   log "Backup archive integrity verified: hash matches"
+  READY_BACKUP_ARCHIVE="$archive_path"
 
   # 5. Check restore verification — confirm isolation restore was successful
   local verify_response verify_code verify_body
@@ -265,6 +268,14 @@ rollback() {
     exit 86
   fi
 
+  if [[ "$CHANGED_APP" -eq 1 ]]; then
+    [[ -n "$READY_BACKUP_ARCHIVE" ]] \
+      || { echo "rollback backup archive is missing" >&2; exit 86; }
+    log "Restoring data stores from the pre-release READY backup"
+    bash "$RESTORE_SCRIPT" "$READY_BACKUP_ARCHIVE" --yes --no-start --skip-config \
+      || { echo "rollback data restore failed" >&2; exit 86; }
+  fi
+
   if [[ "$CHANGED_APP" -eq 1 ]]; then rollback_service "$APP_SERVICE" "$OLD_APP_IMAGE" "$OLD_APP_REF"; fi
   if [[ "$CHANGED_FRONTEND" -eq 1 ]]; then rollback_service "$FRONTEND_SERVICE" "$OLD_FRONTEND_IMAGE" "$OLD_FRONTEND_REF"; fi
 
@@ -290,6 +301,7 @@ preflight() {
   docker info >/dev/null
   docker compose version >/dev/null
   [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] || die "compose/env file missing"
+  [[ -f "$RESTORE_SCRIPT" ]] || die "restore script missing: $RESTORE_SCRIPT"
   [[ -s .secrets/rabbitmq_password && -s .secrets/jwt_secret && -s .secrets/service_jwt_active_secret ]] || die "required secret file missing or empty"
 
   local free_kb min_kb
@@ -329,8 +341,7 @@ verify_platform_health() {
     local cid
     cid="$(container_id "$service" 2>/dev/null || true)"
     if [[ -z "$cid" ]]; then
-      log "WARNING: Service $service not found"
-      continue
+      die "Critical service $service not found"
     fi
 
     local service_health
