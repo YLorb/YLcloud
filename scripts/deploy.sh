@@ -104,6 +104,25 @@ http_smoke() {
   curl --fail --silent --show-error "$FRONTEND_URL/api/site/public-settings" >/dev/null
 }
 
+admin_api() {
+  local method="$1" path="$2"
+  shift 2
+  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+  [[ -n "$token" ]] || die "YLCLOUD_DEPLOY_AUTH_TOKEN is required for admin API calls"
+  curl --silent --show-error --write-out $'\n%{http_code}' \
+    -X "$method" -H "Authorization: Bearer $token" "$@" "$BACKEND_URL$path"
+}
+
+require_api_success() {
+  local response="$1" operation="$2"
+  local http_code body
+  http_code="$(printf '%s\n' "$response" | tail -1)"
+  body="$(printf '%s\n' "$response" | sed '$d')"
+  [[ "$http_code" == "200" ]] || die "$operation failed (HTTP $http_code)"
+  [[ "$body" == *'"code":200'* ]] || die "$operation returned an unsuccessful response"
+  printf '%s' "$body"
+}
+
 # TASK-014: Check for READY backup before upgrade — MANDATORY, no skip allowed
 # Queries backup_run table via API (status='READY'), verifies archive integrity,
 # and confirms at least one restore verification has passed.
@@ -117,9 +136,8 @@ check_backup_gate() {
 
   # 1. Query READY backups from API
   local response http_code
-  response="$(curl --silent --show-error --write-out '\n%{http_code}' \
-    -H "Authorization: Bearer $token" \
-    "$BACKEND_URL/api/admin/backup/ready?limit=1" 2>/dev/null || true)"
+  response="$(admin_api GET "/api/admin/backup/ready?limit=1")" \
+    || die "Backup API query failed. Check backend availability"
   http_code="$(echo "$response" | tail -1)"
 
   if [[ "$http_code" != "200" ]]; then
@@ -163,84 +181,69 @@ check_backup_gate() {
 
   # 5. Check restore verification — confirm isolation restore was successful
   local verify_response verify_code verify_body
-  verify_response="$(curl --silent --show-error --write-out '\n%{http_code}' \
-    -H "Authorization: Bearer $token" \
-    "$BACKEND_URL/api/admin/backup/${backup_id}/restore-verification" 2>/dev/null || true)"
+  verify_response="$(admin_api GET "/api/admin/backup/${backup_id}/restore-verification")" \
+    || die "Restore verification API query failed"
   verify_code="$(echo "$verify_response" | tail -1)"
   verify_body="$(echo "$verify_response" | sed '$d')"
 
-  if [[ "$verify_code" == "200" ]]; then
-    if echo "$verify_body" | grep -q '"status":"SUCCESS"'; then
-      log "Restore verification passed (isolation restore confirmed)"
-    else
-      log "WARNING: Restore verification not found or not successful for backup $backup_id"
-      log "Proceeding with caution — backup files are valid but restore isolation is unconfirmed"
-    fi
-  else
-    log "WARNING: Restore verification API unavailable (HTTP $verify_code)"
-    log "Proceeding with verified backup archive only"
-  fi
+  [[ "$verify_code" == "200" ]] \
+    || die "Restore verification API query failed (HTTP $verify_code)"
+  [[ "$verify_body" == *'"code":200'* ]] \
+    || die "Restore verification API returned an unsuccessful response"
+  [[ "$verify_body" == *'"status":"SUCCESS"'* ]] \
+    || die "Backup $backup_id has no successful isolated restore verification"
+  [[ "$verify_body" == *'"restoreEnvironment":"ISOLATED"'* ]] \
+    || die "Backup $backup_id was not verified in an isolated restore environment"
 
-  log "Backup gate passed: backup_id=$backup_id hash_verified=yes"
+  log "Backup gate passed: backup_id=$backup_id hash_verified=yes isolated_restore=yes"
 }
 
 # TASK-014: Enable maintenance mode
 enable_maintenance_mode() {
   log "Enabling maintenance mode..."
+  local response status_response status_body
+  response="$(admin_api POST "/api/admin/maintenance/enable" \
+    --data-urlencode "reason=Controlled deployment of $VERSION")" \
+    || die "Maintenance enable API call failed"
+  require_api_success "$response" "Maintenance enable" >/dev/null
+  status_response="$(admin_api GET "/api/admin/maintenance/status")" \
+    || die "Maintenance status confirmation failed"
+  status_body="$(require_api_success "$status_response" "Maintenance status confirmation")"
+  [[ "$status_body" == *'"active":true'* ]] \
+    || die "Maintenance mode was not persisted by the application"
   MAINTENANCE_MODE=1
-
-  # Create maintenance mode marker file
-  touch "$STATE_ROOT/maintenance-mode"
-
-  # Notify application to enter maintenance mode
-  # This rejects writes and new Agent/async tasks, allows read-only and health endpoints
-  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
-  if [[ -n "$token" ]]; then
-    curl --silent --show-error -X POST -H "Authorization: Bearer $token" \
-      "$BACKEND_URL/api/admin/maintenance/enable" 2>/dev/null || true
-  fi
-
-  log "Maintenance mode enabled"
+  log "Maintenance mode enabled and confirmed"
 }
 
 # TASK-014: Disable maintenance mode
 disable_maintenance_mode() {
   log "Disabling maintenance mode..."
+  local response status_response status_body
+  response="$(admin_api POST "/api/admin/maintenance/disable")" \
+    || die "Maintenance disable API call failed"
+  require_api_success "$response" "Maintenance disable" >/dev/null
+  status_response="$(admin_api GET "/api/admin/maintenance/status")" \
+    || die "Maintenance status confirmation failed"
+  status_body="$(require_api_success "$status_response" "Maintenance status confirmation")"
+  [[ "$status_body" == *'"active":false'* ]] \
+    || die "Maintenance mode remains active after disable"
   MAINTENANCE_MODE=0
-
-  # Remove maintenance mode marker file
-  rm -f "$STATE_ROOT/maintenance-mode"
-
-  # Notify application to exit maintenance mode
-  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
-  if [[ -n "$token" ]]; then
-    curl --silent --show-error -X POST -H "Authorization: Bearer $token" \
-      "$BACKEND_URL/api/admin/maintenance/disable" 2>/dev/null || true
-  fi
-
-  log "Maintenance mode disabled"
+  log "Maintenance mode disabled and confirmed"
 }
 
 # TASK-014: Run database migrations
 run_migrations() {
-  log "Running database migrations..."
-
-  # Flyway migrations are run automatically by Spring Boot on startup
-  # This function verifies migration status and handles failures
-
-  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
-  if [[ -n "$token" ]]; then
-    # Check migration status
-    local migration_status
-    migration_status="$(curl --silent --show-error -H "Authorization: Bearer $token" \
-      "$BACKEND_URL/actuator/flyway" 2>/dev/null || echo '{}')"
-
-    if echo "$migration_status" | grep -q '"state":"FAILED"'; then
-      die "Database migration failed. Check logs for details"
-    fi
-  fi
-
-  log "Database migrations completed"
+  log "Verifying startup migration gate..."
+  # Flyway runs before Spring reports the application ready. A failed migration
+  # prevents the new container from becoming healthy; require both container and
+  # application health here instead of treating an unavailable actuator endpoint
+  # as a successful migration.
+  [[ "$(health "$APP_SERVICE")" == "healthy" ]] \
+    || die "Application did not become healthy after Flyway startup migration"
+  curl --fail --silent --show-error "$BACKEND_URL/actuator/health" \
+    | grep -q '"status":"UP"' \
+    || die "Application health endpoint failed after Flyway startup migration"
+  log "Startup migration gate passed"
 }
 
 rollback_service() {
@@ -257,11 +260,6 @@ rollback() {
 
   log "Release failed; restoring changed services"
 
-  # TASK-014: Disable maintenance mode on rollback
-  if [[ "$MAINTENANCE_MODE" -eq 1 ]]; then
-    disable_maintenance_mode
-  fi
-
   if [[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" == "rollback" ]]; then
     echo "injected rollback failure" >&2
     exit 86
@@ -269,6 +267,11 @@ rollback() {
 
   if [[ "$CHANGED_APP" -eq 1 ]]; then rollback_service "$APP_SERVICE" "$OLD_APP_IMAGE" "$OLD_APP_REF"; fi
   if [[ "$CHANGED_FRONTEND" -eq 1 ]]; then rollback_service "$FRONTEND_SERVICE" "$OLD_FRONTEND_IMAGE" "$OLD_FRONTEND_REF"; fi
+
+  # Keep writes fenced until the old application is healthy again.
+  if [[ "$MAINTENANCE_MODE" -eq 1 ]]; then
+    disable_maintenance_mode
+  fi
 
   http_smoke || { echo "rollback smoke failed" >&2; exit 86; }
   compose ps

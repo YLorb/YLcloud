@@ -1,6 +1,7 @@
 package com.ylcloud.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -16,49 +17,48 @@ import java.time.LocalDateTime;
 @Service
 @Slf4j
 public class MaintenanceModeService {
-    private static final String STATE_ROOT = System.getenv().getOrDefault(
-            "YLCLOUD_DEPLOY_STATE_ROOT", "/var/lib/ylcloud-deploy");
     private static final String MAINTENANCE_MARKER = "maintenance-mode";
+    private final Path markerPath;
 
     private volatile boolean maintenanceMode = false;
     private volatile LocalDateTime maintenanceStartedAt = null;
     private volatile String maintenanceReason = null;
 
+    public MaintenanceModeService(
+            @Value("${ylcloud.deploy.state-root:${YLCLOUD_DEPLOY_STATE_ROOT:/var/lib/ylcloud-deploy}}")
+            String stateRoot) {
+        this.markerPath = Paths.get(stateRoot, MAINTENANCE_MARKER);
+    }
+
     /**
      * 启用维护模式。
      */
     public void enableMaintenanceMode(String reason) {
+        try {
+            Files.createDirectories(markerPath.getParent());
+            Files.writeString(markerPath, reason != null ? reason : "Maintenance mode enabled");
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to persist maintenance marker", e);
+        }
         maintenanceMode = true;
         maintenanceStartedAt = LocalDateTime.now();
         maintenanceReason = reason;
-
-        // Create marker file
-        try {
-            Path markerPath = Paths.get(STATE_ROOT, MAINTENANCE_MARKER);
-            Files.createDirectories(markerPath.getParent());
-            Files.writeString(markerPath, reason != null ? reason : "Maintenance mode enabled");
-            log.info("Maintenance mode enabled: {}", reason);
-        } catch (IOException e) {
-            log.warn("Failed to create maintenance marker file", e);
-        }
+        log.info("Maintenance mode enabled: {}", reason);
     }
 
     /**
      * 禁用维护模式。
      */
     public void disableMaintenanceMode() {
+        try {
+            Files.deleteIfExists(markerPath);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to remove maintenance marker", e);
+        }
         maintenanceMode = false;
         maintenanceStartedAt = null;
         maintenanceReason = null;
-
-        // Remove marker file
-        try {
-            Path markerPath = Paths.get(STATE_ROOT, MAINTENANCE_MARKER);
-            Files.deleteIfExists(markerPath);
-            log.info("Maintenance mode disabled");
-        } catch (IOException e) {
-            log.warn("Failed to remove maintenance marker file", e);
-        }
+        log.info("Maintenance mode disabled");
     }
 
     /**
@@ -72,10 +72,10 @@ public class MaintenanceModeService {
 
         // Check marker file as fallback
         try {
-            Path markerPath = Paths.get(STATE_ROOT, MAINTENANCE_MARKER);
             return Files.exists(markerPath);
         } catch (Exception e) {
-            return false;
+            log.error("Failed to inspect maintenance marker; keeping writes fenced", e);
+            return true;
         }
     }
 
