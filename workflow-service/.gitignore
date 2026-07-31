@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-*/
+*.egg-info/
+.venv/
+.venv-msys-backup/
+.env.local
+.mini-agent-flow/

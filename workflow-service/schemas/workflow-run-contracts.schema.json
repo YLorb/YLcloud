@@ -1,0 +1,500 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ylcloud.local/schemas/workflow-run-contracts.schema.json",
+  "title": "YLcloud Workflow Run Contracts",
+  "description": "Java 与 Workflow 服务之间的版本化中立契约；Workflow 只返回结构化结果，不生成权威最终回答。",
+  "$defs": {
+    "PositiveId": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "Uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "Sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "ContractVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "WorkflowRunStatus": {
+      "type": "string",
+      "enum": [
+        "QUEUED",
+        "PLANNING",
+        "VALIDATING",
+        "RUNNING",
+        "SUCCEEDED",
+        "DEGRADED",
+        "FAILED",
+        "TIMED_OUT",
+        "CANCELLED",
+        "ABANDONED"
+      ]
+    },
+    "TerminalWorkflowRunStatus": {
+      "type": "string",
+      "enum": [
+        "SUCCEEDED",
+        "DEGRADED",
+        "FAILED",
+        "TIMED_OUT",
+        "CANCELLED",
+        "ABANDONED"
+      ]
+    },
+    "JavaMessageStatus": {
+      "type": "string",
+      "enum": ["QUEUED", "RUNNING", "SUCCESS", "FAILED"]
+    },
+    "ContractErrorCode": {
+      "type": "string",
+      "enum": [
+        "INVALID_REQUEST",
+        "UNSUPPORTED_VERSION",
+        "UNAUTHORIZED",
+        "FORBIDDEN",
+        "NOT_FOUND",
+        "CONFLICT",
+        "BUDGET_EXCEEDED",
+        "TOOL_CONFIRMATION_REQUIRED",
+        "TIMED_OUT",
+        "INTERNAL_ERROR"
+      ]
+    },
+    "IntentType": {
+      "type": "string",
+      "enum": [
+        "GENERAL_CHAT",
+        "KNOWLEDGE_QA",
+        "EXTERNAL_ACTION",
+        "MEMORY_OPERATION",
+        "MIXED"
+      ]
+    },
+    "RunBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxBusinessNodes", "maxParallelNodes", "maxModelCalls", "maxRuntimeMs"],
+      "properties": {
+        "maxBusinessNodes": {"type": "integer", "minimum": 1, "maximum": 6},
+        "maxParallelNodes": {"type": "integer", "minimum": 1, "maximum": 3},
+        "maxModelCalls": {"type": "integer", "minimum": 1, "maximum": 12},
+        "maxRuntimeMs": {"type": "integer", "minimum": 1000, "maximum": 300000}
+      }
+    },
+    "KnowledgeScopeDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["explicitSelection", "selectedSpaceIds", "autoAddedSpaceIds"],
+      "properties": {
+        "explicitSelection": {"type": "boolean"},
+        "selectedSpaceIds": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/PositiveId"}
+        },
+        "autoAddedSpaceIds": {
+          "type": "array",
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/PositiveId"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"explicitSelection": {"const": true}},
+            "required": ["explicitSelection"]
+          },
+          "then": {
+            "properties": {"autoAddedSpaceIds": {"maxItems": 0}}
+          }
+        }
+      ]
+    },
+    "WorkflowRunCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "workflowType",
+        "workflowVersion",
+        "userId",
+        "sessionId",
+        "sourceMessageId",
+        "assistantMessageId",
+        "question",
+        "shortTermContext",
+        "permissionScope",
+        "configVersion",
+        "requestContextHash",
+        "budget"
+      ],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "workflowType": {"type": "string", "const": "ASSISTANT"},
+        "workflowVersion": {"type": "string", "enum": ["1.0", "2.0"]},
+        "userId": {"$ref": "#/$defs/PositiveId"},
+        "sessionId": {"$ref": "#/$defs/PositiveId"},
+        "sourceMessageId": {"$ref": "#/$defs/PositiveId"},
+        "assistantMessageId": {"$ref": "#/$defs/PositiveId"},
+        "question": {"type": "string", "minLength": 1, "maxLength": 32000},
+        "shortTermContext": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["role", "content"],
+            "properties": {
+              "role": {"type": "string", "enum": ["USER", "ASSISTANT", "SYSTEM"]},
+              "content": {"type": "string", "maxLength": 32000}
+            },
+            "additionalProperties": false
+          }
+        },
+        "permissionScope": {
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": {"type": ["string", "number", "integer", "boolean", "array", "null"]}
+        },
+        "knowledgeScope": {"$ref": "#/$defs/KnowledgeScopeDecision"},
+        "configVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+        "requestContextHash": {"$ref": "#/$defs/Sha256"},
+        "budget": {"$ref": "#/$defs/RunBudget"}
+      }
+    },
+    "WorkflowRunAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "runId", "executionId", "executionEpoch", "status", "acceptedAt"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "runId": {"$ref": "#/$defs/Uuid"},
+        "executionId": {"$ref": "#/$defs/Uuid"},
+        "executionEpoch": {"type": "integer", "minimum": 1},
+        "status": {"type": "string", "const": "QUEUED"},
+        "acceptedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "IntentTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId", "intent", "instruction", "dependencies"],
+      "properties": {
+        "taskId": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"},
+        "intent": {"$ref": "#/$defs/IntentType"},
+        "instruction": {"type": "string", "minLength": 1, "maxLength": 8000},
+        "dependencies": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"}
+        }
+      }
+    },
+    "IntentPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["planVersion", "primaryIntent", "tasks"],
+      "properties": {
+        "planVersion": {"type": "string", "const": "1.0"},
+        "primaryIntent": {"$ref": "#/$defs/IntentType"},
+        "tasks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": {"$ref": "#/$defs/IntentTask"}
+        }
+      }
+    },
+    "MemoryReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memoryId", "version", "hash"],
+      "properties": {
+        "memoryId": {"$ref": "#/$defs/PositiveId"},
+        "version": {"type": "integer", "minimum": 1},
+        "hash": {"$ref": "#/$defs/Sha256"}
+      }
+    },
+    "KnowledgeReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spaceId", "documentId", "chunkId", "hash"],
+      "properties": {
+        "spaceId": {"$ref": "#/$defs/PositiveId"},
+        "documentId": {"$ref": "#/$defs/PositiveId"},
+        "chunkId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "hash": {"$ref": "#/$defs/Sha256"}
+      }
+    },
+    "SnapshotDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshotVersion", "requestContextHash", "snapshotHash", "queries", "memoryReferences", "knowledgeReferences", "injectableContext"],
+      "properties": {
+        "snapshotVersion": {"type": "integer", "const": 2},
+        "requestContextHash": {"$ref": "#/$defs/Sha256"},
+        "snapshotHash": {"$ref": "#/$defs/Sha256"},
+        "queries": {
+          "type": "array",
+          "maxItems": 18,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4000}
+        },
+        "memoryReferences": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/MemoryReference"}
+        },
+        "knowledgeReferences": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/KnowledgeReference"}
+        },
+        "injectableContext": {"type": "string", "maxLength": 64000}
+      }
+    },
+    "RetrievalCandidateTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceType", "sourceId", "version", "hash", "query", "score", "rank", "selected"],
+      "properties": {
+        "sourceType": {"type": "string", "enum": ["MEMORY", "KNOWLEDGE"]},
+        "sourceId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "version": {"type": "integer", "minimum": 1},
+        "hash": {"$ref": "#/$defs/Sha256"},
+        "query": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "score": {"type": "number"},
+        "rank": {"type": "integer", "minimum": 1},
+        "selected": {"type": "boolean"},
+        "eliminationReason": {"type": ["string", "null"], "maxLength": 256}
+      }
+    },
+    "RetrievalTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traceVersion", "candidates"],
+      "properties": {
+        "traceVersion": {"type": "integer", "const": 1},
+        "candidates": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {"$ref": "#/$defs/RetrievalCandidateTrace"}
+        }
+      }
+    },
+    "WorkflowResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "runId",
+        "executionId",
+        "executionEpoch",
+        "status",
+        "requestContextHash",
+        "snapshotHash",
+        "resultHash",
+        "structuredResult",
+        "snapshotDraft",
+        "retrievalTrace",
+        "usedKnowledgeSpaces"
+      ],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "runId": {"$ref": "#/$defs/Uuid"},
+        "executionId": {"$ref": "#/$defs/Uuid"},
+        "executionEpoch": {"type": "integer", "minimum": 1},
+        "status": {"$ref": "#/$defs/TerminalWorkflowRunStatus"},
+        "requestContextHash": {"$ref": "#/$defs/Sha256"},
+        "snapshotHash": {"$ref": "#/$defs/Sha256"},
+        "resultHash": {"$ref": "#/$defs/Sha256"},
+        "structuredResult": {"type": "object"},
+        "snapshotDraft": {"$ref": "#/$defs/SnapshotDraft"},
+        "retrievalTrace": {"$ref": "#/$defs/RetrievalTrace"},
+        "usedKnowledgeSpaces": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/PositiveId"}
+        },
+        "degradedReason": {"type": ["string", "null"], "maxLength": 512}
+      }
+    },
+    "WorkflowTerminalCallback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "deliveryId", "runId", "executionId", "executionEpoch", "status", "resultHash", "completedAt"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "deliveryId": {"$ref": "#/$defs/Uuid"},
+        "runId": {"$ref": "#/$defs/Uuid"},
+        "executionId": {"$ref": "#/$defs/Uuid"},
+        "executionEpoch": {"type": "integer", "minimum": 1},
+        "status": {"$ref": "#/$defs/TerminalWorkflowRunStatus"},
+        "resultHash": {"$ref": "#/$defs/Sha256"},
+        "completedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "WorkflowDeliveryAck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "deliveryId", "accepted", "duplicate", "acknowledgedAt"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "deliveryId": {"$ref": "#/$defs/Uuid"},
+        "accepted": {"type": "boolean", "const": true},
+        "duplicate": {"type": "boolean"},
+        "acknowledgedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "ConfirmationGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "grantId", "userId", "toolName", "parameterHash", "issuedAt", "expiresAt"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["ALLOW_ONCE", "ALLOW_SIMILAR"]},
+        "grantId": {"$ref": "#/$defs/Uuid"},
+        "userId": {"$ref": "#/$defs/PositiveId"},
+        "toolName": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,127}$"},
+        "parameterHash": {"$ref": "#/$defs/Sha256"},
+        "similarityScope": {"type": ["object", "null"], "maxProperties": 32},
+        "issuedAt": {"type": "string", "format": "date-time"},
+        "expiresAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "ToolInvokeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "runId", "executionId", "nodeId", "invocationId", "userId", "sessionId", "toolName", "riskLevel", "arguments"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "runId": {"$ref": "#/$defs/Uuid"},
+        "executionId": {"$ref": "#/$defs/Uuid"},
+        "nodeId": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"},
+        "invocationId": {"$ref": "#/$defs/Uuid"},
+        "userId": {"$ref": "#/$defs/PositiveId"},
+        "sessionId": {"$ref": "#/$defs/PositiveId"},
+        "toolName": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,127}$"},
+        "riskLevel": {"type": "string", "enum": ["READ_ONLY", "WRITE", "HIGH"]},
+        "arguments": {"type": "object"},
+        "confirmation": {"oneOf": [{"$ref": "#/$defs/ConfirmationGrant"}, {"type": "null"}]}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"riskLevel": {"const": "HIGH"}},
+            "required": ["riskLevel"]
+          },
+          "then": {
+            "required": ["confirmation"],
+            "properties": {"confirmation": {"$ref": "#/$defs/ConfirmationGrant"}}
+          }
+        }
+      ]
+    },
+    "ToolInvokeResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "invocationId", "status"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "invocationId": {"$ref": "#/$defs/Uuid"},
+        "status": {"type": "string", "enum": ["SUCCEEDED", "FAILED"]},
+        "result": {"type": ["object", "null"]},
+        "error": {"oneOf": [{"$ref": "#/$defs/ContractError"}, {"type": "null"}]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "SUCCEEDED"}}, "required": ["status"]},
+          "then": {
+            "required": ["result"],
+            "properties": {"error": {"type": "null"}}
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "FAILED"}}, "required": ["status"]},
+          "then": {
+            "required": ["error"],
+            "properties": {"result": {"type": "null"}}
+          }
+        }
+      ]
+    },
+    "SessionDeletionOutboxEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "eventId", "userId", "sessionId", "deletedAt"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "eventId": {"$ref": "#/$defs/Uuid"},
+        "userId": {"$ref": "#/$defs/PositiveId"},
+        "sessionId": {"$ref": "#/$defs/PositiveId"},
+        "deletedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "JavaGenerationRetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "assistantMessageId", "runId", "executionId", "snapshotHash", "retryJavaGenerationOnly"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "assistantMessageId": {"$ref": "#/$defs/PositiveId"},
+        "runId": {"$ref": "#/$defs/Uuid"},
+        "executionId": {"$ref": "#/$defs/Uuid"},
+        "snapshotHash": {"$ref": "#/$defs/Sha256"},
+        "retryJavaGenerationOnly": {"type": "boolean", "const": true}
+      }
+    },
+    "StatusMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["javaStatus", "workflowStatus", "degraded"],
+      "properties": {
+        "javaStatus": {"$ref": "#/$defs/JavaMessageStatus"},
+        "workflowStatus": {"$ref": "#/$defs/WorkflowRunStatus"},
+        "degraded": {"type": "boolean"}
+      }
+    },
+    "ContractError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "code", "message", "retryable"],
+      "properties": {
+        "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+        "code": {"$ref": "#/$defs/ContractErrorCode"},
+        "message": {"type": "string", "minLength": 1, "maxLength": 512},
+        "retryable": {"type": "boolean"},
+        "details": {"type": "object", "maxProperties": 32}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "schemaName"],
+  "properties": {
+    "contractVersion": {"$ref": "#/$defs/ContractVersion"},
+    "schemaName": {
+      "type": "string",
+      "enum": [
+        "WorkflowRunCreateRequest",
+        "WorkflowRunAccepted",
+        "IntentPlan",
+        "WorkflowResult",
+        "WorkflowTerminalCallback",
+        "WorkflowDeliveryAck",
+        "ToolInvokeRequest",
+        "ToolInvokeResponse",
+        "SessionDeletionOutboxEvent",
+        "JavaGenerationRetry",
+        "StatusMapping",
+        "ContractError"
+      ]
+    }
+  }
+}

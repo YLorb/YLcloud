@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ylcloud.local/schemas/service-jwt-claims.schema.json",
+  "title": "YLcloud Service JWT Claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["iss", "sub", "aud", "iat", "nbf", "exp", "jti", "scope"],
+  "properties": {
+    "iss": {"enum": ["ylcloud-app", "ylcloud-workflow"]},
+    "sub": {"enum": ["ylcloud-app", "ylcloud-workflow"]},
+    "aud": {
+      "enum": [
+        "ylcloud-workflow",
+        "ylcloud-tool-gateway",
+        "ylcloud-model-service",
+        "ylcloud-workflow-callback"
+      ]
+    },
+    "iat": {"type": "integer", "minimum": 1},
+    "nbf": {"type": "integer", "minimum": 1},
+    "exp": {"type": "integer", "minimum": 1},
+    "jti": {"type": "string", "format": "uuid"},
+    "scope": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{1,127}$"}
+    },
+    "userId": {"type": "integer", "minimum": 1},
+    "sessionId": {"type": "integer", "minimum": 1},
+    "messageId": {"type": "integer", "minimum": 1},
+    "runId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "executionId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "nodeId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "invocationId": {"type": "string", "minLength": 1, "maxLength": 128}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"aud": {"const": "ylcloud-workflow"}}},
+      "then": {"required": ["userId", "sessionId", "messageId"]}
+    },
+    {
+      "if": {"properties": {"aud": {"const": "ylcloud-tool-gateway"}}},
+      "then": {
+        "required": [
+          "userId", "sessionId", "messageId", "runId", "executionId", "nodeId", "invocationId"
+        ]
+      }
+    },
+    {
+      "if": {"properties": {"aud": {"const": "ylcloud-model-service"}}},
+      "then": {"required": ["runId"]}
+    },
+    {
+      "if": {"properties": {"aud": {"const": "ylcloud-workflow-callback"}}},
+      "then": {"required": ["userId", "sessionId", "messageId", "runId", "executionId"]}
+    }
+  ]
+}

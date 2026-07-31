@@ -1,0 +1,1247 @@
+{
+  "$defs": {
+    "EdgeCondition": {
+      "additionalProperties": false,
+      "description": "受限的结构化条件，不执行 eval。",
+      "properties": {
+        "operator": {
+          "default": "truthy",
+          "enum": [
+            "truthy",
+            "falsy",
+            "equals",
+            "not_equals",
+            "greater_than",
+            "greater_or_equal",
+            "less_than",
+            "less_or_equal",
+            "contains",
+            "in"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "EdgeCondition",
+      "type": "object"
+    },
+    "GraphEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default": {
+          "default": false,
+          "title": "Default",
+          "type": "boolean"
+        },
+        "from": {
+          "minLength": 1,
+          "title": "From",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "default": "flow",
+          "enum": [
+            "flow",
+            "default",
+            "error",
+            "timeout",
+            "end",
+            "cancel",
+            "loop_enter",
+            "loop_body_start",
+            "loop_return",
+            "loop_exit"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "priority": {
+          "default": 100,
+          "title": "Priority",
+          "type": "integer"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "to": {
+          "minLength": 1,
+          "title": "To",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "title": "GraphEdge",
+      "type": "object"
+    },
+    "GraphEndNode": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Schema"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "outcome_inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Outcome Inputs",
+          "type": "object"
+        },
+        "output_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Schema"
+        },
+        "publish_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Publish Mapping",
+          "type": "object"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_if": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_output_attribution": {
+          "default": "upstream",
+          "enum": [
+            "upstream",
+            "self"
+          ],
+          "title": "Skip Output Attribution",
+          "type": "string"
+        },
+        "skip_output_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Skip Output Mapping",
+          "type": "object"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "type": {
+          "const": "end",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "GraphEndNode",
+      "type": "object"
+    },
+    "GraphLLMNode": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Schema"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "outcome_inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Outcome Inputs",
+          "type": "object"
+        },
+        "output": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Output",
+          "type": "string"
+        },
+        "output_schema": {
+          "additionalProperties": true,
+          "title": "Output Schema",
+          "type": "object"
+        },
+        "prompt": {
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "publish": {
+          "default": false,
+          "title": "Publish",
+          "type": "boolean"
+        },
+        "publish_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Publish Mapping",
+          "type": "object"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_if": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_output_attribution": {
+          "default": "upstream",
+          "enum": [
+            "upstream",
+            "self"
+          ],
+          "title": "Skip Output Attribution",
+          "type": "string"
+        },
+        "skip_output_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Skip Output Mapping",
+          "type": "object"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "type": {
+          "const": "llm",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "prompt",
+        "output"
+      ],
+      "title": "GraphLLMNode",
+      "type": "object"
+    },
+    "GraphLoopNode": {
+      "additionalProperties": false,
+      "properties": {
+        "body_entry": {
+          "minLength": 1,
+          "title": "Body Entry",
+          "type": "string"
+        },
+        "body_exit": {
+          "minLength": 1,
+          "title": "Body Exit",
+          "type": "string"
+        },
+        "collect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoopCollectSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "index_var": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Index Var"
+        },
+        "input_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Schema"
+        },
+        "item_var": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Item Var",
+          "type": "string"
+        },
+        "items": {
+          "title": "Items"
+        },
+        "max_iterations": {
+          "default": 100,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Max Iterations",
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "outcome_inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Outcome Inputs",
+          "type": "object"
+        },
+        "output_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Schema"
+        },
+        "publish_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Publish Mapping",
+          "type": "object"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_if": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_output_attribution": {
+          "default": "upstream",
+          "enum": [
+            "upstream",
+            "self"
+          ],
+          "title": "Skip Output Attribution",
+          "type": "string"
+        },
+        "skip_output_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Skip Output Mapping",
+          "type": "object"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "type": {
+          "const": "loop",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "items",
+        "item_var",
+        "body_entry",
+        "body_exit"
+      ],
+      "title": "GraphLoopNode",
+      "type": "object"
+    },
+    "GraphMergeNode": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Schema"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/OutputReference"
+          },
+          "minProperties": 1,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "join_policy": {
+          "const": "all_activated",
+          "default": "all_activated",
+          "title": "Join Policy",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "outcome_inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Outcome Inputs",
+          "type": "object"
+        },
+        "output": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Output",
+          "type": "string"
+        },
+        "output_schema": {
+          "additionalProperties": true,
+          "title": "Output Schema",
+          "type": "object"
+        },
+        "publish": {
+          "default": true,
+          "title": "Publish",
+          "type": "boolean"
+        },
+        "publish_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Publish Mapping",
+          "type": "object"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_if": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_output_attribution": {
+          "default": "upstream",
+          "enum": [
+            "upstream",
+            "self"
+          ],
+          "title": "Skip Output Attribution",
+          "type": "string"
+        },
+        "skip_output_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Skip Output Mapping",
+          "type": "object"
+        },
+        "strategy": {
+          "default": "object",
+          "enum": [
+            "object",
+            "list",
+            "first"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "type": {
+          "const": "merge",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs",
+        "output"
+      ],
+      "title": "GraphMergeNode",
+      "type": "object"
+    },
+    "GraphStartNode": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Schema"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "outcome_inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Outcome Inputs",
+          "type": "object"
+        },
+        "output_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Schema"
+        },
+        "publish_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Publish Mapping",
+          "type": "object"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_if": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_output_attribution": {
+          "default": "upstream",
+          "enum": [
+            "upstream",
+            "self"
+          ],
+          "title": "Skip Output Attribution",
+          "type": "string"
+        },
+        "skip_output_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Skip Output Mapping",
+          "type": "object"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "type": {
+          "const": "start",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "GraphStartNode",
+      "type": "object"
+    },
+    "GraphToolNode": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "id": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input": {
+          "title": "Input"
+        },
+        "input_schema": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Schema"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "outcome_inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Outcome Inputs",
+          "type": "object"
+        },
+        "output": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Output",
+          "type": "string"
+        },
+        "output_schema": {
+          "additionalProperties": true,
+          "title": "Output Schema",
+          "type": "object"
+        },
+        "publish": {
+          "default": false,
+          "title": "Publish",
+          "type": "boolean"
+        },
+        "publish_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Publish Mapping",
+          "type": "object"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_if": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skip_output_attribution": {
+          "default": "upstream",
+          "enum": [
+            "upstream",
+            "self"
+          ],
+          "title": "Skip Output Attribution",
+          "type": "string"
+        },
+        "skip_output_mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Skip Output Mapping",
+          "type": "object"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "tool": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+          "title": "Tool",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "tool",
+        "input",
+        "output"
+      ],
+      "title": "GraphToolNode",
+      "type": "object"
+    },
+    "LoopCollectSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "node": {
+          "minLength": 1,
+          "title": "Node",
+          "type": "string"
+        },
+        "output": {
+          "minLength": 1,
+          "title": "Output",
+          "type": "string"
+        },
+        "output_schema": {
+          "additionalProperties": true,
+          "title": "Output Schema",
+          "type": "object"
+        },
+        "publish": {
+          "default": false,
+          "title": "Publish",
+          "type": "boolean"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "target": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "output",
+        "target"
+      ],
+      "title": "LoopCollectSpec",
+      "type": "object"
+    },
+    "OutputReference": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "node": {
+          "minLength": 1,
+          "title": "Node",
+          "type": "string"
+        },
+        "output": {
+          "minLength": 1,
+          "title": "Output",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "node",
+        "output"
+      ],
+      "title": "OutputReference",
+      "type": "object"
+    },
+    "RetryPolicy": {
+      "additionalProperties": false,
+      "description": "节点级重试策略。\n\nExecutor 会读取该配置，在支持 retry 的节点失败时，根据 max_attempts 和\nbackoff_seconds 决定是否重试。当前顺序执行器支持 llm / tool 节点重试。",
+      "properties": {
+        "backoff_seconds": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Backoff Seconds",
+          "type": "number"
+        },
+        "max_attempts": {
+          "default": 1,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        }
+      },
+      "title": "RetryPolicy",
+      "type": "object"
+    },
+    "StateFieldSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "nullable": {
+          "default": false,
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "type": {
+          "default": "any",
+          "enum": [
+            "any",
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "array",
+            "object"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "StateFieldSpec",
+      "type": "object"
+    }
+  },
+  "$id": "https://example.local/schemas/workflow-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Workflow v2：节点描述行为，显式 edges 描述控制流。",
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/GraphEdge"
+      },
+      "minItems": 1,
+      "title": "Edges",
+      "type": "array"
+    },
+    "inputs": {
+      "additionalProperties": true,
+      "title": "Inputs",
+      "type": "object"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "name": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "nodes": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "end": "#/$defs/GraphEndNode",
+            "llm": "#/$defs/GraphLLMNode",
+            "loop": "#/$defs/GraphLoopNode",
+            "merge": "#/$defs/GraphMergeNode",
+            "start": "#/$defs/GraphStartNode",
+            "tool": "#/$defs/GraphToolNode"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/GraphStartNode"
+          },
+          {
+            "$ref": "#/$defs/GraphEndNode"
+          },
+          {
+            "$ref": "#/$defs/GraphLLMNode"
+          },
+          {
+            "$ref": "#/$defs/GraphToolNode"
+          },
+          {
+            "$ref": "#/$defs/GraphLoopNode"
+          },
+          {
+            "$ref": "#/$defs/GraphMergeNode"
+          }
+        ]
+      },
+      "minItems": 2,
+      "title": "Nodes",
+      "type": "array"
+    },
+    "outputs": {
+      "items": {
+        "minLength": 1,
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "type": "string"
+      },
+      "title": "Outputs",
+      "type": "array"
+    },
+    "state": {
+      "additionalProperties": {
+        "$ref": "#/$defs/StateFieldSpec"
+      },
+      "title": "State",
+      "type": "object"
+    },
+    "version": {
+      "const": "2.0",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "name",
+    "nodes",
+    "edges"
+  ],
+  "title": "GraphWorkflow",
+  "type": "object"
+}
