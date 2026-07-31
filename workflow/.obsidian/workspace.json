@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "04-待完成任务与路线图.md",
+                "file": "Agent接入.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "04-待完成任务与路线图"
+              "title": "Agent接入"
             }
           }
         ]
@@ -182,12 +182,29 @@
   },
   "active": "a670989f1cd29a4a",
   "lastOpenFiles": [
-    "待验收任务.md",
-    "02-核心架构与执行流程.md",
+    "08-Graph-Workflow图工作流引擎.md",
+    "Agent接入.md",
+    "TEST-20260721-002-Graph-Workflow稳定版测试要求.md",
+    "13-Graph-Workflow稳定版详细实现规格.md",
+    "12-Graph-Workflow稳定版完整实施方案.md",
+    "11-Run-Control与隔离Worker.md",
+    "10-Outcome-Edge与Timeout模型.md",
+    "09-Loop-Controller运行时模型.md",
+    "TEST-20260721-001-Graph-Workflow测试记录.md",
+    "TODO.md",
     "04-待完成任务与路线图.md",
+    "03-已完成任务.md",
+    "TODO.md.tmp.27344.1784225873358",
+    "TODO.md.tmp.27344.1784225866800",
+    "TODO.md.tmp.27344.1784222725723",
+    "04-待完成任务与路线图.md.tmp.27344.1784221874517",
+    "04-待完成任务与路线图.md.tmp.27344.1784221858436",
+    "04-待完成任务与路线图.md.tmp.27344.1784221852764",
     "05-技术栈与工程实践.md",
     "06-运行方式与测试结果.md",
-    "03-已完成任务.md",
+    "07-简历与面试表达.md",
+    "待验收任务.md",
+    "02-核心架构与执行流程.md",
     "01-项目简介与目标.md",
     "00-项目索引.md"
   ]
