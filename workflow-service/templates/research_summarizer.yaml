@@ -1,0 +1,41 @@
+version: "1.0"
+name: research_summarizer
+description: 根据用户目标生成检索词、模拟搜索并总结资料。
+metadata:
+  category: research
+  description: 适用于资料调研、趋势分析和搜索结果总结。
+  keywords:
+    - 调研
+    - 搜索
+    - 总结
+    - 趋势
+    - research
+  priority: 10
+  required_inputs:
+    - goal
+inputs:
+  goal: ""
+outputs:
+  - final_answer
+nodes:
+  - id: start
+    type: start
+    next: plan
+  - id: plan
+    type: llm
+    prompt: "请为这个调研目标生成 3 个搜索关键词：{{ goal }}"
+    output: keywords
+    next: search
+  - id: search
+    type: tool
+    tool: mock_search
+    input: "{{ keywords }}"
+    output: search_results
+    next: summarize
+  - id: summarize
+    type: llm
+    prompt: "目标：{{ goal }}。请总结这些资料：{{ search_results }}"
+    output: final_answer
+    next: end
+  - id: end
+    type: end

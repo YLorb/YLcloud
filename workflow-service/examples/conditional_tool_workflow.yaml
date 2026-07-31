@@ -1,0 +1,46 @@
+version: "1.0"
+name: conditional_tool_workflow
+description: 根据输入是否为空决定调用搜索工具还是直接结束。
+inputs:
+  keyword: AI
+outputs:
+  - result
+nodes:
+  - id: start
+    type: start
+    next: validate
+
+  - id: validate
+    type: tool
+    tool: echo
+    input: "{{ keyword }}"
+    output: validated
+    next: check
+
+  - id: check
+    type: condition
+    expression: "{{ validated }}"
+    if_true: search
+    if_false: skip
+
+  - id: search
+    type: tool
+    tool: mock_search
+    input: "{{ validated }}"
+    output: search_results
+    next: summarize
+
+  - id: summarize
+    type: llm
+    prompt: "请总结这些搜索结果：{{ search_results }}"
+    output: result
+    next: end
+
+  - id: skip
+    type: llm
+    prompt: "输入为空，无需搜索。"
+    output: result
+    next: end
+
+  - id: end
+    type: end

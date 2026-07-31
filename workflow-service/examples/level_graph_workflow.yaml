@@ -1,0 +1,40 @@
+version: "2.0"
+name: graph_loop_demo
+inputs:
+  items:
+    - first
+    - second
+outputs:
+  - results
+nodes:
+  - id: start
+    type: start
+  - id: process_items
+    type: loop
+    items: "{{ items }}"
+    item_var: current_item
+    index_var: current_index
+    body_entry: echo_item
+    body_exit: echo_item
+    max_iterations: 10
+    collect:
+      node: echo_item
+      output: echoed
+      target: results
+      publish: true
+  - id: echo_item
+    type: tool
+    tool: echo
+    input: "{{ current_item }}"
+    output: echoed
+  - id: end
+    type: end
+edges:
+  - from: start
+    to: process_items
+  - from: process_items
+    to: echo_item
+  - from: echo_item
+    to: process_items
+  - from: process_items
+    to: end

@@ -1,0 +1,41 @@
+version: "1.0"
+name: python_error_analyzer
+description: 分析 Python 报错并生成修复建议。
+metadata:
+  category: code_debug
+  description: 适用于 Python 异常、Traceback 和 Debug 需求。
+  keywords:
+    - python
+    - traceback
+    - 报错
+    - 异常
+    - debug
+  priority: 10
+  required_inputs:
+    - goal
+inputs:
+  goal: ""
+outputs:
+  - final_answer
+nodes:
+  - id: start
+    type: start
+    next: analyze
+  - id: analyze
+    type: llm
+    prompt: "请识别这个 Python 问题的错误现象和可能原因：{{ goal }}"
+    output: analysis
+    next: normalize
+  - id: normalize
+    type: tool
+    tool: echo
+    input: "{{ analysis }}"
+    output: normalized_analysis
+    next: suggest
+  - id: suggest
+    type: llm
+    prompt: "请根据以下分析给出可执行的修复建议：{{ normalized_analysis }}"
+    output: final_answer
+    next: end
+  - id: end
+    type: end

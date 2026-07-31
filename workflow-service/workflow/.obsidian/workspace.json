@@ -1,0 +1,211 @@
+{
+  "main": {
+    "id": "8033eb6b82414d78",
+    "type": "split",
+    "children": [
+      {
+        "id": "0955a6d907e8541a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "a670989f1cd29a4a",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Agent接入.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Agent接入"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "1908542627fb6f57",
+    "type": "split",
+    "children": [
+      {
+        "id": "31937af4cd800e14",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "add435c53513ffd6",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "a2d4f566969f8fee",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "1c63d82fda9be660",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "b932f508528deb09",
+    "type": "split",
+    "children": [
+      {
+        "id": "9fdea4aacd567aaa",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1f9b0e1f01ac7aa4",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "反向链接"
+            }
+          },
+          {
+            "id": "38761027b5c3ab8d",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "出链"
+            }
+          },
+          {
+            "id": "d9338cc936c2295d",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "3ea990327f062fd1",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "7b2051602ba9dfa9",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "a670989f1cd29a4a",
+  "lastOpenFiles": [
+    "08-Graph-Workflow图工作流引擎.md",
+    "Agent接入.md",
+    "TEST-20260721-002-Graph-Workflow稳定版测试要求.md",
+    "13-Graph-Workflow稳定版详细实现规格.md",
+    "12-Graph-Workflow稳定版完整实施方案.md",
+    "11-Run-Control与隔离Worker.md",
+    "10-Outcome-Edge与Timeout模型.md",
+    "09-Loop-Controller运行时模型.md",
+    "TEST-20260721-001-Graph-Workflow测试记录.md",
+    "TODO.md",
+    "04-待完成任务与路线图.md",
+    "03-已完成任务.md",
+    "TODO.md.tmp.27344.1784225873358",
+    "TODO.md.tmp.27344.1784225866800",
+    "TODO.md.tmp.27344.1784222725723",
+    "04-待完成任务与路线图.md.tmp.27344.1784221874517",
+    "04-待完成任务与路线图.md.tmp.27344.1784221858436",
+    "04-待完成任务与路线图.md.tmp.27344.1784221852764",
+    "05-技术栈与工程实践.md",
+    "06-运行方式与测试结果.md",
+    "07-简历与面试表达.md",
+    "待验收任务.md",
+    "02-核心架构与执行流程.md",
+    "01-项目简介与目标.md",
+    "00-项目索引.md"
+  ]
+}
