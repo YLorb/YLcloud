@@ -77,7 +77,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #16A34A;
+  background: var(--color-primary);
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -94,8 +94,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #0369A1;
-  border: 2px solid #0369A1;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;

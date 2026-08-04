@@ -1,7 +1,8 @@
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle, Bot, Check, ChevronLeft, FileText, ListTree, MessageSquarePlus,
-  Plus, RotateCw, Search, Send, Sparkles, Trash2, User, XCircle
+  MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, RotateCw, Search, Send, Sparkles, Trash2, User, XCircle
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -21,6 +22,7 @@ export function AssistantPage() {
   const [sessionId, setSessionId] = useState<number | null>(linkedSessionId);
   const [newSessionDraft, setNewSessionDraft] = useState(false);
   const [sessionSearch, setSessionSearch] = useState("");
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(() => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1440px)").matches);
   const [question, setQuestion] = useState("");
   const [selectedSpaces, setSelectedSpaces] = useState<number[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeChatSession | null>(null);
@@ -151,20 +153,21 @@ export function AssistantPage() {
     document.getElementById(`message-${episode.startSequenceNo}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  return <div className="assistant-page">
-    <aside className="assistant-sessions">
-      <Button variant="confirm" className="full-width" onClick={() => {
+  return <div className={sessionsCollapsed ? "assistant-page assistant-page--sessions-collapsed" : "assistant-page"}>
+    <aside className="assistant-sessions" aria-label="会话历史">
+      <Button variant="primary" className="full-width" onClick={() => {
         setNewSessionDraft(true); setSessionId(null); setSearchParams({}); setQuestion(""); setSelectedSpaces([]);
       }}><MessageSquarePlus size={16} />新建会话</Button>
       <label className="search-box search-box--small"><Search size={15} /><input value={sessionSearch} onChange={(event) => setSessionSearch(event.target.value)} placeholder="搜索会话" /></label>
       <div className="session-list">{sessions.isLoading ? <LoadingState label="加载会话" /> : (sessions.data || []).map((session) =>
         <div className={session.id === sessionId ? "session-item session-item--active" : "session-item"} key={session.id}>
           <button onClick={() => selectSession(session.id)}><strong>{session.title || "新会话"}</strong><small>{session.messageCount || 0} 条消息</small></button>
-          <button aria-label={`删除会话 ${session.title}`} onClick={() => setDeleteTarget(session)}><Trash2 size={14} /></button>
+          <DropdownMenu.Root><DropdownMenu.Trigger asChild><button aria-label={`打开会话 ${session.title} 的操作菜单`}><MoreHorizontal size={16} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="dropdown-menu" align="end"><DropdownMenu.Item className="dropdown-danger" onSelect={() => setDeleteTarget(session)}><Trash2 size={15} />删除会话</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>
         </div>)}</div>
     </aside>
     <section className="assistant-workspace">
       <div className="assistant-scope">
+        <Button className="assistant-sessions-toggle" variant="ghost" size="icon" aria-label={sessionsCollapsed ? "展开会话历史" : "收起会话历史"} aria-expanded={!sessionsCollapsed} onClick={() => setSessionsCollapsed((value) => !value)}>{sessionsCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</Button>
         <div className="assistant-scope__summary"><span className="section-eyebrow">知识范围</span>{selectedSpaceDetails.length
           ? <div className="knowledge-tags" aria-label="当前会话选择的知识库">{selectedSpaceDetails.map((space) => <span className="knowledge-tag" key={space.id}>{space.name}</span>)}</div>
           : <strong>选择回答所依据的知识库</strong>}</div>
@@ -187,8 +190,8 @@ export function AssistantPage() {
         <textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send.mutate(); }
         }} placeholder="询问知识库中的内容…" rows={2} disabled={send.isPending} />
-        <Button variant="confirm" size="icon" type="submit" aria-label="发送问题" loading={send.isPending} disabled={!question.trim() || !selectedSpaces.length}><Send size={17} /></Button>
-        <small>问题和处理状态由后端持久化；刷新页面不会丢失正在生成的回答。</small>
+        <Button variant="primary" size="icon" type="submit" aria-label="发送问题" loading={send.isPending} disabled={!question.trim() || !selectedSpaces.length}><Send size={17} /></Button>
+        <small>可以放心离开，回答完成后仍会保留。</small>
       </form>
     </section>
     <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)} title="删除会话？" description="这将永久删除会话及其消息记录；已形成的长期记忆会继续保留，可在记忆管理中单独清理。" footer={<><Button onClick={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" loading={remove.isPending} onClick={() => deleteTarget && remove.mutate(deleteTarget.id)}><Trash2 size={16} />确认删除</Button></>}>
@@ -218,7 +221,7 @@ function Message({ message, onRetry, onCancel, retrying, cancelling }: { message
   const pending = ["QUEUED", "RUNNING"].includes(message.taskStatus || "");
   const failed = message.taskStatus === "FAILED";
   const presentation = messagePresentation(message);
-  return <article id={message.sequenceNo ? `message-${message.sequenceNo}` : undefined} className={assistant ? "message-row message-row--assistant" : "message-row message-row--user"}><span className="message-avatar">{assistant ? <Bot size={17} /> : <User size={17} />}</span><div>{pending ? <div className="message-bubble message-bubble--thinking" role="status"><i /><i /><i /><span>{message.taskStatus === "QUEUED" ? "已排队，等待生成回答" : "Workflow 正在准备上下文，Java 将生成最终回答"}</span></div> : <div className="message-bubble">{message.content}</div>}{assistant && message.taskStatus && <div className="message-statuses"><StatusBadge tone={presentation.tone}>{presentation.primary}</StatusBadge>{message.workflowStatus && <StatusBadge tone={presentation.workflowTone}>Workflow · {message.workflowStatus}</StatusBadge>}{pending && message.workflowRunId && <Button variant="ghost" size="sm" loading={cancelling} onClick={onCancel}><XCircle size={14} />取消</Button>}</div>}{failed && <div className="assistant-error" role="alert"><AlertCircle size={17} /><div><strong>回答生成失败</strong><p>{message.errorMessage || "服务暂时不可用，请稍后重试。"}</p></div><Button size="sm" loading={retrying} onClick={onRetry}><RotateCw size={15} />重试</Button></div>}{assistant && !failed && citations.length > 0 && <div className="citation-list"><span>引用来源</span>{citations.map((citation, index) => <article key={`${citation.documentId}-${citation.chunkId}-${index}`}><FileText size={15} /><div><strong>{citation.fileName || `来源 ${index + 1}`}</strong><p>{citation.contentSummary || "相关文档片段"}</p></div>{citation.rerankScore != null && <small>{Math.round(citation.rerankScore * 100)}%</small>}</article>)}</div>}</div></article>;
+  return <article id={message.sequenceNo ? `message-${message.sequenceNo}` : undefined} className={assistant ? "message-row message-row--assistant" : "message-row message-row--user"}><span className="message-avatar">{assistant ? <Bot size={17} /> : <User size={17} />}</span><div>{pending ? <div className="message-bubble message-bubble--thinking" role="status"><i /><i /><i /><span>{message.taskStatus === "QUEUED" ? "已排队，等待生成回答" : "正在检索相关文档并生成回答……"}</span></div> : <div className="message-bubble">{message.content}</div>}{assistant && message.taskStatus && <div className="message-statuses"><StatusBadge tone={presentation.tone}>{presentation.primary}</StatusBadge>{message.workflowStatus && <details className="assistant-process-details"><summary>处理详情</summary><span>处理流程 · {message.workflowStatus}</span></details>}{pending && message.workflowRunId && <Button variant="ghost" size="sm" loading={cancelling} onClick={onCancel}><XCircle size={14} />取消</Button>}</div>}{failed && <div className="assistant-error" role="alert"><AlertCircle size={17} /><div><strong>回答生成失败</strong><p>{message.errorMessage || "服务暂时不可用，请稍后重试。"}</p></div><Button size="sm" loading={retrying} onClick={onRetry}><RotateCw size={15} />重试</Button></div>}{assistant && !failed && citations.length > 0 && <div className="citation-list"><span>引用来源</span>{citations.map((citation, index) => <article key={`${citation.documentId}-${citation.chunkId}-${index}`}><FileText size={15} /><div><strong>{citation.fileName || `来源 ${index + 1}`}</strong><p>{citation.contentSummary || "相关文档片段"}</p></div>{citation.rerankScore != null && <small>{Math.round(citation.rerankScore * 100)}%</small>}</article>)}</div>}</div></article>;
 }
 
 function messagePresentation(message: KnowledgeChatMessage): { primary: string; tone: StatusTone; workflowTone: StatusTone } {

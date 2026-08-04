@@ -1,11 +1,11 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronRight, Copy, Database, Download, FolderInput, FolderPlus, Grid2X2, Link2, List, MoreHorizontal,
+  Bot, Check, ChevronRight, Copy, Database, Download, FolderInput, FolderPlus, Grid2X2, Link2, List, MoreHorizontal,
   Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, Upload, X
 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../../api";
 import type { Category } from "../../appTypes";
@@ -20,6 +20,7 @@ type Crumb = { id: number; name: string };
 
 export function FilesPage() {
   const client = useQueryClient();
+  const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
   const [params, setParams] = useSearchParams();
   const parentId = Number(params.get("parent") || 0);
@@ -200,7 +201,7 @@ export function FilesPage() {
             {crumbs.map((crumb, index) => <span key={`${crumb.id}-${index}`}><button onClick={() => openCrumb(crumb)}>{crumb.name}</button>{index < crumbs.length - 1 && <ChevronRight size={15} />}</span>)}
           </nav>
           <div className="toolbar-actions">
-            {!isRecycle && !isAggregate && <><input ref={fileInput} hidden type="file" multiple onChange={(event) => upload(event.target.files)} /><Button variant="confirm" onClick={() => fileInput.current?.click()}><Upload size={16} />上传文件</Button><Button onClick={() => setFolderOpen(true)}><FolderPlus size={16} />新建文件夹</Button></>}
+            {!isRecycle && !isAggregate && <><input ref={fileInput} hidden type="file" multiple onChange={(event) => upload(event.target.files)} /><Button variant="primary" onClick={() => fileInput.current?.click()}><Upload size={16} />上传文件</Button><Button onClick={() => setFolderOpen(true)}><FolderPlus size={16} />新建文件夹</Button></>}
             <Button variant="ghost" size="icon" aria-label="刷新" onClick={() => refresh()}><RefreshCw size={17} /></Button>
           </div>
         </div>
@@ -210,7 +211,9 @@ export function FilesPage() {
         </div>
         {selectedItems.length > 0 && !isRecycle && <div className="bulk-action-bar" role="region" aria-label="批量文件操作"><strong>已选择 {selectedItems.length} 项</strong><span>可批量整理所选文件；文件夹不会添加到知识库。</span><div><Button disabled={!selectedDocuments.length} onClick={() => { setKnowledgeSpaceId(""); setBatchKnowledgeOpen(true); }}><Database size={16} />添加进入知识库</Button><Button onClick={() => { setBatchTransfer("move"); setTransferFolderId("0"); }}><FolderInput size={16} />批量移动</Button><Button onClick={() => { setBatchTransfer("copy"); setTransferFolderId("0"); }}><Copy size={16} />批量复制</Button><Button variant="danger" onClick={() => setBatchDeleteOpen(true)}><Trash2 size={16} />移入回收站</Button><Button variant="ghost" onClick={() => setSelectedIds(new Set())}>取消选择</Button></div></div>}
         {uploadProgress && <div className="upload-strip" role="status"><span><Upload size={16} />正在{uploadProgress.stage === "hashing" ? "校验" : uploadProgress.stage === "merging" ? "合并" : "上传"} {uploadProgress.fileName}</span><progress max={100} value={uploadProgress.percent} /><strong>{uploadProgress.percent}%</strong></div>}
-        {files.isLoading ? <LoadingState label="正在加载文件" /> : files.isError ? <ErrorState message={files.error instanceof Error ? files.error.message : "无法加载文件"} onRetry={() => files.refetch()} /> : visibleFiles.length === 0 ? <EmptyState title={query ? "没有匹配的文件" : isRecycle ? "回收站为空" : "这里还没有文件"} message={query ? "请尝试其他关键词。" : isRecycle ? "删除的文件会暂时保留在这里。" : "上传文件或创建文件夹开始整理资料。"} action={!isRecycle && !query ? <Button variant="confirm" onClick={() => fileInput.current?.click()}><Plus size={16} />上传第一个文件</Button> : undefined} /> : (
+        {files.isLoading ? <LoadingState label="正在加载文件" /> : files.isError ? <ErrorState message={files.error instanceof Error ? files.error.message : "无法加载文件"} onRetry={() => files.refetch()} /> : visibleFiles.length === 0 ? (!query && !isRecycle && !isAggregate && parentId === 0
+          ? <FileOnboarding onUpload={() => fileInput.current?.click()} onAsk={() => navigate("/assistant")} />
+          : <EmptyState title={query ? "没有匹配的文件" : isRecycle ? "回收站为空" : "这里还没有文件"} message={query ? "请尝试其他关键词。" : isRecycle ? "删除的文件会暂时保留在这里。" : "上传文件或创建文件夹开始整理资料。"} action={!isRecycle && !query ? <Button variant="primary" onClick={() => fileInput.current?.click()}><Plus size={16} />上传文件</Button> : undefined} />) : (
           <div className={view === "grid" ? "file-grid" : "data-table-wrap"}>
             {view === "list" ? <table className="data-table"><thead><tr><th className="selection-cell"><input type="checkbox" checked={allSelected} aria-checked={allSelected ? true : selectedItems.length ? "mixed" : false} onChange={toggleAll} aria-label="选择当前结果中的全部文件" /></th><th>名称</th><th>类型</th><th>大小</th><th>更新时间</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{visibleFiles.map((item) => <tr className={selectedIds.has(item.fileId) ? "is-selected" : ""} key={item.fileId} onDoubleClick={() => previewFile(item)}><td className="selection-cell"><input type="checkbox" checked={selectedIds.has(item.fileId)} onChange={() => toggleSelection(item)} aria-label={`选择 ${item.name}`} /></td><td><button className="file-name" onClick={() => previewFile(item)}>{fileIcon(item, 19)}<span>{item.name}</span></button></td><td>{fileTypeLabel(item)}</td><td>{item.isDir ? "—" : formatSize(item.size)}</td><td>{formatTime(item.updateTime || item.createTime)}</td><td><FileMenu item={item} recycle={isRecycle} onPreview={() => previewFile(item)} onDownload={() => api.downloadFile(item.fileUuid, item.parentId, item.name).catch((error) => toast.error(error.message))} onShare={() => share(item)} onRestore={() => restoreFile.mutate(item)} onRename={() => { setRenameTarget(item); setRenameName(item.name); }} onKnowledge={() => { setKnowledgeTarget(item); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(item)} /></td></tr>)}</tbody></table> : visibleFiles.map((item) => <article className={selectedIds.has(item.fileId) ? "file-card file-card--selected" : "file-card"} key={item.fileId} onDoubleClick={() => previewFile(item)}><label className="file-card__select"><input type="checkbox" checked={selectedIds.has(item.fileId)} onChange={() => toggleSelection(item)} /><span className="sr-only">选择 {item.name}</span></label><div className="file-card__icon">{fileIcon(item, 36)}</div><button className="file-card__name" onClick={() => previewFile(item)}>{item.name}</button><span>{item.isDir ? "文件夹" : formatSize(item.size)}</span><FileMenu item={item} recycle={isRecycle} onPreview={() => previewFile(item)} onDownload={() => api.downloadFile(item.fileUuid, item.parentId, item.name).catch((error) => toast.error(error.message))} onShare={() => share(item)} onRestore={() => restoreFile.mutate(item)} onRename={() => { setRenameTarget(item); setRenameName(item.name); }} onKnowledge={() => { setKnowledgeTarget(item); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(item)} /></article>)}
           </div>
@@ -227,6 +230,22 @@ export function FilesPage() {
       <Dialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen} title="将所选文件移入回收站？" description="文件之后仍可从回收站恢复；本次批量操作失败时不会保留部分修改。" footer={<><Button onClick={() => setBatchDeleteOpen(false)}>取消</Button><Button variant="danger" loading={batchDelete.isPending} onClick={() => batchDelete.mutate()}><Trash2 size={16} />移入回收站</Button></>}><div className="danger-callout">将处理 <strong>{selectedItems.length}</strong> 个文件或文件夹。</div></Dialog>
     </div>
   );
+}
+
+function FileOnboarding({ onUpload, onAsk }: { onUpload: () => void; onAsk: () => void }) {
+  return <section className="file-onboarding" aria-labelledby="file-onboarding-title">
+    <div className="file-onboarding__intro">
+      <span className="file-onboarding__icon"><Upload size={24} /></span>
+      <div><span className="section-eyebrow">从这里开始</span><h2 id="file-onboarding-title">上传资料，然后直接提问</h2><p>PDF、Word 等资料上传后会进入解析和索引流程。处理完成后，回答可以追溯到原文。</p></div>
+    </div>
+    <ol className="file-onboarding__steps">
+      <li className="is-current"><span>1</span><div><strong>上传文件</strong><small>选择要整理和检索的资料</small></div></li>
+      <li><span>2</span><div><strong>系统处理</strong><small>自动解析、切分并建立索引</small></div></li>
+      <li><span>3</span><div><strong>开始提问</strong><small>获取带原文引用的回答</small></div></li>
+    </ol>
+    <div className="file-onboarding__actions"><Button variant="primary" size="lg" onClick={onUpload}><Upload size={17} />上传第一个文件</Button><Button onClick={onAsk}><Bot size={17} />查看智能问答</Button></div>
+    <p className="file-onboarding__note"><Check size={15} />上传不会改变原文件，处理进度可随时在“任务”中查看。</p>
+  </section>;
 }
 
 function FileMenu({ item, recycle, onPreview, onDownload, onShare, onRestore, onRename, onKnowledge, onTransfer, onDelete }: { item: FileItem; recycle: boolean; onPreview: () => void; onDownload: () => void; onShare: () => void; onRestore: () => void; onRename: () => void; onKnowledge: () => void; onTransfer: (mode: "move" | "copy") => void; onDelete: () => void }) {

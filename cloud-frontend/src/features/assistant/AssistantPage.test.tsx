@@ -88,12 +88,13 @@ describe("AssistantPage effects", () => {
     expect(episode).toHaveAttribute("aria-current","location");
   });
 
-  it("shows the primary Java status before the secondary Workflow status", async () => {
+  it("shows the user-facing status before the optional processing details", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><MemoryRouter><AssistantPage /></MemoryRouter></QueryClientProvider>);
 
     const primary = await screen.findByText("成功（降级）");
-    const secondary = screen.getByText("Workflow · DEGRADED");
+    const secondary = screen.getByText("处理详情");
     expect(primary.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("处理流程 · DEGRADED")).toBeInTheDocument();
   });
 });

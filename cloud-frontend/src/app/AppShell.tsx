@@ -1,6 +1,7 @@
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Bot, BrainCircuit, ChevronLeft, ChevronRight, Database, Files, HardDrive, LayoutGrid,
+  Bot, BrainCircuit, ChevronLeft, ChevronRight, Database, Files, HardDrive,
   ListTodo, LogOut, Menu, Moon, Settings, Shield, Sun, User, Users, Wrench, X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -11,27 +12,24 @@ import { useSession } from "./session";
 import { formatSize } from "../fileUtils";
 
 const navItems = [
-  { to: "/files", label: "我的文件", icon: Files },
-  { to: "/spaces", label: "团队空间", icon: Users },
+  { to: "/files", label: "文件", icon: Files },
   { to: "/knowledge", label: "知识库", icon: Database },
-  { to: "/assistant", label: "AI Assistant", icon: Bot },
-  { to: "/memories", label: "记忆管理", icon: BrainCircuit },
-  { to: "/tasks", label: "后台任务", icon: ListTodo },
-  { to: "/account", label: "账号设置", icon: User }
+  { to: "/assistant", label: "智能问答", icon: Bot },
+  { to: "/tasks", label: "任务", icon: ListTodo }
 ];
 
 const routeMeta = [
   { test: (path: string) => path.startsWith("/memories"), title: "记忆管理", description: "查看、修正或删除 AI 为跨会话连续性保存的个人长期记忆。" },
-  { test: (path: string) => path.startsWith("/files"), title: "我的文件", description: "浏览、上传和管理你的云端文件。" },
+  { test: (path: string) => path.startsWith("/files"), title: "文件", description: "上传资料，查看处理状态，然后开始提问。" },
   { test: (path: string) => path.startsWith("/spaces"), title: "团队空间", description: "协作管理文档、成员与版本。" },
   { test: (path: string) => path.startsWith("/knowledge"), title: "知识库", description: "管理 RAG 索引、知识画像和检索质量。" },
-  { test: (path: string) => path.startsWith("/assistant"), title: "AI Assistant", description: "基于一个或多个知识库进行可信、可恢复的问答。" },
-  { test: (path: string) => path.startsWith("/tasks"), title: "后台任务", description: "查看执行阶段、结果并恢复失败任务。" },
+  { test: (path: string) => path.startsWith("/assistant"), title: "智能问答", description: "基于一个或多个知识库获取带原文引用的答案。" },
+  { test: (path: string) => path.startsWith("/tasks"), title: "任务", description: "查看资料处理进度并恢复失败任务。" },
   { test: (path: string) => path.startsWith("/account"), title: "账号设置", description: "管理账号状态、数据导出和注销选项。" },
   { test: (path: string) => path.startsWith("/admin/audit"), title: "安全审计", description: "查看不可变的安全事件日志和保留策略。" },
   { test: (path: string) => path.startsWith("/admin/backup"), title: "备份状态", description: "监控系统备份和恢复就绪状态。" },
   { test: (path: string) => path.startsWith("/admin/operations"), title: "系统运维", description: "维护模式控制和升级检查清单。" },
-  { test: (path: string) => path.startsWith("/admin"), title: "Admin Settings", description: "管理站点信息、权限、存储配额和 AI/RAG 配置。" }
+  { test: (path: string) => path.startsWith("/admin"), title: "管理设置", description: "管理站点信息、权限、存储配额和 AI/RAG 配置。" }
 ];
 
 export function AppShell() {
@@ -73,33 +71,17 @@ export function AppShell() {
       <aside className={mobileOpen ? "app-sidebar app-sidebar--mobile-open" : "app-sidebar"} aria-label="主导航">
         <div className="brand-lockup">
           <span className="brand-mark"><HardDrive size={21} /></span>
-          <span className="brand-text"><strong>YLCloud</strong><small>知识资产云</small></span>
+          <span className="brand-text"><strong>YL Cloud</strong><small>知识资产云</small></span>
           <button className="sidebar-mobile-close" onClick={() => setMobileOpen(false)} aria-label="关闭导航"><X size={20} /></button>
         </div>
         <nav className="primary-nav">
-          <span className="nav-eyebrow">工作空间</span>
+          <span className="nav-eyebrow">知识工作台</span>
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} aria-label={label} title={collapsed ? label : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
               <Icon size={19} aria-hidden="true" /><span>{label}</span>
             </NavLink>
           ))}
-          {isAdmin && (
-            <>
-              <span className="nav-eyebrow nav-eyebrow--spaced">管理</span>
-              <NavLink to="/admin/settings" aria-label="Admin Settings" title={collapsed ? "Admin Settings" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
-                <Settings size={19} aria-hidden="true" /><span>Admin Settings</span>
-              </NavLink>
-              <NavLink to="/admin/audit" aria-label="安全审计" title={collapsed ? "安全审计" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
-                <Shield size={19} aria-hidden="true" /><span>安全审计</span>
-              </NavLink>
-              <NavLink to="/admin/backup" aria-label="备份状态" title={collapsed ? "备份状态" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
-                <Database size={19} aria-hidden="true" /><span>备份状态</span>
-              </NavLink>
-              <NavLink to="/admin/operations" aria-label="系统运维" title={collapsed ? "系统运维" : undefined} className={({ isActive }) => isActive ? "nav-item nav-item--active" : "nav-item"}>
-                <Wrench size={19} aria-hidden="true" /><span>系统运维</span>
-              </NavLink>
-            </>
-          )}
+          <SettingsMenu collapsed={collapsed} isAdmin={isAdmin} />
         </nav>
         <div className="sidebar-footer">
           <div className="quota-card">
@@ -127,13 +109,39 @@ export function AppShell() {
         <main id="main-content" className="route-content" tabIndex={-1}><Outlet /></main>
       </section>
       <nav className="mobile-bottom-nav" aria-label="移动端主导航">
-        {navItems.slice(0, 4).map(({ to, label, icon: Icon }) => (
+        {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className={({ isActive }) => isActive ? "mobile-nav-item mobile-nav-item--active" : "mobile-nav-item"}>
             <Icon size={20} /><span>{label}</span>
           </NavLink>
         ))}
-        <button className="mobile-nav-item" onClick={() => setMobileOpen(true)}><LayoutGrid size={20} /><span>更多</span></button>
+        <button className="mobile-nav-item" onClick={() => setMobileOpen(true)}><Settings size={20} /><span>设置</span></button>
       </nav>
     </div>
   );
+}
+
+function SettingsMenu({ collapsed, isAdmin }: { collapsed: boolean; isAdmin: boolean }) {
+  return <DropdownMenu.Root>
+    <DropdownMenu.Trigger asChild>
+      <button className="nav-item nav-settings-trigger" aria-label="打开设置" title={collapsed ? "设置" : undefined}>
+        <Settings size={19} aria-hidden="true" /><span>设置</span><ChevronRight className="nav-settings-chevron" size={16} aria-hidden="true" />
+      </button>
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Portal>
+      <DropdownMenu.Content className="dropdown-menu settings-menu" side="right" align="end" sideOffset={10}>
+        <DropdownMenu.Label className="settings-menu__label">工作空间</DropdownMenu.Label>
+        <DropdownMenu.Item asChild><NavLink to="/spaces"><Users size={16} />团队空间</NavLink></DropdownMenu.Item>
+        <DropdownMenu.Item asChild><NavLink to="/memories"><BrainCircuit size={16} />记忆管理</NavLink></DropdownMenu.Item>
+        <DropdownMenu.Item asChild><NavLink to="/account"><User size={16} />账号设置</NavLink></DropdownMenu.Item>
+        {isAdmin && <>
+          <DropdownMenu.Separator />
+          <DropdownMenu.Label className="settings-menu__label">系统管理</DropdownMenu.Label>
+          <DropdownMenu.Item asChild><NavLink to="/admin/settings"><Settings size={16} />管理设置</NavLink></DropdownMenu.Item>
+          <DropdownMenu.Item asChild><NavLink to="/admin/audit"><Shield size={16} />安全审计</NavLink></DropdownMenu.Item>
+          <DropdownMenu.Item asChild><NavLink to="/admin/backup"><Database size={16} />备份状态</NavLink></DropdownMenu.Item>
+          <DropdownMenu.Item asChild><NavLink to="/admin/operations"><Wrench size={16} />系统运维</NavLink></DropdownMenu.Item>
+        </>}
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>;
 }

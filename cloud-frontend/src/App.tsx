@@ -34,7 +34,7 @@ function ProtectedRoute() {
 
 function AdminRoute() {
   const { user } = useSession();
-  return user?.role?.toUpperCase() === "ADMIN" ? <Outlet /> : <main className="route-error"><span className="route-error__code">403</span><h1>需要管理员权限</h1><p>当前账号不能访问 Admin Settings。请使用管理员账号登录或联系现有管理员授权。</p><Button asChild><a href="/files">返回我的文件</a></Button></main>;
+  return user?.role?.toUpperCase() === "ADMIN" ? <Outlet /> : <main className="route-error"><span className="route-error__code">403</span><h1>需要管理员权限</h1><p>当前账号不能访问管理设置。请使用管理员账号登录或联系现有管理员授权。</p><Button asChild><a href="/files">返回文件</a></Button></main>;
 }
 
 function PublicShareRoute() {
@@ -44,7 +44,7 @@ function PublicShareRoute() {
 }
 
 function NotFound() {
-  return <main className="route-error"><span className="route-error__code">404</span><h1>没有找到这个页面</h1><p>链接可能已失效，或页面地址已更改。</p><Button asChild variant="confirm"><a href="/files">返回我的文件</a></Button></main>;
+  return <main className="route-error"><span className="route-error__code">404</span><h1>没有找到这个页面</h1><p>链接可能已失效，或页面地址已更改。</p><Button asChild variant="primary"><a href="/files">返回文件</a></Button></main>;
 }
 
 const router = createBrowserRouter([

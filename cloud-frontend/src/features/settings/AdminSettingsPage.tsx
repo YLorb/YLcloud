@@ -44,14 +44,14 @@ export function AdminSettingsPage() {
   if (settings.isLoading) return <LoadingState label="正在加载管理员设置" />;
   if (settings.isError) return <ErrorState message={settings.error instanceof Error ? settings.error.message : "无法加载管理员设置"} onRetry={() => settings.refetch()} />;
   return <div className="admin-settings-page">
-    <section className="admin-security-note"><ShieldCheck size={22} /><div><strong>Admin Settings</strong><p>更改会影响所有后续请求。角色调整和账号停用立即生效，敏感配置不会明文回显。</p></div><StatusBadge tone="success">ADMIN 权限已验证</StatusBadge></section>
+    <section className="admin-security-note"><ShieldCheck size={22} /><div><strong>管理设置</strong><p>更改会影响所有后续请求。角色调整和账号停用立即生效，敏感配置不会明文回显。</p></div><StatusBadge tone="success">管理员权限已验证</StatusBadge></section>
     <Tabs.Root defaultValue="site" orientation="vertical" className="settings-tabs">
       <Tabs.List className="settings-tabs__list" aria-label="管理员设置分组">
         {sections.map(({ key, label, description, icon: Icon }) => <Tabs.Trigger key={key} value={key} className={key === "embedding" ? "settings-tab--unavailable" : undefined}><Icon size={17} /><span>{label}<small>{description}</small></span>{key === "embedding" && <Lock className="settings-tab__lock" size={12} aria-label="暂不可用" />}</Tabs.Trigger>)}
       </Tabs.List>
       <div className="settings-tabs__content">
         {sections.map((section) => <Tabs.Content key={section.key} value={section.key}>
-          <header className="panel-header"><div><span className="section-eyebrow">Admin Settings</span><h2>{section.label}</h2><p>{section.description}。</p></div></header>
+          <header className="panel-header"><div><span className="section-eyebrow">管理设置</span><h2>{section.label}</h2><p>{section.description}。</p></div></header>
           {grouped[section.key].length > 0 && <div className="settings-field-list">{grouped[section.key].map((setting) => <SettingField key={setting.key} setting={setting} value={values[setting.key] ?? ""} revealed={revealed.has(setting.key)} onReveal={() => setRevealed((current) => { const next = new Set(current); next.has(setting.key) ? next.delete(setting.key) : next.add(setting.key); return next; })} onChange={(value) => setValues((current) => ({ ...current, [setting.key]: value }))} />)}</div>}
           {section.key === "permissions" && <AccessManagementPanel />}
           {section.key === "embedding" && <div className="embedding-placeholder" aria-disabled="true"><Cpu size={32} /><strong>Embedding 模型切换暂不可用</strong><p>这里将用于选择向量模型、查看维度兼容性并执行索引迁移。功能开放前不会影响当前知识库。</p><span><Lock size={13} />敬请期待</span></div>}
