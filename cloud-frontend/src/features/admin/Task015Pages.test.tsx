@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountSettingsPage } from "../account/AccountSettingsPage";
 import { BackupStatusPage } from "./BackupStatusPage";
@@ -59,7 +60,11 @@ vi.mock("../../api", () => ({
 
 function renderPage(page: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{page}</QueryClientProvider>);
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>{page}</QueryClientProvider>
+    </MemoryRouter>,
+  );
 }
 
 afterEach(() => cleanup());

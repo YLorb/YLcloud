@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Download, FileDown, RefreshCw, Shield, UserX } from "lucide-react";
+import { AlertTriangle, Archive, Database, Download, FileDown, IdCard, RefreshCw, Shield, UserRound, Users, UserX } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../api";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
+import { ManagementFacts, ManagementMetric, ManagementMetrics, ManagementPageHeader, ManagementSection } from "../../components/ui/ManagementPage";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/PageState";
 import { StatusBadge, type StatusTone } from "../../components/ui/StatusBadge";
 import { formatTime } from "../../fileUtils";
@@ -71,74 +72,69 @@ export function AccountSettingsPage() {
   const isCancelled = status?.accountStatus === "CANCELLED";
   const isPurging = status?.accountStatus === "PURGING";
   const isPurged = status?.accountStatus === "PURGED";
+  const accountLabel = status?.accountStatus === "ACTIVE" ? "正常" : isCancelled ? "已注销" : isPurging ? "清理中" : "已删除";
+  const exportJobs = exports.data || [];
+  const activeExports = exportJobs.filter((job) => job.status === "PENDING" || job.status === "RUNNING").length;
+  const lastExport = exportJobs[0];
 
-  return <div className="account-settings-page">
-    <section className={`admin-security-note ${isCancelled ? "admin-security-note--warning" : isPurging || isPurged ? "admin-security-note--danger" : ""}`}>
-      <Shield size={22} />
-      <div>
-        <strong>账号设置</strong>
-        <p>管理你的账号状态、数据导出和注销选项。</p>
-      </div>
-      <StatusBadge tone={isCancelled ? "warning" : isPurging || isPurged ? "danger" : "success"}>
-        {status?.accountStatus === "ACTIVE" ? "正常" : status?.accountStatus === "CANCELLED" ? "已注销" : status?.accountStatus === "PURGING" ? "清理中" : "已删除"}
-      </StatusBadge>
-    </section>
+  return <div className="management-page account-settings-page">
+    <ManagementPageHeader eyebrow="SETTINGS · PROFILE" title="个人账户" description="查看身份信息，管理个人数据副本与账号生命周期。"
+      actions={<Button variant="ghost" onClick={() => { accountStatus.refetch(); exports.refetch(); }} loading={accountStatus.isFetching || exports.isFetching}><RefreshCw size={16} />刷新</Button>} />
+
+    <ManagementMetrics>
+      <ManagementMetric icon={<Shield size={18} />} label="账号状态" value={accountLabel} detail={isCancelled && status?.recoverableUntil ? `${formatTime(status.recoverableUntil)} 前可恢复` : "账号访问状态"} tone={isCancelled ? "warning" : isPurging || isPurged ? "danger" : "success"} />
+      <ManagementMetric icon={<UserRound size={18} />} label="用户名" value={status?.username || "—"} detail={`用户 ID #${status?.userId ?? "—"}`} tone="info" />
+      <ManagementMetric icon={<Users size={18} />} label="名下团队" value={status?.ownedTeamCount ?? 0} detail={status?.isTeamOwner ? "注销前必须完成转让" : "当前不是团队所有者"} tone={status?.ownedTeamCount ? "warning" : "neutral"} />
+      <ManagementMetric icon={<Archive size={18} />} label="数据导出" value={exports.isError ? "不可用" : exportJobs.length} detail={activeExports ? `${activeExports} 个任务处理中` : lastExport ? `最近请求 ${formatTime(lastExport.createdAt)}` : "尚无导出记录"} tone={exports.isError ? "danger" : activeExports ? "info" : "neutral"} />
+    </ManagementMetrics>
 
     {isCancelled && status?.recoverableUntil && (
-      <section className="maintenance-banner" role="alert">
-        <AlertTriangle size={24} />
-        <div>
-          <strong>账号已注销</strong>
-          <p>你的账号已被注销，将在 {formatTime(status.recoverableUntil)} 后永久删除。请联系管理员恢复账号。</p>
-        </div>
+      <section className="management-alert management-alert--warning" role="alert">
+        <AlertTriangle size={20} /><div><strong>账号已注销</strong><p>将在 {formatTime(status.recoverableUntil)} 后永久删除；恢复账号需要联系管理员。</p></div>
       </section>
     )}
 
-    <div className="settings-grid">
-      <section className="panel settings-card">
-        <header>
-          <Download size={24} />
-          <h2>数据导出</h2>
-        </header>
-        <p>导出你的所有个人数据，包括文件、知识库、记忆和会话历史。导出文件使用 AES-256-GCM 加密。</p>
-        <div className="settings-actions">
-          <Button variant="confirm" onClick={() => setExportDialogOpen(true)} disabled={isPurging || isPurged}>
-            <FileDown size={16} />请求数据导出
-          </Button>
-        </div>
-      </section>
+    <div className="management-layout account-management-layout">
+      <div className="management-layout__main">
+        <ManagementSection icon={<IdCard size={18} />} title="个人资料" description="用于登录、资源归属和安全审计的基础身份信息。">
+          <div className="account-profile-summary"><span aria-hidden="true">{(status?.username || "U").slice(0, 1).toUpperCase()}</span><div><strong>{status?.username || "未知用户"}</strong><small>个人账号 · ID #{status?.userId ?? "—"}</small></div><StatusBadge tone={isCancelled ? "warning" : isPurging || isPurged ? "danger" : "success"}>{accountLabel}</StatusBadge></div>
+          <ManagementFacts items={[
+            { label: "用户名", value: status?.username || "—" },
+            { label: "用户标识", value: `#${status?.userId ?? "—"}` },
+            { label: "账号类型", value: status?.isTeamOwner ? "个人账号 · 团队所有者" : "个人账号" },
+            { label: "恢复资格", value: status?.canRecover ? "可由管理员恢复" : "不适用" }
+          ]} />
+        </ManagementSection>
 
-      <section className="panel settings-card settings-card--danger">
-        <header>
-          <UserX size={24} />
-          <h2>注销账号</h2>
-        </header>
-        <p>注销后账号立即封禁，3 天内可由管理员恢复。到期后系统将异步删除所有个人数据。</p>
-        {status && status.ownedTeamCount > 0 && (
-          <div className="danger-callout">
-            <AlertTriangle size={16} />
-            <p>你拥有 {status.ownedTeamCount} 个团队空间。注销前需要转让或解散这些团队。</p>
-          </div>
-        )}
-        <div className="settings-actions">
-          <Button variant="danger" onClick={() => setCancelDialogOpen(true)} disabled={isCancelled || isPurging || isPurged}>
-            <UserX size={16} />注销账号
-          </Button>
-        </div>
-      </section>
+        <ManagementSection icon={<Database size={18} />} title="个人数据导出" description="生成个人文件、知识库、AI 记忆与会话历史的完整副本。"
+          actions={<Button variant="confirm" onClick={() => setExportDialogOpen(true)} disabled={isPurging || isPurged || activeExports > 0}><FileDown size={16} />{activeExports ? "导出处理中" : "请求导出"}</Button>}>
+          <ManagementFacts items={[
+            { label: "导出范围", value: "全部个人数据（FULL）" },
+            { label: "归档加密", value: "AES-256-GCM" },
+            { label: "下载有效期", value: "完成后 24 小时" },
+            { label: "最近任务", value: lastExport ? <StatusBadge tone={exportStatusTone[lastExport.status] || "neutral"}>{exportStatusLabel[lastExport.status] || lastExport.status}</StatusBadge> : "尚无记录" }
+          ]} />
+          <p className="management-inline-note"><Shield size={15} />API Key 与 Webhook 只导出配置，不包含密钥明文。</p>
+        </ManagementSection>
+      </div>
+
+      <aside className="management-layout__aside">
+        <ManagementSection icon={<Shield size={18} />} title="账号生命周期" description="账号注销后进入 3 天恢复期，随后异步清理个人数据。">
+          <ManagementFacts items={[
+            { label: "当前阶段", value: accountLabel },
+            { label: "团队所有权", value: status?.ownedTeamCount ? `${status.ownedTeamCount} 个空间` : "无" },
+            { label: "恢复截止", value: formatTime(status?.recoverableUntil) }
+          ]} />
+        </ManagementSection>
+        <ManagementSection icon={<UserX size={18} />} title="注销账号" description="高风险且不能自行撤销；恢复需要管理员介入。" danger>
+          {status && status.ownedTeamCount > 0 && <div className="management-inline-warning"><AlertTriangle size={16} /><span>请先转让或解散名下 {status.ownedTeamCount} 个团队空间。</span></div>}
+          <Button className="full-width" variant="danger" onClick={() => setCancelDialogOpen(true)} disabled={isCancelled || isPurging || isPurged}><UserX size={16} />注销账号</Button>
+        </ManagementSection>
+      </aside>
     </div>
 
-    <section className="panel">
-      <header className="panel-header">
-        <div>
-          <span className="section-eyebrow">Export History</span>
-          <h2>导出历史</h2>
-          <p>你的数据导出请求记录。</p>
-        </div>
-        <Button variant="ghost" onClick={() => exports.refetch()}><RefreshCw size={16} />刷新</Button>
-      </header>
-
-      {exports.isLoading ? <LoadingState label="加载导出历史" /> : (exports.data || []).length === 0 ? (
+    <ManagementSection icon={<Download size={18} />} title="导出历史" description="数据归档的处理状态、保留期限与下载入口。" actions={<Button variant="ghost" size="sm" onClick={() => exports.refetch()} loading={exports.isFetching}><RefreshCw size={15} />刷新</Button>}>
+      {exports.isLoading ? <LoadingState label="加载导出历史" /> : exports.isError ? <ErrorState message={exports.error instanceof Error ? exports.error.message : "无法加载导出历史"} onRetry={() => exports.refetch()} /> : exportJobs.length === 0 ? (
         <EmptyState title="没有导出记录" message="请求数据导出后会显示在这里。" />
       ) : (
         <div className="data-table-wrap">
@@ -154,7 +150,7 @@ export function AccountSettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {(exports.data || []).map((job) => (
+              {exportJobs.map((job) => (
                 <ExportRow key={job.id} job={job} onDownload={() => loadExportCredential.mutate(job.id)}
                   loading={loadExportCredential.isPending && loadExportCredential.variables === job.id} />
               ))}
@@ -162,7 +158,7 @@ export function AccountSettingsPage() {
           </table>
         </div>
       )}
-    </section>
+    </ManagementSection>
 
     <Dialog
       open={exportDialogOpen}
