@@ -189,12 +189,19 @@ export function FilesPage() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "创建分享链接失败"); }
   }
 
+  async function downloadSelected() {
+    try {
+      for (const item of selectedDocuments) {
+        await api.downloadFile(item.fileUuid, item.parentId, item.name);
+      }
+      toast.success(`已开始下载 ${selectedDocuments.length} 个文件`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "批量下载失败");
+    }
+  }
+
   return (
-    <div className="feature-layout files-layout">
-      <aside className="feature-rail" aria-label="文件分类">
-        <strong className="feature-rail__title">文件分类</strong>
-        {categoryMeta.map(({ key, label, icon }) => <button key={key} className={category === key ? "rail-item rail-item--active" : "rail-item"} onClick={() => switchCategory(key)}>{icon}<span>{label}</span></button>)}
-      </aside>
+    <div className="files-page">
       <section className="feature-main">
         <div className="content-toolbar">
           <nav className="breadcrumbs" aria-label="文件路径">
@@ -209,7 +216,7 @@ export function FilesPage() {
           <label className="search-box"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isAggregate ? "搜索全部已存文件" : "搜索当前视图"} aria-label="搜索文件" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={15} /></button>}</label>
           <div className="segmented-control" aria-label="视图模式"><button className={view === "list" ? "active" : ""} onClick={() => { setView("list"); localStorage.setItem("ylcloud_files_view", "list"); }} aria-label="列表视图"><List size={17} /></button><button className={view === "grid" ? "active" : ""} onClick={() => { setView("grid"); localStorage.setItem("ylcloud_files_view", "grid"); }} aria-label="网格视图"><Grid2X2 size={17} /></button></div>
         </div>
-        {selectedItems.length > 0 && !isRecycle && <div className="bulk-action-bar" role="region" aria-label="批量文件操作"><strong>已选择 {selectedItems.length} 项</strong><span>可批量整理所选文件；文件夹不会添加到知识库。</span><div><Button disabled={!selectedDocuments.length} onClick={() => { setKnowledgeSpaceId(""); setBatchKnowledgeOpen(true); }}><Database size={16} />添加进入知识库</Button><Button onClick={() => { setBatchTransfer("move"); setTransferFolderId("0"); }}><FolderInput size={16} />批量移动</Button><Button onClick={() => { setBatchTransfer("copy"); setTransferFolderId("0"); }}><Copy size={16} />批量复制</Button><Button variant="danger" onClick={() => setBatchDeleteOpen(true)}><Trash2 size={16} />移入回收站</Button><Button variant="ghost" onClick={() => setSelectedIds(new Set())}>取消选择</Button></div></div>}
+        {selectedItems.length > 0 && !isRecycle && <div className="bulk-action-bar" role="region" aria-label="批量文件操作"><strong>已选择 {selectedItems.length} 项</strong><span>文件夹不会下载或添加到知识库。</span><div><Button disabled={!selectedDocuments.length} onClick={downloadSelected}><Download size={16} />下载</Button><Button onClick={() => { setBatchTransfer("move"); setTransferFolderId("0"); }}><FolderInput size={16} />移动</Button><Button onClick={() => { setBatchTransfer("copy"); setTransferFolderId("0"); }}><Copy size={16} />复制</Button><Button disabled={!selectedDocuments.length} onClick={() => { setKnowledgeSpaceId(""); setBatchKnowledgeOpen(true); }}><Database size={16} />添加到知识库</Button><Button variant="danger" onClick={() => setBatchDeleteOpen(true)}><Trash2 size={16} />删除</Button><Button variant="ghost" onClick={() => setSelectedIds(new Set())}>取消选择</Button></div></div>}
         {uploadProgress && <div className="upload-strip" role="status"><span><Upload size={16} />正在{uploadProgress.stage === "hashing" ? "校验" : uploadProgress.stage === "merging" ? "合并" : "上传"} {uploadProgress.fileName}</span><progress max={100} value={uploadProgress.percent} /><strong>{uploadProgress.percent}%</strong></div>}
         {files.isLoading ? <LoadingState label="正在加载文件" /> : files.isError ? <ErrorState message={files.error instanceof Error ? files.error.message : "无法加载文件"} onRetry={() => files.refetch()} /> : visibleFiles.length === 0 ? (!query && !isRecycle && !isAggregate && parentId === 0
           ? <FileOnboarding onUpload={() => fileInput.current?.click()} onAsk={() => navigate("/assistant")} />

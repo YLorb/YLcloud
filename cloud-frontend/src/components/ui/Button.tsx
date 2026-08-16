@@ -10,8 +10,10 @@ const buttonVariants = cva("ui-button", {
       primary: "ui-button--primary",
       confirm: "ui-button--confirm",
       secondary: "ui-button--secondary",
+      outline: "ui-button--outline",
       ghost: "ui-button--ghost",
-      danger: "ui-button--danger"
+      danger: "ui-button--danger",
+      link: "ui-button--link"
     },
     size: {
       sm: "ui-button--sm",
@@ -47,6 +49,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     <button
       className={cn(buttonVariants({ variant, size }), className)}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       ref={ref}
       {...props}
     >

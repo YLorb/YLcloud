@@ -17,17 +17,18 @@ import type { KnowledgeChatEpisode, KnowledgeChatMessage, KnowledgeChatSession, 
 export function AssistantPage() {
   const client = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const linkedNewSession = searchParams.get("new") === "1";
   const linkedSessionId = positiveNumber(searchParams.get("sessionId"));
   const linkedEpisodeNo = positiveNumber(searchParams.get("episode"));
-  const [sessionId, setSessionId] = useState<number | null>(linkedSessionId);
-  const [newSessionDraft, setNewSessionDraft] = useState(false);
+  const [sessionId, setSessionId] = useState<number | null>(linkedNewSession ? null : linkedSessionId);
+  const [newSessionDraft, setNewSessionDraft] = useState(linkedNewSession);
   const [sessionSearch, setSessionSearch] = useState("");
   const [sessionsCollapsed, setSessionsCollapsed] = useState(() => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1440px)").matches);
   const [question, setQuestion] = useState("");
   const [selectedSpaces, setSelectedSpaces] = useState<number[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeChatSession | null>(null);
   const messageEnd = useRef<HTMLDivElement>(null);
-  const initialSessionHydrated = useRef(Boolean(linkedSessionId));
+  const initialSessionHydrated = useRef(Boolean(linkedSessionId) || linkedNewSession);
   const handledEpisodeLink = useRef("");
 
   const spaces = useQuery({ queryKey: ["spaces"], queryFn: api.listSpaces });

@@ -9,6 +9,7 @@ import { Button } from "./components/ui/Button";
 import { AuthPage } from "./features/auth/AuthPage";
 import { PublicShareView } from "./features/share/PublicShareView";
 import { LoadingState } from "./components/ui/PageState";
+import { ComponentBookPage } from "./features/component-book/ComponentBookPage";
 
 const FilesPage = lazy(() => import("./features/files/FilesPage").then((module) => ({ default: module.FilesPage })));
 const SpacesPage = lazy(() => import("./features/spaces/SpacesPage").then((module) => ({ default: module.SpacesPage })));
@@ -48,6 +49,7 @@ function NotFound() {
 }
 
 const router = createBrowserRouter([
+  { path: "/component-book", element: <ComponentBookPage />, errorElement: <RouteError /> },
   { path: "/login", element: <AuthPage mode="login" />, errorElement: <RouteError /> },
   { path: "/sign", element: <AuthPage mode="sign" />, errorElement: <RouteError /> },
   { path: "/share/:shareCode", element: <PublicShareRoute />, errorElement: <RouteError /> },

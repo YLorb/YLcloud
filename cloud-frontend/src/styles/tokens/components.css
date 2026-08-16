@@ -1,0 +1,65 @@
+:root {
+  --header-height: 60px;
+  --page-padding: var(--space-6);
+
+  --sidebar-width-expanded: 256px;
+  --sidebar-width-collapsed: 64px;
+  --sidebar-item-height: 36px;
+  --sidebar-item-height-compact: 32px;
+  --sidebar-item-radius: var(--radius-md);
+  --sidebar-item-padding-x: 10px;
+  --sidebar-item-gap: var(--space-2);
+  --sidebar-item-background: transparent;
+  --sidebar-item-background-hover: var(--background-hover);
+  --sidebar-item-background-selected: var(--background-selected-neutral);
+  --sidebar-item-foreground: var(--foreground-secondary);
+  --sidebar-item-foreground-hover: var(--foreground-primary);
+  --sidebar-item-foreground-selected: var(--foreground-primary);
+  --sidebar-icon-size: 18px;
+  --sidebar-section-gap: var(--space-6);
+  --sidebar-section-label-foreground: var(--foreground-muted);
+
+  --button-height-sm: 32px;
+  --button-height-default: 40px;
+  --button-height-lg: 48px;
+  --button-radius: var(--radius-md);
+  --button-gap: var(--space-2);
+  --button-primary-background: var(--action-primary);
+  --button-primary-background-hover: var(--action-primary-hover);
+  --button-primary-background-active: var(--action-primary-active);
+  --button-primary-foreground: var(--foreground-on-primary);
+
+  --input-height-sm: 32px;
+  --input-height-default: 40px;
+  --input-height-lg: 48px;
+  --input-padding-x: var(--space-3);
+  --input-radius: var(--radius-md);
+  --input-background: var(--background-surface);
+  --input-border: var(--border-default);
+  --input-border-hover: var(--border-strong);
+  --input-border-focus: var(--border-focus);
+
+  --tab-height: 36px;
+  --tab-gap: var(--space-6);
+  --tab-indicator-height: 2px;
+
+  --table-header-height: 44px;
+  --table-row-height: 56px;
+  --table-row-height-detail: 64px;
+  --table-cell-padding-x: var(--space-4);
+
+  --dialog-width-sm: 420px;
+  --dialog-width-md: 540px;
+  --dialog-width-lg: 800px;
+  --dialog-radius: var(--radius-xl);
+  --ai-drawer-width-default: 400px;
+  --ai-drawer-width-wide: 440px;
+}
+
+@media (min-width: 1440px) {
+  :root { --page-padding: var(--space-8); }
+}
+
+@media (max-width: 767px) {
+  :root { --page-padding: var(--space-4); }
+}
