@@ -1,0 +1,33 @@
+{
+  "contractVersion": "1.0",
+  "workflowType": "ASSISTANT",
+  "workflowVersion": "2.0",
+  "userId": 101,
+  "sessionId": 201,
+  "sourceMessageId": 301,
+  "assistantMessageId": 302,
+  "question": "请参考我的项目知识库总结部署方案",
+  "shortTermContext": [
+    {
+      "role": "USER",
+      "content": "项目运行在 Ubuntu 22.04。"
+    }
+  ],
+  "permissionScope": {
+    "tenant": "default",
+    "canUseExternalTools": true
+  },
+  "knowledgeScope": {
+    "explicitSelection": false,
+    "selectedSpaceIds": [11],
+    "autoAddedSpaceIds": [12]
+  },
+  "configVersion": "assistant-config-v1",
+  "requestContextHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "budget": {
+    "maxBusinessNodes": 6,
+    "maxParallelNodes": 3,
+    "maxModelCalls": 8,
+    "maxRuntimeMs": 120000
+  }
+}

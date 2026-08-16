@@ -1,6 +1,11 @@
 import type {
+  AdminUser,
+  AgentRiskAuthorization,
+  PermissionDefinition,
+  PermissionGroup,
   ApiResult,
   AsyncTask,
+  AsyncTaskDetail,
   ChunkStatus,
   ChunkUploadInit,
   FileItem,
@@ -33,7 +38,27 @@ import type {
   PublicSiteSettings,
   SiteSetting,
   StorageQuota,
-  User
+  User,
+  UserApiKey,
+  UserApiKeyCreated,
+  WebhookEventType,
+  WebhookSubscription,
+  WebhookSubscriptionCreated,
+  QuotaPolicy,
+  QuotaUsage,
+  UserMemory,
+  UserMemorySetting,
+  UserMemoryStats,
+  KnowledgeChatEpisode,
+  AccountStatus,
+  DataExportJob,
+  SecurityAuditEvent,
+  AuditRetentionConfig,
+  AuditStats,
+  BackupRun,
+  BackupStats,
+  MaintenanceStatus,
+  RestoreVerification
 } from "./types";
 
 const TOKEN_KEY = "ylcloud_token";
@@ -154,6 +179,45 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  agentRiskAuthorizations: () => request<AgentRiskAuthorization[]>("/api/agent-risk-authorizations"),
+  issueAgentRiskAuthorization: (payload: { mode: "ALLOW_ONCE" | "PERSISTENT"; expiresAt?: string; riskAcknowledged: true }) =>
+    request<AgentRiskAuthorization>("/api/agent-risk-authorizations", { method: "POST", body: JSON.stringify(payload) }),
+  revokeAgentRiskAuthorization: (authorizationId: number) =>
+    request<boolean>(`/api/agent-risk-authorizations/${authorizationId}`, { method: "DELETE" }),
+  userApiKeys: () => request<UserApiKey[]>("/api/api-keys"),
+  createUserApiKey: (payload: {
+    name: string;
+    driveAccess: "NONE" | "READ" | "WRITE";
+    driveRootFileId?: number;
+    knowledgeRetrieve: boolean;
+    knowledgeAgent: boolean;
+    selectAllVisibleSpaces: boolean;
+    spaceIds: number[];
+    expiresAt?: string;
+    neverExpires: boolean;
+    allowHighRisk: boolean;
+    riskAcknowledged: boolean;
+  }) => request<UserApiKeyCreated>("/api/api-keys", { method: "POST", body: JSON.stringify(payload) }),
+  revokeUserApiKey: (keyId: number) => request<boolean>(`/api/api-keys/${keyId}`, { method: "DELETE" }),
+  webhookEventTypes: () => request<WebhookEventType[]>("/api/webhooks/event-types"),
+  webhookSubscriptions: () => request<WebhookSubscription[]>("/api/webhooks"),
+  createWebhookSubscription: (payload: {
+    name: string;
+    targetUrl: string;
+    apiKeyId: number;
+    eventTypes: WebhookEventType[];
+    includeContent: boolean;
+  }) => request<WebhookSubscriptionCreated>("/api/webhooks", { method: "POST", body: JSON.stringify(payload) }),
+  rotateWebhookSecret: (subscriptionId: number) =>
+    request<WebhookSubscriptionCreated>(`/api/webhooks/${subscriptionId}/rotate-secret`, { method: "POST" }),
+  disableWebhookSubscription: (subscriptionId: number) =>
+    request<boolean>(`/api/webhooks/${subscriptionId}`, { method: "DELETE" }),
+  quotaUsage: () => request<QuotaUsage>("/api/quota/usage"),
+  teamQuotaUsage: (spaceId: number) => request<QuotaUsage>(`/api/quota/teams/${spaceId}`),
+  groupQuota: (groupId: number) => request<QuotaPolicy>(`/api/admin/quota/groups/${groupId}`),
+  updateGroupQuota: (groupId: number, payload: Omit<QuotaPolicy, "groupId">) =>
+    request<QuotaPolicy>(`/api/admin/quota/groups/${groupId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  reconcileQuota: () => request<boolean>("/api/admin/quota/reconcile", { method: "PUT" }),
   publicSettings: () => request<PublicSiteSettings>("/api/site/public-settings"),
   adminSettings: () => request<SiteSetting[]>("/api/admin/settings"),
   updateAdminSettings: (settings: Array<{ key: string; value: string }>) =>
@@ -161,12 +225,33 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ settings })
     }),
+  adminUsers: () => request<AdminUser[]>("/api/admin/users"),
+  createAdminUser: (payload: { username: string; password: string; nickname: string; email?: string; role: "ADMIN" | "USER"; groupId?: number }) =>
+    request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
+  updateAdminUser: (userId: number, payload: { role?: "ADMIN" | "USER"; status?: number }) =>
+    request<AdminUser>(`/api/admin/users/${userId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  updateAdminUserAccess: (userId: number, payload: { groupId?: number; clearGroup?: boolean; overrides: Record<string, boolean> }) =>
+    request<AdminUser>(`/api/admin/users/${userId}/access`, { method: "PUT", body: JSON.stringify(payload) }),
+  permissionDefinitions: () => request<PermissionDefinition[]>("/api/admin/permission-groups/definitions"),
+  permissionGroups: () => request<PermissionGroup[]>("/api/admin/permission-groups"),
+  createPermissionGroup: (payload: { name: string; description?: string; permissions: Record<string, boolean> }) =>
+    request<PermissionGroup>("/api/admin/permission-groups", { method: "POST", body: JSON.stringify(payload) }),
+  updatePermissionGroup: (groupId: number, payload: { name: string; description?: string; permissions: Record<string, boolean> }) =>
+    request<PermissionGroup>(`/api/admin/permission-groups/${groupId}`, { method: "PUT", body: JSON.stringify(payload) }),
+  deletePermissionGroup: (groupId: number) => request<boolean>(`/api/admin/permission-groups/${groupId}`, { method: "DELETE" }),
   listAsyncTasks: (spaceId?: number) => request<AsyncTask[] | { records?: AsyncTask[]; list?: AsyncTask[]; items?: AsyncTask[]; tasks?: AsyncTask[] }>(
-    `/api/async${spaceId ? `?spaceId=${spaceId}` : ""}`
+    `/api/async/page?${params({ spaceId, page: 1, pageSize: 100 })}`
   ),
+  getAsyncTask: (source: "rag" | "knowledge" | "unified", taskId: number) => request<AsyncTaskDetail>(`/api/async/${source}/${taskId}`),
+  retryUnifiedTask: (taskId: number, reason?: string) =>
+    request<boolean>(`/api/async/${taskId}/retry`, { method: "POST", body: JSON.stringify({ reason }) }),
+  cancelUnifiedTask: (taskId: number, reason?: string) =>
+    request<boolean>(`/api/async/${taskId}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
   currentUser: () => request<number>("/api/user/current"),
   storageQuota: () => request<StorageQuota>("/api/storage/quota"),
   listFiles: (parentId = 0) => request<FileItem[]>(`/api/file/list?${params({ parentId })}`).then(normalizeFileItems),
+  listFilesByCategory: (category: string, keyword?: string) =>
+    request<FileItem[]>(`/api/file/category?${params({ category, keyword })}`).then(normalizeFileItems),
   uploadFile: (file: File, parentId = 0, idempotencyKey = crypto.randomUUID()) => {
     const body = new FormData();
     body.set("file", file);
@@ -203,6 +288,12 @@ export const api = {
     request<boolean>(`/api/file/move?${params({ sourceplace, targetplace })}`, { method: "PUT" }),
   copyFiles: (sourceplace: number, targetplace: number) =>
     request<boolean>(`/api/file/copy?${params({ sourceplace, targetplace })}`, { method: "PUT" }),
+  batchDeleteFiles: (fileIds: number[]) =>
+    request<boolean>("/api/file/batch", { method: "DELETE", body: JSON.stringify({ fileIds }) }),
+  batchMoveFiles: (fileIds: number[], targetParentId: number) =>
+    request<boolean>("/api/file/batch/move", { method: "PUT", body: JSON.stringify({ fileIds, targetParentId }) }),
+  batchCopyFiles: (fileIds: number[], targetParentId: number) =>
+    request<boolean>("/api/file/batch/copy", { method: "PUT", body: JSON.stringify({ fileIds, targetParentId }) }),
   initMultipartUpload: (payload: {
     uploadId?: string;
     fileName: string;
@@ -368,6 +459,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  submitKnowledgeChatQuery: (
+    sessionId: number,
+    payload: { spaceIds: number[]; question: string; retrievalMode?: "precise" | "balanced" | "broad" },
+    idempotencyKey = crypto.randomUUID()
+  ) => request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/queries`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(payload)
+  }),
+  retryKnowledgeChatQuery: (sessionId: number, messageId: number) =>
+    request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/queries/${messageId}/retry`, { method: "POST" }),
+  cancelKnowledgeChatQuery: (sessionId: number, messageId: number) =>
+    request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/queries/${messageId}/cancel`, { method: "POST" }),
+  listUserMemories: (type?: string, keyword?: string) =>
+    request<UserMemory[]>(`/api/assistant/memories?${params({ type, keyword, limit: 500 })}`),
+  userMemorySetting: () => request<UserMemorySetting>("/api/assistant/memories/setting"),
+  updateUserMemorySetting: (payload: { enabled: boolean }) =>
+    request<UserMemorySetting>("/api/assistant/memories/setting", { method: "PUT", body: JSON.stringify(payload) }),
+  userMemoryStats: () => request<UserMemoryStats>("/api/assistant/memories/stats"),
+  updateUserMemory: (id: number, payload: { memoryType: UserMemory["memoryType"]; content: string }) =>
+    request<UserMemory>(`/api/assistant/memories/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  pinUserMemory: (id: number, pinned: boolean) =>
+    request<UserMemory>(`/api/assistant/memories/${id}/pin?${params({ pinned })}`, { method: "PUT" }),
+  forgetUserMemory: (id: number) => request<boolean>(`/api/assistant/memories/${id}`, { method: "DELETE" }),
+  clearUserMemories: () => request<boolean>("/api/assistant/memories", { method: "DELETE" }),
+  exportUserMemories: () => download("/api/assistant/memories/export", "ylcloud-memories.csv"),
+  listKnowledgeChatEpisodes: (sessionId: number) => request<KnowledgeChatEpisode[]>(`/api/knowledge/chat/sessions/${sessionId}/episodes`),
   ragAnalyticsSummary: (spaceId: number) =>
     request<RagAnalyticsSummary>(`/api/space/${spaceId}/rag/analytics/summary`),
   ragAnalyticsQueries: (spaceId: number, limit = 50) =>
@@ -445,8 +563,57 @@ export const api = {
     }),
   markKnowledgeProfileReviewed: (spaceId: number, documentId: number) =>
     request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/reviewed`, { method: "POST" }),
+  activateKnowledgeProfileVersion: (spaceId: number, documentId: number, versionId: number) =>
+    request<KnowledgeProfile>(`/api/space/${spaceId}/knowledge/documents/${documentId}/versions/${versionId}/activate`, { method: "POST" }),
   listKnowledgeCategories: (spaceId: number) =>
     request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/categories`),
   listKnowledgeTags: (spaceId: number) =>
-    request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/tags`)
+    request<KnowledgeFacet[]>(`/api/space/${spaceId}/knowledge/facets/tags`),
+
+  // Account Lifecycle
+  accountStatus: () => request<AccountStatus>("/api/account/status"),
+  cancelAccount: (payload: { reason?: string; confirmTeamOwnerTransfer?: boolean }) =>
+    request<AccountStatus>("/api/account/cancel", { method: "POST", body: JSON.stringify(payload) }),
+  recoverAccount: (payload: { userId: number; reason?: string }) =>
+    request<AccountStatus>("/api/account/recover", { method: "POST", body: JSON.stringify(payload) }),
+  requestDataExport: (payload: { exportScope?: string }) =>
+    request<DataExportJob>("/api/account/export", { method: "POST", body: JSON.stringify(payload) }),
+  listDataExports: () => request<DataExportJob[]>("/api/account/export/list"),
+  getDataExport: (jobId: number) => request<DataExportJob>(`/api/account/export/${jobId}`),
+
+  // Security Audit
+  queryAuditEvents: (payload: {
+    eventType?: string;
+    subjectId?: number;
+    targetType?: string;
+    targetId?: string;
+    traceId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) => request<SecurityAuditEvent[]>("/api/admin/audit/query", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  }),
+  auditStats: (payload?: { startTime?: string; endTime?: string }) =>
+    request<AuditStats>(`/api/admin/audit/stats?${params(payload || {})}`),
+  listRetentionConfigs: () => request<AuditRetentionConfig[]>("/api/admin/audit/retention"),
+  updateRetentionConfig: (configKey: string, retentionDays: number) =>
+    request<AuditRetentionConfig>(`/api/admin/audit/retention/${configKey}?${params({ retentionDays })}`, { method: "PUT" }),
+
+  // Backup
+  listReadyBackups: () => request<BackupRun[]>("/api/admin/backup/ready"),
+  listRecentBackups: (limit = 20) => request<BackupRun[]>(`/api/admin/backup/recent?${params({ limit })}`),
+  getBackup: (backupId: number) => request<BackupRun>(`/api/admin/backup/${backupId}`),
+  getRestoreVerification: (backupId: number) =>
+    request<RestoreVerification>(`/api/admin/backup/${backupId}/restore-verification`),
+  backupStats: () => request<BackupStats>("/api/admin/backup/stats"),
+
+  // Maintenance Mode
+  maintenanceStatus: () => request<MaintenanceStatus>("/api/admin/maintenance/status"),
+  enableMaintenance: (payload: { reason: string }) =>
+    request<{ status: string; message: string }>(
+      `/api/admin/maintenance/enable?${params({ reason: payload.reason })}`, { method: "POST" }),
+  disableMaintenance: () =>
+    request<{ status: string; message: string }>("/api/admin/maintenance/disable", { method: "POST" })
 };

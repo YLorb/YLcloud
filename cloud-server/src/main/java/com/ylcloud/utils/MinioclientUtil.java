@@ -36,6 +36,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.ArrayList;
 
@@ -228,6 +230,39 @@ public class MinioclientUtil {
             }
             throw ex;
         }
+    }
+
+    /**
+     * 单次流式读取对象并计算合并验收所需的内容摘要，避免把大文件整体载入内存。
+     */
+    public ObjectDigests calculateObjectDigests(String objectName) throws Exception {
+        try(InputStream inputStream = getObjectStream(objectName)) {
+            return calculateDigests(inputStream);
+        }
+    }
+
+    static ObjectDigests calculateDigests(InputStream inputStream) throws Exception {
+        MessageDigest md5 = MessageDigest.getInstance("MD5");
+        MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+        MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[1024 * 1024];
+        int read;
+        while((read = inputStream.read(buffer)) >= 0) {
+            if(read == 0) {
+                continue;
+            }
+            md5.update(buffer,0,read);
+            sha1.update(buffer,0,read);
+            sha256.update(buffer,0,read);
+        }
+        HexFormat hex = HexFormat.of();
+        return new ObjectDigests(
+                hex.formatHex(md5.digest()),
+                hex.formatHex(sha1.digest()),
+                hex.formatHex(sha256.digest()));
+    }
+
+    public record ObjectDigests(String md5, String sha1, String sha256) {
     }
 
     public void removeObject(File file) throws Exception {

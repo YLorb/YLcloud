@@ -67,6 +67,12 @@ public class MultifileService {
     private SiteSettingService siteSettingService;
 
     @Autowired
+    private StorageService storageService;
+
+    @Autowired(required=false)
+    private QuotaService quotaService;
+
+    @Autowired
     private ChunkUploadLeaseService chunkUploadLeaseService;
 
     @Autowired
@@ -103,6 +109,8 @@ public class MultifileService {
                 multifileDTO.getFileMd5(),
                 multifileDTO.getFileSha1(),
                 multifileDTO.getFileSize());
+        storageService.requireAvailable(userId,storageService.additionalBytes(
+                userId,existingFile == null ? null : existingFile.getFileUuid(),multifileDTO.getFileSize()));
         if(existingFile != null) {
             log.info("文件已存在，执行秒传: {}", multifileDTO.getFileName());
             FileVO fileVO = reuseExistingFile(existingFile,multifileDTO.getFileName(),parentId,userId);
@@ -238,6 +246,7 @@ public class MultifileService {
         }
         Long parentId = normalizeParentId(task.getParentId(),userId);
         requireNoSameName(task.getFileName(),parentId,userId);
+        storageService.requireAvailable(userId,storageService.additionalBytes(userId,task.getFileUuid(),task.getFileSize()));
 
         if(multifileMapper.claimMerge(uploadId,userId) == 0) {
             UploadTask latest = multifileMapper.getByUploadId(uploadId,userId);
@@ -258,15 +267,49 @@ public class MultifileService {
             if(!minioclientUtil.objectMatchesSize(fileUuid,task.getFileSize())) {
                 minioclientUtil.mergeFileParts(mergeReqVO);
             }
+            validateMergedObjectDigests(task,fileUuid);
             FileVO fileVO = saveMergedFile(task,fileUuid,parentId,userId);
             if(multifileMapper.markMerged(uploadId,fileUuid) == 0) {
                 throw new IllegalStateException("上传任务合并状态提交失败");
             }
             cleanupPartsAfterCommit(task.getId(),fileUuid);
             return fileVO;
+        } catch (MergedObjectDigestException e) {
+            try {
+                minioclientUtil.removeObjectAllVersions(fileUuid);
+            } catch (Exception cleanupError) {
+                e.addSuppressed(cleanupError);
+                log.error("合并摘要校验失败后的对象清理失败: uploadId={}, fileUuid={}",uploadId,fileUuid,cleanupError);
+            }
+            log.warn("合并文件摘要校验失败: uploadId={}, algorithm={}",uploadId,e.algorithm);
+            throw new BaseException("合并文件摘要校验失败");
         } catch (Exception e) {
             log.error("分片合并失败: {}", uploadId, e);
             throw new BaseException("分片合并失败");
+        }
+    }
+
+    private void validateMergedObjectDigests(UploadTask task, String fileUuid) throws Exception {
+        MinioclientUtil.ObjectDigests actual = minioclientUtil.calculateObjectDigests(fileUuid);
+        requireDigest("MD5",task.getFileMd5(),actual.md5());
+        requireDigest("SHA1",task.getFileSha1(),actual.sha1());
+        if(task.getFileHash() != null && task.getFileHash().matches("(?i)^[0-9a-f]{64}$")) {
+            requireDigest("SHA256",task.getFileHash(),actual.sha256());
+        }
+    }
+
+    private void requireDigest(String algorithm, String expected, String actual) {
+        if(expected == null || actual == null || !expected.equalsIgnoreCase(actual)) {
+            throw new MergedObjectDigestException(algorithm);
+        }
+    }
+
+    private static final class MergedObjectDigestException extends RuntimeException {
+        private final String algorithm;
+
+        private MergedObjectDigestException(String algorithm) {
+            super(algorithm + " digest mismatch");
+            this.algorithm = algorithm;
         }
     }
 
@@ -285,7 +328,7 @@ public class MultifileService {
         if(multifileDTO.getFileSize() == null || multifileDTO.getFileSize() <= 0) {
             throw new BaseException("文件大小不合法");
         }
-        if(multifileDTO.getFileSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
+        if(siteSettingService.exceedsUploadLimit(multifileDTO.getFileSize(),maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         if(multifileDTO.getFileMd5() == null || multifileDTO.getFileMd5().isBlank()) {
@@ -514,6 +557,7 @@ public class MultifileService {
             throw new BaseException("文件引用计数更新失败");
         }
         fileInfoMapper.insertFile_User(userFileDTO);
+        if(quotaService != null) quotaService.recordUserFile(userFileDTO.getId(),userId,userFileDTO.getFileUuid());
         userFileDTO.setPath(buildPath(userFileDTO,userId));
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),userFileDTO.getPath(),userId);
         return toFileVO(existingFile,userFileDTO);
@@ -558,6 +602,7 @@ public class MultifileService {
                 .updatetime(now)
                 .build();
         fileInfoMapper.insertFile_User(userFileDTO);
+        if(quotaService != null) quotaService.recordUserFile(userFileDTO.getId(),userId,userFileDTO.getFileUuid());
         userFileDTO.setPath(buildPath(userFileDTO,userId));
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),userFileDTO.getPath(),userId);
         return toFileVO(file,userFileDTO);

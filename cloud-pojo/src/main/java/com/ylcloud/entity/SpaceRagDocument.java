@@ -17,6 +17,9 @@ public class SpaceRagDocument {
     private String fileHash;
     private String fileType;
     private String indexStatus;
+    private String vectorState;
+    private Long consistencyVersion;
+    private Long consistencyAsyncTaskId;
     private Integer chunkCount;
     private String errorMessage;
     private Long createdBy;

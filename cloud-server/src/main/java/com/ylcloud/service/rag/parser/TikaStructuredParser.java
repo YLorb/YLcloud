@@ -118,7 +118,7 @@ public class TikaStructuredParser {
 
     private String parserVersion() {
         RagProperties.Extraction extraction = ragProperties.getExtraction();
-        return extraction == null || extraction.getParserVersion() == null ? "structured-v2" : extraction.getParserVersion();
+        return extraction == null || extraction.getParserVersion() == null ? "structured-v3" : extraction.getParserVersion();
     }
 
     private String fileUuid(SpaceFile spaceFile, File file) {

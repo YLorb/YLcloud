@@ -1,6 +1,8 @@
 package com.ylcloud.service.rag;
 
+import com.ylcloud.async.mq.AsyncMqProperties;
 import com.ylcloud.service.SpaceRagService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RagTaskExecutorService {
     private final SpaceRagService spaceRagService;
+    private AsyncMqProperties mqProperties;
 
     /**
      * 初始化 RagTaskExecutorService 对象。
@@ -19,6 +22,15 @@ public class RagTaskExecutorService {
      */
     public RagTaskExecutorService(@Lazy SpaceRagService spaceRagService) {
         this.spaceRagService = spaceRagService;
+    }
+
+    @Autowired(required = false)
+    public void setMqProperties(AsyncMqProperties mqProperties) {
+        this.mqProperties=mqProperties;
+    }
+
+    private boolean mqEnabled() {
+        return mqProperties!=null && mqProperties.isEnabled() && mqProperties.isRag();
     }
 
     /**
@@ -30,6 +42,7 @@ public class RagTaskExecutorService {
      */
     @Async("ragTaskExecutor")
     public void runFileTask(Long taskId, Long documentId, Long userId) {
+        if(mqEnabled()) return;
         spaceRagService.executeFileRagTask(taskId,documentId,userId);
     }
 
@@ -42,6 +55,7 @@ public class RagTaskExecutorService {
      */
     @Async("ragTaskExecutor")
     public void runSpaceTask(Long taskId, Long spaceId, Long userId) {
+        if(mqEnabled()) return;
         spaceRagService.executeSpaceRagTask(taskId,spaceId,userId);
     }
 
@@ -54,11 +68,13 @@ public class RagTaskExecutorService {
      */
     @Async("ragTaskExecutor")
     public void runSpaceRepairTask(Long taskId, Long spaceId, Long userId) {
+        if(mqEnabled()) return;
         spaceRagService.executeSpaceRagTask(taskId,spaceId,userId,true);
     }
 
     @Async("ragTaskExecutor")
     public void runDeleteFileTask(Long taskId, Long spaceId, Long spaceFileId) {
+        if(mqEnabled()) return;
         spaceRagService.executeDeleteFileRagTask(taskId,spaceId,spaceFileId);
     }
 }

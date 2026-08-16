@@ -577,4 +577,31 @@ public interface FileInfoMapper {
             "join file_info fi on fi.file_uuid = uf.file_uuid and fi.status = 1 " +
             "where uf.user_id = #{userId} and uf.is_dir = 0 and uf.status = 1")
     Integer countUserStorageFiles(@Param("userId") Long userId);
+
+    @Select("select count(1) from user_file where user_id = #{userId} and file_uuid = #{fileUuid} " +
+            "and is_dir = 0 and status = 1")
+    Integer countUserActiveByFileUuid(@Param("userId") Long userId, @Param("fileUuid") String fileUuid);
+
+    /**
+     * 查询用户所有文件（含 file_info 元数据），用于账号删除时全部文件清理。
+     */
+    @Select("select fi.file_id as fileId, fi.file_uuid as fileUuid, uf.is_dir as dir, " +
+            "uf.user_id as userId, uf.parent_id as parentId, uf.file_name as name, " +
+            "fi.type, fi.size, uf.path, fi.md5, fi.sha1, fi.hash, fi.status, " +
+            "fi.createtime as createTime, uf.updatetime as updateTime " +
+            "from user_file uf " +
+            "left join file_info fi on uf.file_uuid = fi.file_uuid " +
+            "where uf.user_id = #{userId} and uf.status = 1")
+    List<File> listAllByUserId(@Param("userId") Long userId);
+
+    /**
+     * 软删除用户文件记录（status=0），用于账号删除时清理。
+     */
+    @Update("update user_file set status = 0, updatetime = now() " +
+            "where file_uuid = #{fileUuid} and user_id = #{userId} and status = 1")
+    int softDeleteByFileUuid(@Param("fileUuid") String fileUuid, @Param("userId") Long userId);
+
+    @Update("update user_file set status = 0, file_name = concat('deleted-', ID), path = null, " +
+            "updatetime = #{now} where user_id = #{userId} and status in (1,2)")
+    int purgeRemainingByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 }

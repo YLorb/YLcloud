@@ -15,7 +15,10 @@ public interface CrossStoreOperationMapper {
     String COLUMNS = "id, operation_key as operationKey, operation_type as operationType, " +
             "operation_status as operationStatus, payload_hash as payloadHash, resource_id as resourceId, " +
             "external_ref as externalRef, result_ref as resultRef, attempt_count as attemptCount, lease_until as leaseUntil, " +
-            "error_message as errorMessage, createtime, updatetime";
+            "error_message as errorMessage,recovery_async_task_id as recoveryAsyncTaskId,createtime,updatetime";
+
+    @Select("select " + COLUMNS + " from cross_store_operation where id=#{id}")
+    CrossStoreOperation getById(@Param("id") Long id);
 
     @Insert("insert ignore into cross_store_operation(operation_key, operation_type, operation_status, payload_hash, resource_id, " +
             "result_ref, attempt_count, lease_until, error_message, createtime, updatetime) " +
@@ -70,4 +73,10 @@ public interface CrossStoreOperationMapper {
     @Select("select " + COLUMNS + " from cross_store_operation where operation_status in ('PENDING','FAILED') " +
             "or (operation_status = 'RUNNING' and lease_until < #{now}) order by updatetime asc limit #{limit}")
     List<CrossStoreOperation> listRetryable(@Param("now") LocalDateTime now, @Param("limit") Integer limit);
+
+    @Update("update cross_store_operation set recovery_async_task_id=#{asyncTaskId},updatetime=#{now} " +
+            "where id=#{id} and attempt_count=#{attempt} and operation_status='RUNNING' " +
+            "and lease_until < #{now} and (recovery_async_task_id is null or recovery_async_task_id=#{asyncTaskId})")
+    int bindRecoveryTask(@Param("id") Long id,@Param("attempt") Integer attempt,
+                         @Param("asyncTaskId") Long asyncTaskId,@Param("now") LocalDateTime now);
 }

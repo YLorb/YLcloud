@@ -134,4 +134,26 @@ public interface MultifileMapper {
     @Update("update upload_task set cleanup_attempt_count = cleanup_attempt_count + 1, updatetime = now() " +
             "where id = #{id} and status = 2 and parts_cleaned_time is null")
     int markPartsCleanupFailed(@Param("id") Long id);
+
+    @Select("select id,upload_id as uploadId,user_id as userId,status,file_uuid as fileUuid," +
+            "parts_cleaned_time as partsCleanedTime,cleanup_attempt_count as cleanupAttemptCount," +
+            "cleanup_async_task_id as cleanupAsyncTaskId,last_activity_time as lastActivityTime " +
+            "from upload_task where id=#{id}")
+    UploadTask getCleanupById(@Param("id") Long id);
+
+    @Update("update upload_task set cleanup_async_task_id=#{asyncTaskId},updatetime=#{now} where id=#{id} " +
+            "and ((status=6) or (status=2 and parts_cleaned_time is null)) " +
+            "and (cleanup_async_task_id is null or cleanup_async_task_id=#{asyncTaskId})")
+    int bindCleanupTask(@Param("id") Long id,@Param("asyncTaskId") Long asyncTaskId,
+                        @Param("now") java.time.LocalDateTime now);
+
+    @Update("update upload_task set parts_cleaned_time=#{now},cleanup_attempt_count=cleanup_attempt_count+1,updatetime=#{now} " +
+            "where id=#{id} and status in (2,6) and parts_cleaned_time is null and cleanup_async_task_id=#{asyncTaskId}")
+    int markAsyncCleanupSucceeded(@Param("id") Long id,@Param("asyncTaskId") Long asyncTaskId,
+                                  @Param("now") java.time.LocalDateTime now);
+
+    @Update("update upload_task set cleanup_attempt_count=cleanup_attempt_count+1,updatetime=#{now} " +
+            "where id=#{id} and status in (2,6) and parts_cleaned_time is null and cleanup_async_task_id=#{asyncTaskId}")
+    int markAsyncCleanupFailed(@Param("id") Long id,@Param("asyncTaskId") Long asyncTaskId,
+                               @Param("now") java.time.LocalDateTime now);
 }

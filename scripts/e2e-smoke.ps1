@@ -1,10 +1,17 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:5173",
     [Parameter(Mandatory = $true)]
-    [string]$PdfPath
+    [string]$PdfPath,
+    [string]$AdminUsername,
+    [string]$AdminPassword,
+    [string]$TestUsername = "e2e_smoke",
+    [string]$TestPassword = $env:YLCLOUD_E2E_PASSWORD
 )
 
 $ErrorActionPreference = "Stop"
+if([string]::IsNullOrWhiteSpace($TestUsername) -or [string]::IsNullOrWhiteSpace($TestPassword)) {
+    throw "A controlled E2E account is required. Provide -TestPassword or YLCLOUD_E2E_PASSWORD; random users are no longer created."
+}
 
 function Invoke-ApiJson {
     param(
@@ -103,9 +110,12 @@ function Get-Sha256 {
 }
 
 $runId = "e2e_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())_$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-$username = $runId
-$password = "Tmp-$([guid]::NewGuid().ToString('N'))"
+$username = $TestUsername
+$password = $TestPassword
 $tempDir = Join-Path $env:TEMP $runId
+$token = $null
+$testSpaceId = $null
+$ordinaryFileUuid = $null
 New-Item -ItemType Directory -Path $tempDir | Out-Null
 
 $v1Path = Join-Path $tempDir "knowledge-v1.md"
@@ -123,15 +133,16 @@ try {
 
     $unauthorizedStatus = & curl.exe --silent --output NUL --write-out "%{http_code}" "$BaseUrl/api/space/list"
 
-    Invoke-ApiJson -Method "POST" -Path "/api/sign" -Body @{
-        username = $username
-        password = $password
-        nickname = "E2E Smoke User"
-    } | Out-Null
-
-    $login = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{
-        username = $username
-        password = $password
+    $login = $null
+    try {
+        $login = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{ username = $username; password = $password }
+    } catch {
+        Invoke-ApiJson -Method "POST" -Path "/api/sign" -Body @{
+            username = $username
+            password = $password
+            nickname = "Controlled E2E Smoke User"
+        } | Out-Null
+        $login = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{ username = $username; password = $password }
     }
     $token = $login.token
     if (-not $token) {
@@ -140,12 +151,26 @@ try {
 
     $currentUserId = Invoke-ApiJson -Method "GET" -Path "/api/user/current" -Token $token
     $spaces = @(Invoke-ApiJson -Method "GET" -Path "/api/space/list" -Token $token)
-    $space = $spaces | Where-Object { $_.type -eq "PERSONAL" -and $_.role -eq "OWNER" } | Select-Object -First 1
-    if (-not $space) {
+    foreach($staleSpace in @($spaces | Where-Object { $_.type -ne "PERSONAL" -and $_.name -like "E2E smoke *" })) {
+        try {
+            Invoke-ApiJson -Method "DELETE" -Path "/api/space/$($staleSpace.id)" -Token $token | Out-Null
+        } catch {
+            Write-Warning "Stale E2E Space cleanup failed for spaceId=$($staleSpace.id): $($_.Exception.Message)"
+        }
+    }
+    $personalSpace = $spaces | Where-Object { $_.type -eq "PERSONAL" -and $_.role -eq "OWNER" } | Select-Object -First 1
+    if (-not $personalSpace) {
         throw "Default personal space was not created"
     }
 
+    $space = Invoke-ApiJson -Method "POST" -Path "/api/space" -Token $token -Body @{
+        name = "E2E smoke $runId"
+        description = "Disposable automated smoke-test space"
+    }
+    $testSpaceId = [long]$space.id
+
     $ordinary = Send-File -Path "/api/file/upload" -FilePath $v1Path -Token $token -Fields @{ parentId = 0 }
+    $ordinaryFileUuid = $ordinary.fileUuid
     Receive-File -Path "/api/file/download/$($ordinary.fileUuid)?parentId=0" -TargetPath $ordinaryDownload -Token $token
     $ordinaryHashMatches = (Get-Sha256 $v1Path) -eq (Get-Sha256 $ordinaryDownload)
 
@@ -190,13 +215,14 @@ try {
     $restoreHashMatches = (Get-Sha256 $v2Path) -eq (Get-Sha256 $spaceDownload)
     $versionsAfterRestore = @(Invoke-ApiJson -Method "GET" -Path "/api/space/$($space.id)/files/$($spaceFile.id)/versions" -Token $token)
 
-    $adminLine = docker inspect ylcloud-app --format '{{range .Config.Env}}{{println .}}{{end}}' | Where-Object { $_ -like 'YLCLOUD_BOOTSTRAP_ADMIN_PASSWORD=*' }
-    $adminPassword = ($adminLine -split '=', 2)[1]
-    $adminLogin = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{
-        username = "bootstrap_admin_test"
-        password = $adminPassword
+    $adminSettings = @()
+    if(-not [string]::IsNullOrWhiteSpace($AdminUsername) -and -not [string]::IsNullOrWhiteSpace($AdminPassword)) {
+        $adminLogin = Invoke-ApiJson -Method "POST" -Path "/api/login" -Body @{
+            username = $AdminUsername
+            password = $AdminPassword
+        }
+        $adminSettings = @(Invoke-ApiJson -Method "GET" -Path "/api/admin/settings" -Token $adminLogin.token)
     }
-    $adminSettings = @(Invoke-ApiJson -Method "GET" -Path "/api/admin/settings" -Token $adminLogin.token)
 
     $queryHitCount = if ($query) { @($query.hitChunkIds).Count } else { 0 }
     $queryContextCount = if ($query) { @($query.contexts).Count } else { 0 }
@@ -211,7 +237,8 @@ try {
         publicSiteName = $publicSettings.siteName
         unauthorizedStatus = [int]$unauthorizedStatus
         userId = [long]$currentUserId
-        defaultSpaceId = [long]$space.id
+        defaultSpaceId = [long]$personalSpace.id
+        testSpaceId = [long]$space.id
         ordinaryFileHashMatches = $ordinaryHashMatches
         spaceFileHashMatches = $spaceHashMatches
         markdownRagStatus = $markdownTask.taskStatus
@@ -230,6 +257,26 @@ try {
         success = $ordinaryHashMatches -and $spaceHashMatches -and $restoreHashMatches -and $markdownTask.taskStatus -eq "SUCCESS" -and $pdfTask.taskStatus -eq "SUCCESS" -and $queryHitCount -gt 0 -and $queryContainsLaunchCode
     } | ConvertTo-Json -Depth 6
 } finally {
+    if($token -and $ordinaryFileUuid) {
+        try {
+            Invoke-ApiJson -Method "DELETE" -Path "/api/file/$($ordinaryFileUuid)?parentId=0" -Token $token | Out-Null
+            $recycleEntry = @(Invoke-ApiJson -Method "GET" -Path "/api/file/recycle" -Token $token) |
+                Where-Object { $_.fileUuid -eq $ordinaryFileUuid } |
+                Select-Object -First 1
+            if($recycleEntry) {
+                Invoke-ApiJson -Method "DELETE" -Path "/api/file/recycle/$($recycleEntry.fileId)" -Token $token | Out-Null
+            }
+        } catch {
+            Write-Warning "Ordinary-file cleanup failed: $($_.Exception.Message)"
+        }
+    }
+    if($token -and $testSpaceId) {
+        try {
+            Invoke-ApiJson -Method "DELETE" -Path "/api/space/$testSpaceId" -Token $token | Out-Null
+        } catch {
+            Write-Warning "Space cleanup failed: $($_.Exception.Message)"
+        }
+    }
     Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Variable password,token,adminPassword -ErrorAction SilentlyContinue
+    Remove-Variable password,token,AdminPassword,TestPassword -ErrorAction SilentlyContinue
 }

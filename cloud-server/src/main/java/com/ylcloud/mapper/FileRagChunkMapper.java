@@ -70,7 +70,10 @@ public interface FileRagChunkMapper {
             "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
             "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
             "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "join space_rag_document d on d.id = r.document_id " +
+            "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
             "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 " +
+            "and d.status = 1 and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' and sf.status = 1 and sf.searchable = 1 " +
             "and c.content like concat('%', #{keyword}, '%') order by c.updatetime desc limit #{limit}")
     List<FileRagChunk> searchBySpaceAndKeyword(@Param("spaceId") Long spaceId,
                                                @Param("keyword") String keyword,
@@ -85,7 +88,9 @@ public interface FileRagChunkMapper {
             "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
             "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
             "join space_rag_document d on d.id = r.document_id " +
+            "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
             "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 and d.status = 1 " +
+            "and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' and sf.status = 1 and sf.searchable = 1 " +
             "and (c.metadata like concat('%', #{keyword}, '%') or d.file_name like concat('%', #{keyword}, '%') " +
             "or d.file_type like concat('%', #{keyword}, '%')) " +
             "order by c.updatetime desc limit #{limit}")
@@ -102,7 +107,10 @@ public interface FileRagChunkMapper {
             "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
             "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
             "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "join space_rag_document d on d.id = r.document_id " +
+            "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
             "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 " +
+            "and d.status = 1 and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' and sf.status = 1 and sf.searchable = 1 " +
             "order by c.updatetime desc limit #{limit}")
     List<FileRagChunk> listRecentBySpace(@Param("spaceId") Long spaceId, @Param("limit") Integer limit);
 
@@ -115,9 +123,23 @@ public interface FileRagChunkMapper {
             "c.embedding_model as embeddingModel, c.chunk_size as chunkSize, c.chunk_overlap as chunkOverlap, " +
             "c.status, c.createtime, c.updatetime from file_rag_chunk c " +
             "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "join space_rag_document d on d.id = r.document_id " +
+            "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
             "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 " +
+            "and d.status = 1 and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' and sf.status = 1 and sf.searchable = 1 " +
             "order by c.updatetime desc")
     List<FileRagChunk> listActiveBySpace(@Param("spaceId") Long spaceId);
+
+    @Select({"<script>select c.id, c.file_uuid as fileUuid, c.file_hash as fileHash, c.chunk_index as chunkIndex, c.content, " +
+            "c.content_hash as contentHash, c.token_count as tokenCount, c.metadata, c.status, c.createtime, c.updatetime " +
+            "from file_rag_chunk c join space_rag_chunk_ref r on r.file_chunk_id=c.id " +
+            "join space_rag_document d on d.id=r.document_id " +
+            "join space_file sf on sf.id=d.space_file_id and sf.space_id=d.space_id " +
+            "where r.space_id=#{spaceId} and r.status=1 and c.status=1 and d.status=1 " +
+            "and d.index_status='SUCCESS' and d.vector_state='ACTIVE' and sf.status=1 and sf.searchable=1 and c.id in " +
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
+            "order by c.id</script>"})
+    List<FileRagChunk> listActiveBySpaceAndIds(@Param("spaceId") Long spaceId, @Param("ids") List<Long> ids);
 
     /**
      * 搜索 searchDocumentChunkHits 相关逻辑。
@@ -126,7 +148,9 @@ public interface FileRagChunkMapper {
     @Select("select r.document_id as documentId, c.id as chunkId, c.content as content " +
             "from file_rag_chunk c join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
             "join space_rag_document d on d.id = r.document_id " +
+            "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
             "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 and d.status = 1 " +
+            "and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' and sf.status = 1 and sf.searchable = 1 " +
             "and c.content like concat('%', #{keyword}, '%') " +
             "order by c.updatetime desc limit #{limit}")
     List<SpaceDocumentChunkHitVO> searchDocumentChunkHits(@Param("spaceId") Long spaceId,

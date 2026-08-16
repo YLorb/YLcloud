@@ -9,6 +9,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -39,7 +41,7 @@ class SignServiceTest {
             return 1;
         });
         when(fileService.getRootId(100L)).thenReturn(200L);
-        when(signMapper.updateAll(200L,100L)).thenReturn(1);
+        when(signMapper.updateAll(200L,100L,null)).thenReturn(1);
     }
 
     @Test
@@ -49,8 +51,10 @@ class SignServiceTest {
         signService.signup(registration("first-user"));
 
         assertInsertedRole("ADMIN");
-        InOrder order = inOrder(signMapper);
+        assertInsertedOwner(true);
+        InOrder order = inOrder(signMapper,siteSettingService);
         order.verify(signMapper).lockRegistrationGuard();
+        order.verify(siteSettingService).getBoolean(SiteSettingService.SITE_ALLOW_REGISTER,true);
         order.verify(signMapper).countByUsername("first-user");
         order.verify(signMapper).countAll();
         order.verify(signMapper).insert(any());
@@ -63,19 +67,7 @@ class SignServiceTest {
         signService.signup(registration("later-user"));
 
         assertInsertedRole("USER");
-    }
-
-    @Test
-    void bootstrapAdministratorUsesTheSameRegistrationLock() {
-        when(signMapper.countAll()).thenReturn(0);
-
-        signService.bootstrapAdmin("bootstrap-admin","a-secure-password","Administrator");
-
-        InOrder order = inOrder(signMapper);
-        order.verify(signMapper).lockRegistrationGuard();
-        order.verify(signMapper).countAll();
-        order.verify(signMapper).insert(any());
-        assertInsertedRole("ADMIN");
+        assertInsertedOwner(false);
     }
 
     private UserRegisterDTO registration(String username) {
@@ -90,5 +82,15 @@ class SignServiceTest {
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(signMapper).insert(userCaptor.capture());
         assertEquals(expectedRole,userCaptor.getValue().getRole());
+    }
+
+    private void assertInsertedOwner(boolean expectedOwner) {
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(signMapper).insert(userCaptor.capture());
+        if(expectedOwner) {
+            assertTrue(userCaptor.getValue().getDeploymentOwner());
+        } else {
+            assertFalse(userCaptor.getValue().getDeploymentOwner());
+        }
     }
 }

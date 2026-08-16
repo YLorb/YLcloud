@@ -57,6 +57,7 @@ Ask an unrelated question. Expected:
 
 - no unrelated recent chunks are used.
 - answer is the configured no-answer response.
+- `hitChunkIds`, `contexts`, and `citations` are empty.
 
 ## 5. Version Change
 

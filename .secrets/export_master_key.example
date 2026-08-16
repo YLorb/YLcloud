@@ -1,0 +1,4 @@
+# export_master_key: 数据导出主密钥（32字节，Base64编码）
+# 用于包裹/解包数据导出任务的 AES-256-GCM 密钥
+# 生成方式：openssl rand -base64 32
+# 必须保密，不可提交到版本控制

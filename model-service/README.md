@@ -88,6 +88,10 @@ GENERATE_API_STYLE=responses
 
 Each `*_FILE` variable takes precedence over its plain environment variable. The referenced file contains only the secret value.
 
+`POST /plan` 使用 `intent-plan/1.0` 结构化契约并要求 `model.plan` Service JWT scope。
+配置 `PLAN_BASE_URL`、`PLAN_API_KEY_FILE`、`PLAN_MODEL_NAME` 和 `PLAN_API_STYLE`；未单独配置时复用 Generate 配置。
+`PLAN_MOCK_ENABLED=true` 只用于本地契约/E2E，默认关闭。
+
 ```json
 {
   "question": "question",

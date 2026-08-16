@@ -2,26 +2,38 @@ package com.ylcloud.service.rag;
 
 import com.ylcloud.config.RagProperties;
 import com.ylcloud.service.SiteSettingService;
+import com.ylcloud.workflow.security.ServiceJwtAudience;
+import com.ylcloud.workflow.security.ServiceJwtBinding;
+import com.ylcloud.workflow.security.ServiceJwtIssuer;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class HttpRagModelClient implements RagModelClient {
     private final RagProperties properties;
     private final SiteSettingService siteSettingService;
+    private final ServiceJwtIssuer serviceJwtIssuer;
 
     /**
      * 初始化 HttpRagModelClient 对象。
      *
      * @param properties 配置属性
      */
-    public HttpRagModelClient(RagProperties properties, SiteSettingService siteSettingService) {
+    public HttpRagModelClient(
+            RagProperties properties,
+            SiteSettingService siteSettingService,
+            ServiceJwtIssuer serviceJwtIssuer
+    ) {
         this.properties = properties;
         this.siteSettingService = siteSettingService;
+        this.serviceJwtIssuer = serviceJwtIssuer;
     }
 
     private RestClient restClient() {
@@ -48,6 +60,7 @@ public class HttpRagModelClient implements RagModelClient {
     public List<float[]> embed(List<String> texts) {
         EmbedResponse response = restClient().post()
                 .uri("/embed")
+                .header(HttpHeaders.AUTHORIZATION, bearer("model.embed"))
                 .body(new EmbedRequest(texts,true))
                 .retrieve()
                 .body(EmbedResponse.class);
@@ -77,6 +90,7 @@ public class HttpRagModelClient implements RagModelClient {
     public List<RerankResult> rerank(String query, List<String> documents, Integer topK) {
         RerankResponse response = restClient().post()
                 .uri("/rerank")
+                .header(HttpHeaders.AUTHORIZATION, bearer("model.rerank"))
                 .body(new RerankRequest(query,documents,topK))
                 .retrieve()
                 .body(RerankResponse.class);
@@ -96,6 +110,7 @@ public class HttpRagModelClient implements RagModelClient {
     public RagChatResponse chat(RagChatRequest request) {
         RagChatResponse response = restClient().post()
                 .uri("/chat")
+                .header(HttpHeaders.AUTHORIZATION, bearer("model.chat"))
                 .body(request)
                 .retrieve()
                 .body(RagChatResponse.class);
@@ -106,10 +121,23 @@ public class HttpRagModelClient implements RagModelClient {
     public RagGenerateResponse generate(RagGenerateRequest request) {
         RagGenerateResponse response = restClient().post()
                 .uri("/generate")
+                .header(HttpHeaders.AUTHORIZATION, bearer("model.generate"))
                 .body(request)
                 .retrieve()
                 .body(RagGenerateResponse.class);
         return response == null ? new RagGenerateResponse() : response;
+    }
+
+    private String bearer(String scope) {
+        // 旧 Java 直连路径也必须有独立 audience 和逐请求绑定；Agent 路径会绑定真实 runId。
+        String requestBinding = "java-direct-" + UUID.randomUUID();
+        String token = serviceJwtIssuer.issue(
+                ServiceJwtAudience.MODEL_SERVICE,
+                Set.of(scope),
+                ServiceJwtBinding.run(requestBinding),
+                120
+        );
+        return "Bearer " + token;
     }
 
     /**

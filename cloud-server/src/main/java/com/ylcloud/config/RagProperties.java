@@ -27,6 +27,7 @@ public class RagProperties {
     private Chunking chunking = new Chunking();
     private Query query = new Query();
     private Retrieval retrieval = new Retrieval();
+    private Memory memory = new Memory();
 
     @Data
     public static class ModelService {
@@ -45,8 +46,20 @@ public class RagProperties {
         private Boolean useTls = false;
         private String apiKey;
         private String collectionName = "ylcloud_rag_bge_m3_v1";
+        private String memoryCollectionName = "ylcloud_user_memory_bge_m3_v1";
         private String payloadTextKey = "text";
         private Double minScore = 0.0;
+    }
+
+    @Data
+    public static class Memory {
+        private Boolean enabled = true;
+        private Integer candidateTopK = 12;
+        private Integer topK = 5;
+        private Integer maxTokens = 512;
+        private Integer retentionDays = 0;
+        private Double minScore = 0.25;
+        private Integer maxRetries = 8;
     }
 
     @Data
@@ -62,6 +75,8 @@ public class RagProperties {
         private Integer maxContextChars = 12000;
         private Integer maxChunkChars = 1800;
         private Integer maxAnswerTokens = 1024;
+        private Integer maxHistoryTokens = 2048;
+        private Integer summaryMaxTokens = 512;
         private Double temperature = 0.2;
         private String noAnswerText = "当前知识库中没有检索到足够的依据，无法回答该问题。";
         private String unavailableText = "已检索到相关资料，但问答模型暂不可用。请先查看下方引用内容，稍后重试。";
@@ -72,6 +87,7 @@ public class RagProperties {
     public static class Index {
         private Integer concurrency = 5;
         private Integer taskTimeoutMinutes = 10;
+        private Integer profileTaskTimeoutMinutes = 30;
     }
 
     @Data
@@ -133,7 +149,7 @@ public class RagProperties {
         private Boolean layoutEnabled = true;
         private Boolean ocrEnabled = true;
         private Boolean vlmEnabled = false;
-        private String parserVersion = "structured-v2";
+        private String parserVersion = "structured-v3";
         private String parserServiceBaseUrl = "http://127.0.0.1:8002";
         private Integer minTextCharsBeforeOcr = 300;
         private Double minOcrConfidenceBeforeVlm = 0.75;
@@ -147,7 +163,7 @@ public class RagProperties {
         private List<String> supportedExtensions = new ArrayList<>(Arrays.asList(
                 "txt","md","markdown","log","csv","json","xml","yaml","yml","properties",
                 "java","js","ts","jsx","tsx","py","go","rs","c","h","cpp","hpp","cs","php","rb","sh","sql","html","css",
-                "pdf","doc","docx"
+                "pdf","doc","docx","ppt","pptx"
         ));
     }
 }

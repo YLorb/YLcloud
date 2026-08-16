@@ -31,22 +31,22 @@ public interface SpaceFileMapper {
      * @return 处理结果
      */
     @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
-            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, knowledge_state as knowledgeState, knowledge_version as knowledgeVersion, searchable, last_knowledge_error as lastKnowledgeError, removed_at as removedAt, status, created_by as createdBy, createtime, updatetime " +
             "from space_file where id = #{fileId} and space_id = #{spaceId} and status = 1")
     SpaceFile getById(@Param("spaceId") Long spaceId, @Param("fileId") Long fileId);
 
     @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
-            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, knowledge_state as knowledgeState, knowledge_version as knowledgeVersion, searchable, last_knowledge_error as lastKnowledgeError, removed_at as removedAt, status, created_by as createdBy, createtime, updatetime " +
             "from space_file where id = #{fileId} and space_id = #{spaceId} for update")
     SpaceFile lockById(@Param("spaceId") Long spaceId, @Param("fileId") Long fileId);
 
     @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
-            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, knowledge_state as knowledgeState, knowledge_version as knowledgeVersion, searchable, last_knowledge_error as lastKnowledgeError, removed_at as removedAt, status, created_by as createdBy, createtime, updatetime " +
             "from space_file where id = #{fileId} and status = 1")
     SpaceFile getByIdAny(@Param("fileId") Long fileId);
 
     @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
-            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, knowledge_state as knowledgeState, knowledge_version as knowledgeVersion, searchable, last_knowledge_error as lastKnowledgeError, removed_at as removedAt, status, created_by as createdBy, createtime, updatetime " +
             "from space_file where space_id = #{spaceId} and file_uuid = #{fileUuid} and status = 1 limit 1")
     SpaceFile getActiveByFileUuid(@Param("spaceId") Long spaceId, @Param("fileUuid") String fileUuid);
 
@@ -55,7 +55,7 @@ public interface SpaceFileMapper {
      * @return 列表结果
      */
     @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
-            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, knowledge_state as knowledgeState, knowledge_version as knowledgeVersion, searchable, last_knowledge_error as lastKnowledgeError, removed_at as removedAt, status, created_by as createdBy, createtime, updatetime " +
             "from space_file where space_id = #{spaceId} and parent_id = #{parentId} and status = 1 " +
             "order by is_dir desc, updatetime desc")
     List<SpaceFile> listByParentId(@Param("spaceId") Long spaceId, @Param("parentId") Long parentId);
@@ -65,7 +65,7 @@ public interface SpaceFileMapper {
      * @return 列表结果
      */
     @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
-            "parent_id as parentId, path, version_enabled as versionEnabled, status, created_by as createdBy, createtime, updatetime " +
+            "parent_id as parentId, path, version_enabled as versionEnabled, knowledge_state as knowledgeState, knowledge_version as knowledgeVersion, searchable, last_knowledge_error as lastKnowledgeError, removed_at as removedAt, status, created_by as createdBy, createtime, updatetime " +
             "from space_file where space_id = #{spaceId} and status = 1 order by parent_id, is_dir desc, updatetime desc")
     List<SpaceFile> listAll(@Param("spaceId") Long spaceId);
 
@@ -128,4 +128,14 @@ public interface SpaceFileMapper {
                        @Param("fileId") Long fileId,
                        @Param("fileName") String fileName,
                        @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update space_file set status = 0, removed_at = #{now}, updatetime = #{now} " +
+            "where space_id = #{spaceId} and file_uuid = #{fileUuid} and status = 1")
+    int disableAllByFileUuid(@Param("spaceId") Long spaceId, @Param("fileUuid") String fileUuid,
+                             @Param("now") LocalDateTime now);
+
+    @Update("update space_file set status = 0, file_name = concat('deleted-', id), path = null, " +
+            "searchable = 0, last_knowledge_error = null, removed_at = #{now}, updatetime = #{now} " +
+            "where space_id = #{spaceId}")
+    int purgeBySpaceId(@Param("spaceId") Long spaceId, @Param("now") LocalDateTime now);
 }

@@ -21,6 +21,11 @@ public class SpaceFileVO {
     private Long size;
     private Integer versionEnabled;
     private Boolean effectiveVersionEnabled;
+    private String knowledgeState;
+    private Long knowledgeVersion;
+    private Boolean searchable;
+    private String lastKnowledgeError;
+    private LocalDateTime removedAt;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;
     private List<SpaceFileVO> children;

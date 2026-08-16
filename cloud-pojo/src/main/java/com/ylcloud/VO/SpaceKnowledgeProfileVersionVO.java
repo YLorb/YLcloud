@@ -18,8 +18,16 @@ public class SpaceKnowledgeProfileVersionVO {
     private String promptVersion;
     private String schemaVersion;
     private BigDecimal qualityScore;
+    private String assetState;
+    private BigDecimal confidence;
+    private String conflictReason;
+    private String sourceFileHash;
+    private String sourceParserVersion;
     private String profileSnapshot;
     private String changeSummary;
     private Long createdBy;
+    private Long reviewedBy;
+    private LocalDateTime activatedAt;
+    private LocalDateTime supersededAt;
     private LocalDateTime createdTime;
 }

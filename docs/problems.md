@@ -4,10 +4,99 @@
 - [ ] **P1 / 待完成**：统一 Qdrant Java client `1.17.0` 与 server `1.15.4` 的版本并回归。当前继续使用 server `1.15.4`；升级到 `1.17.x` 时必须先备份数据，并按照 Qdrant 官方要求经过 `1.16.x` 中间版本迁移，禁止直接跨版本打开原数据卷。
 - [ ] **P1 / 待完成**：升级 Flyway 或将 MySQL 固定到已验证版本，消除 Flyway `10.10.0` 对 MySQL `8.3` 的支持警告，并完成空库迁移、存量库迁移、重启幂等和回滚验证。
 
+# 文件与存储
+
+## P0：大文件分片上传故障注入 E2E（已完成，2026-07-16）
+
+- [x] 缺片合并：只上传部分分片时必须拒绝合并，任务保持可续传，禁止创建最终对象和文件元数据。
+- [x] 错误摘要：合并对象以流式单次读取复核 MD5、SHA1 和规范 SHA256；不匹配时回滚数据库并清理最终对象全部版本。
+- [x] 并发合并：同一 `uploadId` 并发请求只允许一个合并提交结果，其他请求只能返回同一结果或 409，禁止重复 `file_info/user_file`。
+- [x] 断电/进程退出：首片提交后强制终止应用容器，重启后必须保留断点并完成后续上传和合并。
+- [x] 元数据回滚：MinIO compose 成功后注入 `file_info` 唯一键冲突，验证上传任务状态与 `user_file` 原子回滚；移除冲突后复用已合并对象重试成功。
+- [x] 新增 `scripts/multipart-fault-injection-e2e.ps1`、JSON 报告和严格的验收数据清理；未加入生产故障开关。
+- [x] 真实 Compose 验收通过，报告：`outputs/multipart-fault-injection/multipart-fi-1784131822-f7d965.json`。结果：缺片 `1,1,0,0`；错误摘要 `1,0,0/最终对象版本 0`；8 路并发 `1 success + 7 conflict/2,1,1`；进程退出恢复 `2,1,1`；元数据回滚 `1,1,0 -> 2,1,1`；清理无错误。
+
 # RAG
+
+## P0：RAG 索引与知识画像状态解耦（已完成，2026-07-15）
+
+### 已确认问题
+
+- [x] `model-service` 已按模型类型选择 `FlagModel` / `BGEM3FlagModel`，并锁定 `FlagEmbedding`、`transformers`、`tokenizers` 与 `torch` 版本；真实 `/embed` 返回 512 维向量。
+- [x] RAG 编排已拒绝空正文、metadata fallback、空切片和空白切片，禁止写入 `SUCCESS/chunkCount=0`。
+- [x] embedding/Qdrant 失败时会禁用 document ref 并严格清理该文件向量；物理 chunk 仅作为可重试缓存，不会在无 active ref 时参与检索。
+- [x] 空间级 `PROFILE_SPACE` 零符合条件文档改为 `SKIPPED/NO_ELIGIBLE_DOCUMENTS`，全部失败改为 `FAILED`，不再产生新 `SUCCESS/0/0`。
+- [x] 前端已把 RAG 索引构建与知识画像任务分区展示。
+
+### 目标处理链路与成功条件
+
+```text
+加入知识库
+  -> 创建异步 RAG 索引任务并返回 ACCEPTED + taskId
+  -> 文档解析
+  -> 非空切分
+  -> embedding
+  -> 向量索引写入与数量校验
+  -> RAG_READY
+  -> 检查 knowledgeProfileEnabled
+       -> false: PROFILE_SKIPPED_DISABLED，不再执行画像步骤
+       -> true: 执行知识画像任务并独立汇总结果
+```
+
+“加入知识库成功”只表示文件记录和异步任务创建成功。只有同时满足以下条件，文档才能标记为 `RAG_READY`：
+
+1. 解析结果有效且正文非空；
+2. 有效 chunk 数大于 0，且 chunk 内容非空；
+3. embedding 返回数量与待索引 chunk 数一致，向量维度与当前 collection 一致；
+4. Qdrant 写入成功并完成必要的数量/引用校验；
+5. MySQL 中的文档、chunk、ref 与 Qdrant payload 状态一致。
+
+知识画像是 RAG 完成后的可选增强能力。画像失败不得把已经可检索的 RAG 文档改回失败，也不得删除已经成功建立的基础索引。
+
+### 新需求：知识画像开关与完成通知
+
+- [x] V21 为每个知识库增加 `knowledgeProfileEnabled`，数据库默认值为 `true`，已有知识库迁移后统一开启。
+- [x] `GET/PUT /api/space/{spaceId}/rag/config` 已返回并保存该字段；更新沿用 `requireAdmin` 与配置变更日志，记录操作人、前后快照和时间。
+- [x] Knowledge Base 设置页已增加显式开关及关闭影响说明。
+- [x] 每次 RAG 完成后读取数据库最新值；关闭时只持久化终态跳过记录 `PROFILE_SKIPPED_DISABLED`，不执行画像、不创建画像版本或画像事件。
+- [x] 关闭不删除历史画像；重新开启只影响新完成或显式重建任务。
+- [x] 画像批次持久化 `total/success/failed`，前端轮询终态并显示 `知识画像完成：成功 X 个文档、失败 Y 个文档`。
+- [x] 关闭与零符合条件文档均显示明确跳过原因，不再显示伪造的 `SUCCESS/0/0`。
+- [x] 空间重建只提交一个 `PROFILE_SPACE` 批次；自动批次具备 active 幂等保护，通知从服务端批次记录恢复，不读取历史累计值。
+
+### 验收标准
+
+- [x] 空正文或零 chunk 文档进入 `RAG_FAILED`，不允许 `RAG_READY/chunkCount=0`。
+- [x] embedding 数量、维度、有限值与 Qdrant 精确 payload 校验均为成功硬门槛，失败清理 ref/vector 后可重试。
+- [x] 知识画像关闭不影响基础 RAG，且不会执行画像或新增画像版本/事件。
+- [x] 只有 `RAG_READY` 文档进入画像阶段，并展示本批次成功/失败数。
+- [x] 零符合条件文档为 `SKIPPED/NO_ELIGIBLE_DOCUMENTS`。
+- [x] 画像失败不反向修改 RAG 状态，前端分别展示两类状态。
+- [x] 后端 84 项测试、模型服务 3 项测试和前端生产构建通过；真实容器重试 5/5 文档成功，609 个 chunk 与 609 个 active ref 对账一致。
+
+### 2026-07-15 运行态验收证据
+
+- `model-service /ready`：`dense / BAAI/bge-small-zh-v1.5 / dimension=512 / offlineFallback=false`。
+- `model-service /embed`：真实请求返回 `count=1, dimension=512`，日志中批量请求均为 HTTP 200，未再出现 `list.keys` 异常。
+- Flyway V21 已成功应用，`knowledge_profile_enabled tinyint not null default 1`。
+- space 40 原 5 个失败文档重试后全部 `SUCCESS`，文档 `chunk_count` 合计 609，active ref 合计 609。
+- 画像批次持久化终态示例：`SUCCESS total=5 success=5 failed=0`。
+
+## P0：RAG 跨存储事务一致性（已完成，2026-07-15）
+
+- [x] V22 为 `space_rag_document` 增加 `vector_state` 状态机：`CLEAN -> BUILDING -> ACTIVE`，失败进入 `CLEANUP_PENDING -> CLEANING -> CLEAN`。
+- [x] MySQL 中“启用 chunk ref + 文档进入 SUCCESS/ACTIVE”由同一个本地事务提交；文档删除、状态变化或并发任务会通过 CAS 拒绝过期提交。
+- [x] Qdrant 每次文件写入和删除后执行精确 point count 校验；只有数量与有效 chunk 完全一致才能提交数据库成功状态。
+- [x] 检索 SQL 强制要求 document `SUCCESS/ACTIVE`、ref/chunk/file 均启用，失败或清理中的历史数据不能进入 Vector、BM25、Keyword、Metadata 或 Citation 链路。
+- [x] 启动及定时对账逐文档比较 active ref、`chunk_count` 和 Qdrant point count；异常文档先隔离，再通过持久化状态继续幂等补偿。
+- [x] RAG 超时任务不再无条件覆盖其他任务结果，只能将仍处于 `BUILDING` 的文档转为失败。
+- [x] 知识画像活动任务增加数据库唯一约束、`PENDING -> RUNNING` CAS 和超时回收；画像数据事务仍与基础 RAG 成功状态解耦。
+- [x] 修复存量数据：无效 active ref `66 -> 0`、孤儿向量 `4 -> 0`、缺失向量的假成功文档自动隔离。
+- [x] 最终全库对账：数据库有效引用 `617`、Qdrant point `617`、逐文档不一致 `0`、未完成向量状态 `0`、活动 RAG/画像任务 `0`。
+- [x] 后端 100 项测试全部通过；P0 真实端到端验收通过，空间文件删除前后 Qdrant `2 -> 0`，数据库 `file_info/active ref/active chunk = 0/0/0`。
+
   - embed/rerank 当前返回 offline-fallback:*，所以连通性通过，但按文档定义不算真实 embedding/rerank 质量验证。
-  - 无关问题返回了正确 no-answer：无法从当前知识库回答。，但响应里仍带了 5 个 citations。
-    这不完全符合 checklist 的“no unrelated recent chunks are used”。建议后续增加相似度/相关性阈值过滤：当最终判断 no-answer 时，不返回 citations，或在检索阶段过滤低相关 chunk。
+  - [x] 无关问题的 no-answer 结果改用显式语义标志；响应清空 citations、contexts、hitChunkIds 和查询日志命中 ID，并由自动化测试覆盖。模型不可用但已有检索依据时仍保留引用。
   - RAG 检索 ”第一节 + 顺变电磁法.pdf“ 时，无法提取有效信息（所提问题：什么是顺变电磁法？）。推测问题在：1、LLM被设定为“严格回答”；2、Chuck切分逻辑存在严重问题。
 
 # 后端

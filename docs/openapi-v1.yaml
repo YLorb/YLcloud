@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: YL Cloud Open API
+  version: 1.0.0
+  description: Stable API Key authenticated contract. Production clients should pin /api/v1.
+servers:
+  - url: /api/v1
+security:
+  - bearerApiKey: []
+paths:
+  /capabilities:
+    get:
+      operationId: getCapabilities
+      responses:
+        '200': {description: Effective key snapshot}
+  /files:
+    get:
+      operationId: listFiles
+      parameters:
+        - {name: parentId, in: query, schema: {type: integer, format: int64}}
+        - {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses:
+        '200': {description: Paginated files}
+  /files/upload:
+    post:
+      operationId: uploadFile
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, parentId]
+              properties:
+                file: {type: string, format: binary}
+                parentId: {type: integer, format: int64}
+      responses:
+        '200': {description: File uploaded or idempotently replayed}
+        '413': {$ref: '#/components/responses/Error'}
+  /files/folders:
+    post:
+      operationId: createFolder
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      responses:
+        '200': {description: Folder created or replayed}
+  /files/{fileId}/move:
+    put:
+      operationId: moveFile
+      parameters:
+        - {name: fileId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200': {description: File moved inside key boundary}
+  /files/{fileId}:
+    delete:
+      operationId: moveFileToRecycleBin
+      parameters:
+        - {name: fileId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200': {description: Recoverable delete accepted}
+  /spaces:
+    get:
+      operationId: listScopedSpaces
+      responses:
+        '200': {description: Current permissions intersected with creation snapshot}
+  /spaces/{spaceId}/knowledge/query:
+    post:
+      operationId: queryKnowledge
+      parameters:
+        - {name: spaceId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200': {description: Grounded answer}
+  /assistant/sessions:
+    post:
+      operationId: createAssistantSession
+      responses:
+        '200': {description: Session created}
+  /assistant/sessions/{sessionId}/queries:
+    post:
+      operationId: submitAssistantQuery
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {name: sessionId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200': {description: Query accepted or replayed}
+  /agent/sessions/{sessionId}/queries:
+    post:
+      operationId: submitAgentQuery
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {name: sessionId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200': {description: Agent query accepted inside KNOWLEDGE_AGENT scope}
+components:
+  securitySchemes:
+    bearerApiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: ylk_*
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 128}
+  responses:
+    Error:
+      description: Stable error envelope with code, message and traceId

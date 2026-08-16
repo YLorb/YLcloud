@@ -35,6 +35,8 @@ public class FileVO {
 
     private String hash;
 
+    private String path;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

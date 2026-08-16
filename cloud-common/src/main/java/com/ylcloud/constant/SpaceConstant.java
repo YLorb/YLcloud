@@ -29,6 +29,12 @@ public class SpaceConstant {
      */
     public static final String ROLE_MEMBER = "MEMBER";
 
+    public static final String LIFECYCLE_ACTIVE = "ACTIVE";
+
+    public static final String LIFECYCLE_DISSOLVING = "DISSOLVING";
+
+    public static final String LIFECYCLE_DISSOLVED = "DISSOLVED";
+
     /**
      * RAG 文档待索引。
      */
@@ -43,6 +49,9 @@ public class SpaceConstant {
      * RAG 文档索引成功。
      */
     public static final String RAG_INDEX_SUCCESS = "SUCCESS";
+
+    /** Persisted compatibility value for a RAG document whose index is query-ready. */
+    public static final String RAG_INDEX_READY = RAG_INDEX_SUCCESS;
 
     /**
      * RAG 文档索引失败。
@@ -103,6 +112,8 @@ public class SpaceConstant {
 
     public static final String KNOWLEDGE_TASK_FAILED = "FAILED";
 
+    public static final String KNOWLEDGE_TASK_SKIPPED = "SKIPPED";
+
     public static final String KNOWLEDGE_PROFILE_PENDING = "PENDING";
 
     public static final String KNOWLEDGE_PROFILE_GENERATED = "GENERATED";
@@ -142,6 +153,8 @@ public class SpaceConstant {
     public static final String KNOWLEDGE_STAGE_SUCCESS = "SUCCESS";
 
     public static final String KNOWLEDGE_STAGE_FAILED = "FAILED";
+
+    public static final String KNOWLEDGE_STAGE_SKIPPED = "SKIPPED";
 
     public static final String KNOWLEDGE_PIPELINE_TASK_INITIALIZE = "TASK_INITIALIZE";
 
@@ -208,6 +221,10 @@ public class SpaceConstant {
     public static final String KNOWLEDGE_TERMINAL_UNCHANGED_DOCUMENT = "UNCHANGED_DOCUMENT";
 
     public static final String KNOWLEDGE_TERMINAL_SOURCE_SNAPSHOT_SYNCED = "SOURCE_SNAPSHOT_SYNCED";
+
+    public static final String KNOWLEDGE_TERMINAL_PROFILE_DISABLED = "PROFILE_SKIPPED_DISABLED";
+
+    public static final String KNOWLEDGE_TERMINAL_NO_ELIGIBLE_DOCUMENTS = "NO_ELIGIBLE_DOCUMENTS";
 
     @Deprecated
     public static final String KNOWLEDGE_TERMINAL_RETRIEVAL_ONLY = "RETRIEVAL_ONLY";

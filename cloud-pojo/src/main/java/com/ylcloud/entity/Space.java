@@ -13,6 +13,7 @@ public class Space {
     private String name;
     private String description;
     private String type;
+    private String lifecycleState;
     private Long ownerId;
     private Long rootDirId;
     private Integer ragStatus;

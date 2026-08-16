@@ -74,7 +74,7 @@ cloud-frontend/.playwright-cli/
 *.out.log
 
 ### Local PowerShell helpers ###
-*.ps1
+/*.ps1
 
 ### Local shortcuts ###
 /Obsidian.lnk

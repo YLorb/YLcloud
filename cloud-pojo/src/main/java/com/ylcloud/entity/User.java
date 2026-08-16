@@ -25,6 +25,16 @@ public class User {
 
     private String role;
 
+    private Boolean deploymentOwner;
+
+    // Account lifecycle fields (TASK-010)
+    private String accountStatus;
+    private LocalDateTime cancelledAt;
+    private Long cancelRequestedBy;
+    private LocalDateTime recoverableUntil;
+    private LocalDateTime purgingStartedAt;
+    private LocalDateTime purgedAt;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

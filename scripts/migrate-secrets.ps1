@@ -5,18 +5,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-$secretsPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $SecretsDirectory))
+
+function Resolve-InputPath([string]$Path) {
+    if([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Path))
+}
+
+$secretsPath = Resolve-InputPath $SecretsDirectory
 [System.IO.Directory]::CreateDirectory($secretsPath) | Out-Null
 
 $mapping = [ordered]@{
     YLCLOUD_JWT_SECRET = "jwt_secret"
+    YLCLOUD_SERVICE_JWT_ACTIVE_SECRET = "service_jwt_active_secret"
     YLCLOUD_LLM_API_KEY = "llm_api_key"
     YLCLOUD_ARK_API_KEY = "ark_api_key"
     YLCLOUD_RAG_QUERY_API_KEY = "rag_query_api_key"
     YLCLOUD_VLM_API_KEY = "vlm_api_key"
 }
 
-$envPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $EnvFile))
+$envPath = Resolve-InputPath $EnvFile
 $lines = if ([System.IO.File]::Exists($envPath)) {
     [System.IO.File]::ReadAllLines($envPath,[System.Text.Encoding]::UTF8)
 } else {
@@ -39,7 +48,8 @@ foreach ($entry in $mapping.GetEnumerator()) {
     $environmentName = $entry.Key
     $targetPath = Join-Path $secretsPath $entry.Value
     $sourceValue = $values[$environmentName]
-    if ($environmentName -eq "YLCLOUD_JWT_SECRET" -and [string]::IsNullOrWhiteSpace($sourceValue) -and -not [System.IO.File]::Exists($targetPath)) {
+    if (($environmentName -eq "YLCLOUD_JWT_SECRET" -or $environmentName -eq "YLCLOUD_SERVICE_JWT_ACTIVE_SECRET") `
+            -and [string]::IsNullOrWhiteSpace($sourceValue) -and -not [System.IO.File]::Exists($targetPath)) {
         $sourceValue = New-JwtSecret
     }
     if ($null -eq $sourceValue) {

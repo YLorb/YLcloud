@@ -23,10 +23,13 @@ public class SecretFileEnvironmentPostProcessor implements EnvironmentPostProces
     private static final String PROPERTY_SOURCE_NAME = "ylcloudSecretFiles";
     private static final List<String> SUPPORTED_SECRETS = List.of(
             "YLCLOUD_JWT_SECRET",
+            "YLCLOUD_SERVICE_JWT_ACTIVE_SECRET",
+            "YLCLOUD_SERVICE_JWT_PREVIOUS_SECRET",
             "YLCLOUD_LLM_API_KEY",
             "YLCLOUD_ARK_API_KEY",
             "YLCLOUD_RAG_QUERY_API_KEY",
-            "YLCLOUD_VLM_API_KEY"
+            "YLCLOUD_VLM_API_KEY",
+            "YLCLOUD_RABBITMQ_PASSWORD"
     );
 
     @Override
@@ -37,7 +40,9 @@ public class SecretFileEnvironmentPostProcessor implements EnvironmentPostProces
             if(fileName == null || fileName.isBlank()) {
                 continue;
             }
-            secrets.put(name,readSecret(Path.of(fileName),name,"YLCLOUD_JWT_SECRET".equals(name)));
+            boolean required = "YLCLOUD_JWT_SECRET".equals(name)
+                    || "YLCLOUD_SERVICE_JWT_ACTIVE_SECRET".equals(name);
+            secrets.put(name,readSecret(Path.of(fileName),name,required));
         }
         if(!secrets.isEmpty()) {
             environment.getPropertySources().addFirst(new MapPropertySource(PROPERTY_SOURCE_NAME,secrets));

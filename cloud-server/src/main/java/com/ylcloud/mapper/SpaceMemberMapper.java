@@ -31,9 +31,14 @@ public interface SpaceMemberMapper {
      * 查询 getActive 相关逻辑。
      * @return 处理结果
      */
-    @Select("select id, space_id as spaceId, user_id as userId, role, status, createtime, updatetime " +
-            "from space_member where space_id = #{spaceId} and user_id = #{userId} and status = 1")
+    @Select("select sm.id, sm.space_id as spaceId, sm.user_id as userId, sm.role, sm.status, sm.createtime, sm.updatetime " +
+            "from space_member sm where sm.space_id = #{spaceId} and sm.user_id = #{userId} and sm.status = 1 " +
+            "and exists(select 1 from spaces s where s.id = sm.space_id and s.status = 1 and s.lifecycle_state = 'ACTIVE')")
     SpaceMember getActive(@Param("spaceId") Long spaceId, @Param("userId") Long userId);
+
+    @Select("select id, space_id as spaceId, user_id as userId, role, status, createtime, updatetime " +
+            "from space_member where space_id = #{spaceId} and user_id = #{userId} and status = 1 for update")
+    SpaceMember getActiveForUpdate(@Param("spaceId") Long spaceId, @Param("userId") Long userId);
 
     /**
      * 查询 listBySpaceId 相关逻辑。
@@ -42,6 +47,9 @@ public interface SpaceMemberMapper {
     @Select("select id, space_id as spaceId, user_id as userId, role, status, createtime, updatetime " +
             "from space_member where space_id = #{spaceId} and status = 1 order by role, createtime")
     List<SpaceMemberVO> listBySpaceId(@Param("spaceId") Long spaceId);
+
+    @Select("select user_id from space_member where space_id=#{spaceId} and status=1 order by user_id")
+    List<Long> listActiveUserIds(@Param("spaceId") Long spaceId);
 
     /**
      * 更新 updateRole 相关逻辑。
@@ -54,6 +62,20 @@ public interface SpaceMemberMapper {
                    @Param("role") String role,
                    @Param("updateTime") LocalDateTime updateTime);
 
+    @Select("select count(*) from space_member where space_id = #{spaceId} and status = 1")
+    int countActive(@Param("spaceId") Long spaceId);
+
+    @Select("select count(*) from space_member where space_id = #{spaceId} and status = 1 and role = 'OWNER'")
+    int countActiveOwners(@Param("spaceId") Long spaceId);
+
+    @Insert("insert into space_member(space_id, user_id, role, status, createtime, updatetime) " +
+            "values(#{spaceId}, #{userId}, #{role}, 1, #{now}, #{now}) " +
+            "on duplicate key update role = #{role}, status = 1, updatetime = #{now}")
+    int activate(@Param("spaceId") Long spaceId,
+                 @Param("userId") Long userId,
+                 @Param("role") String role,
+                 @Param("now") LocalDateTime now);
+
     /**
      * 执行 disable 函数的业务处理。
      * @return 影响行数
@@ -63,4 +85,7 @@ public interface SpaceMemberMapper {
     int disable(@Param("spaceId") Long spaceId,
                 @Param("userId") Long userId,
                 @Param("updateTime") LocalDateTime updateTime);
+
+    @Update("update space_member set status = 0, updatetime = #{now} where space_id = #{spaceId}")
+    int disableAllBySpaceId(@Param("spaceId") Long spaceId, @Param("now") LocalDateTime now);
 }

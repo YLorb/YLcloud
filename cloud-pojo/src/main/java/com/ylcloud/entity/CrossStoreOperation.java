@@ -17,6 +17,7 @@ public class CrossStoreOperation {
     private Integer attemptCount;
     private LocalDateTime leaseUntil;
     private String errorMessage;
+    private Long recoveryAsyncTaskId;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;
 }

@@ -30,4 +30,5 @@ public class SpaceRagConfigUpdateDTO {
 
     private BigDecimal scoreThreshold;
     private Integer enabled;
+    private Integer knowledgeProfileEnabled;
 }

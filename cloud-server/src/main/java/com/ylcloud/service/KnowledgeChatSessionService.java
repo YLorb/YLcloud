@@ -57,6 +57,8 @@ public class KnowledgeChatSessionService {
         session.setTitle(resolveTitle(dto.getTitle()));
         session.setScopeMode(resolveScopeMode(dto.getScopeMode(),spaceIds));
         session.setScopeSpaceIds(joinSpaceIds(spaceIds));
+        session.setNextSequenceNo(1L);
+        session.setSummaryVersion(0);
         session.setStatus(StatusConstant.ENABLE);
         session.setCreatetime(now);
         session.setUpdatetime(now);
@@ -107,15 +109,20 @@ public class KnowledgeChatSessionService {
 
     @Transactional
     public KnowledgeChatMessageVO appendMessage(Long userId, Long sessionId, KnowledgeChatMessageCreateDTO dto) {
-        requireSession(userId,sessionId);
+        KnowledgeChatSession session = requireSessionForUpdate(userId,sessionId);
+        long sequenceNo = session.getNextSequenceNo() == null ? 1 : session.getNextSequenceNo();
+        if(sessionMapper.reserveSequences(sessionId,userId,1,LocalDateTime.now()) == 0) throw new BaseException("会话序号分配失败");
         KnowledgeChatMessage message = new KnowledgeChatMessage();
         message.setSessionId(sessionId);
         message.setUserId(userId);
+        message.setSequenceNo(sequenceNo);
         message.setRole(dto.getRole() == null || dto.getRole().isBlank() ? "user" : dto.getRole());
         message.setContent(dto.getContent());
         message.setCitationsJson(dto.getCitationsJson());
+        message.setRetryCount(0);
         message.setStatus(StatusConstant.ENABLE);
         message.setCreatetime(LocalDateTime.now());
+        message.setUpdatetime(message.getCreatetime());
         messageMapper.insert(message);
         sessionMapper.touch(sessionId,userId,LocalDateTime.now());
         return toMessageVO(message);
@@ -126,6 +133,12 @@ public class KnowledgeChatSessionService {
         if(session == null) {
             throw new BaseException("会话不存在");
         }
+        return session;
+    }
+
+    private KnowledgeChatSession requireSessionForUpdate(Long userId, Long sessionId) {
+        KnowledgeChatSession session = sessionMapper.getActiveForUpdate(sessionId,userId);
+        if(session == null) throw new BaseException("会话不存在");
         return session;
     }
 
@@ -142,6 +155,7 @@ public class KnowledgeChatSessionService {
         vo.setTitle(session.getTitle());
         vo.setScopeMode(session.getScopeMode());
         vo.setSpaceIds(parseSpaceIds(session.getScopeSpaceIds()));
+        vo.setSummaryVersion(session.getSummaryVersion());
         vo.setCreatetime(session.getCreatetime());
         vo.setUpdatetime(session.getUpdatetime());
         if(withMessages) {
@@ -159,10 +173,16 @@ public class KnowledgeChatSessionService {
         KnowledgeChatMessageVO vo = new KnowledgeChatMessageVO();
         vo.setId(message.getId());
         vo.setSessionId(message.getSessionId());
+        vo.setSequenceNo(message.getSequenceNo());
         vo.setRole(message.getRole());
         vo.setContent(message.getContent());
         vo.setCitationsJson(message.getCitationsJson());
+        vo.setTaskStatus(message.getTaskStatus());
+        vo.setErrorMessage(message.getErrorMessage());
+        vo.setRetryCount(message.getRetryCount());
+        KnowledgeChatQueryService.applyWorkflowPresentation(vo,message);
         vo.setCreatetime(message.getCreatetime());
+        vo.setUpdatetime(message.getUpdatetime());
         return vo;
     }
 
@@ -220,5 +240,13 @@ public class KnowledgeChatSessionService {
             return DEFAULT_LIMIT;
         }
         return Math.min(limit,200);
+    }
+
+    /**
+     * 取消用户所有活跃会话（用于账号删除）。
+     */
+    @Transactional
+    public int cancelAllUserSessions(Long userId) {
+        return sessionMapper.disableAllByUserId(userId, LocalDateTime.now());
     }
 }

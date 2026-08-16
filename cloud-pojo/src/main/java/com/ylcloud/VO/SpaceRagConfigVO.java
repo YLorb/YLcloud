@@ -21,6 +21,7 @@ public class SpaceRagConfigVO {
     private BigDecimal temperature;
     private BigDecimal scoreThreshold;
     private Integer enabled;
+    private Integer knowledgeProfileEnabled;
     private Integer status;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;

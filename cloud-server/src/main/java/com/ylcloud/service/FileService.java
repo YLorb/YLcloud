@@ -8,6 +8,9 @@ import com.ylcloud.DTO.UserFileDTO;
 import com.ylcloud.VO.FileVO;
 import com.ylcloud.VO.FilePreviewVO;
 import com.ylcloud.VO.ShareFileVO;
+import com.ylcloud.authorization.AccessSubject;
+import com.ylcloud.authorization.ResourceAction;
+import com.ylcloud.authorization.ResourceType;
 import com.ylcloud.constant.NameConstant;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.context.BaseContext;
@@ -38,15 +41,23 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 @Slf4j
 public class FileService {
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
+    private static final Set<String> IMAGE_TYPES = Set.of("jpg","jpeg","png","gif","webp","bmp","svg","heic");
+    private static final Set<String> VIDEO_TYPES = Set.of("mp4","mov","mkv","webm","avi","flv","m4v");
+    private static final Set<String> AUDIO_TYPES = Set.of("mp3","wav","flac","aac","ogg","m4a");
+    private static final Set<String> DOCUMENT_TYPES = Set.of("doc","docx","xls","xlsx","ppt","pptx","pdf","txt","md","csv","json");
 
     @Autowired
     private FileInfoMapper fileInfoMapper;
@@ -59,15 +70,25 @@ public class FileService {
     @Autowired
     private SiteSettingService siteSettingService;
     @Autowired
+    private StorageService storageService;
+    @Autowired
     private PhysicalFileCleanupService physicalFileCleanupService;
     @Autowired
     private CrossStoreFileWriteService crossStoreFileWriteService;
+    @Autowired
+    private AuthorizationService authorizationService;
+    @Autowired
+    private SpaceFileLifecycleService spaceFileLifecycleService;
+    @Autowired(required=false)
+    private QuotaService quotaService;
+    private WebhookEventService webhookEventService;
 
     @Value("${ylcloud.upload.max-file-size:2147483648}")
     private Long maxFileSize;
 
     private enum FilePermission {
         READ,
+        DOWNLOAD,
         WRITE,
         MODIFY,
         DELETE
@@ -150,17 +171,6 @@ public class FileService {
     }
 
     /**
-     * 执行 Admin 函数的业务处理。
-     *
-     * @param user 方法入参
-     * @return 处理结果
-     */
-    private boolean Admin(User user) {
-        //return user != null && ("ADMIN".equalsIgnoreCase(user.getRole()) || "admin".equalsIgnoreCase(user.getUsername()));
-        return user != null && ("ADMIN".equalsIgnoreCase(user.getRole())); // fixed：防止越权
-    }
-
-    /**
      * 执行 currentUser 函数的业务处理。
      * @return 处理结果
      */
@@ -182,25 +192,19 @@ public class FileService {
         if(userFileDTO == null || userFileDTO.getStatus() == StatusConstant.DISABLE) {
             throw new NotFoundException("文件不存在或已失效");
         }
-        User user = currentUser();
-        if(Admin(user) || user.getId().equals(userFileDTO.getUserId())) {
-            return;
-        }
-        throw new BaseException("没有文件" + permissionName(permission) + "权限");
+        authorizationService.require(
+                AccessSubject.user(BaseContext.getCurrentId()),
+                ResourceType.USER_PRIVATE,
+                userFileDTO.getUserId(),
+                resourceAction(permission)
+        );
     }
 
-    /**
-     * 把 FilePermission 枚举值转换成对应的中文名称。
-     *
-     * @param permission 方法入参
-     * @return 处理结果
-     */
-    private String permissionName(FilePermission permission) {
+    private ResourceAction resourceAction(FilePermission permission) {
         return switch (permission) {
-            case READ -> "读取";
-            case WRITE -> "写入";
-            case MODIFY -> "修改";
-            case DELETE -> "删除";
+            case READ -> ResourceAction.READ;
+            case DOWNLOAD -> ResourceAction.DOWNLOAD;
+            case WRITE, MODIFY, DELETE -> ResourceAction.WRITE;
         };
     }
 
@@ -212,8 +216,7 @@ public class FileService {
      * @return 处理结果
      */
     private UserFileDTO requireFileById(Long fileId, FilePermission permission) {
-        User user = currentUser();
-        UserFileDTO userFileDTO = Admin(user) ? fileInfoMapper.getByFileIdAny(fileId) : fileInfoMapper.getByFileId(fileId,user.getId());
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileIdAny(fileId);
         requirePermission(userFileDTO,permission);
         return userFileDTO;
     }
@@ -226,10 +229,7 @@ public class FileService {
      * @return 处理结果
      */
     private UserFileDTO requireFileByIdActiveOrRecycle(Long fileId, FilePermission permission) {
-        User user = currentUser();
-        UserFileDTO userFileDTO = Admin(user) ?
-                fileInfoMapper.getByFileIdAnyActiveOrRecycle(fileId) :
-                fileInfoMapper.getByFileIdActiveOrRecycle(fileId,user.getId());
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileIdAnyActiveOrRecycle(fileId);
         requirePermission(userFileDTO,permission);
         return userFileDTO;
     }
@@ -243,11 +243,11 @@ public class FileService {
      * @return 处理结果
      */
     private UserFileDTO requireFileByUuid(String fileUuid, Long parentId, FilePermission permission) {
-        User user = currentUser();
-        Long realParentId = normalizeParentId(parentId,user.getId());
-        UserFileDTO userFileDTO = Admin(user) ?
-                fileInfoMapper.getByFileUuidAny(fileUuid,realParentId) :
-                fileInfoMapper.getByFileUuidAndParent(fileUuid,realParentId,user.getId());
+        Long currentUserId = BaseContext.getCurrentId();
+        Long realParentId = parentId == null || parentId == 0L
+                ? normalizeParentId(parentId,currentUserId)
+                : parentId;
+        UserFileDTO userFileDTO = fileInfoMapper.getByFileUuidAny(fileUuid,realParentId);
         requirePermission(userFileDTO,permission);
         return userFileDTO;
     }
@@ -272,10 +272,6 @@ public class FileService {
      * @return 列表结果
      */
     private List<UserFileDTO> listChildren(Long parentId, Long ownerId) {
-        User user = currentUser();
-        if(Admin(user)) {
-            return fileInfoMapper.listFileByparentIdAny(parentId);
-        }
         return fileInfoMapper.listFileByparentId(parentId,ownerId);
     }
 
@@ -287,10 +283,6 @@ public class FileService {
      * @return 列表结果
      */
     private List<UserFileDTO> listChildrenActiveOrRecycle(Long parentId, Long ownerId) {
-        User user = currentUser();
-        if(Admin(user)) {
-            return fileInfoMapper.listFileByparentIdAnyActiveOrRecycle(parentId);
-        }
         return fileInfoMapper.listFileByparentIdActiveOrRecycle(parentId,ownerId);
     }
 
@@ -438,7 +430,7 @@ public class FileService {
         if(uploadFile == null || uploadFile.isEmpty()) {
             throw new BaseException("上传文件不能为空");
         }
-        if(uploadFile.getSize() > siteSettingService.getLong(SiteSettingService.UPLOAD_MAX_FILE_SIZE,maxFileSize)) {
+        if(siteSettingService.exceedsUploadLimit(uploadFile.getSize(),maxFileSize)) {
             throw new BaseException("文件大小超过限制");
         }
         requireSafeFileName(uploadFile.getOriginalFilename());
@@ -518,8 +510,7 @@ public class FileService {
             return root.getId();
         }
 
-        User user = loginMapper.getById(userId);
-        boolean parentExists = Admin(user) ? fileInfoMapper.ParentIdExistAny(parentId) : fileInfoMapper.ParentIdExist(parentId,userId);
+        boolean parentExists = fileInfoMapper.ParentIdExist(parentId,userId);
         if (!parentExists) {
             log.info("尝试访问一个不存在的目录");
             throw new BaseException("目录不存在");
@@ -596,6 +587,8 @@ public class FileService {
 
         // 查询是否已有相同 hash 的真实文件。
         File existingFile = fileInfoMapper.getFileByHash(hash);
+        storageService.requireAvailable(ownerId,storageService.additionalBytes(
+                ownerId,existingFile == null ? null : existingFile.getFileUuid(),uploadFile.getSize()));
         // 不存在同 hash 文件，需要上传 MinIO 并写入 file_info。
         if(existingFile == null) {
             String fileUuid = operation.getResourceId();
@@ -635,11 +628,14 @@ public class FileService {
 
             // 回填 user_file
             fileInfoMapper.insertFile_User(file_user);
+            recordUserQuotaReference(file_user);
+            spaceFileLifecycleService.personalFileAdded(file_user);
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
             resultRef.set(String.valueOf(file_user.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            emitFileEvent("FILE_CREATED",file_user);
             return toFileVO(file_user);
         }
         else {
@@ -668,11 +664,14 @@ public class FileService {
 
             // 鎻掑叆 user_file
             fileInfoMapper.insertFile_User(file_user);
+            recordUserQuotaReference(file_user);
+            spaceFileLifecycleService.personalFileAdded(file_user);
             file_user.setPath(getPath(file_user.getId(),ownerId));
             fileInfoMapper.updatePath(file_user.getId(), file_user.getFileUuid(),file_user.getPath(),ownerId);
             log.info("uuid编号{}文件上传完成，正在存储文件信息",file.getFileUuid());
             resultRef.set(String.valueOf(file_user.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            emitFileEvent("FILE_CREATED",file_user);
             return toFileVO(file_user);
         }
     }
@@ -682,6 +681,11 @@ public class FileService {
     @Autowired
     public void setCrossStoreOperationService(CrossStoreOperationService crossStoreOperationService) {
         this.crossStoreOperationService = crossStoreOperationService;
+    }
+
+    @Autowired(required = false)
+    public void setWebhookEventService(WebhookEventService webhookEventService) {
+        this.webhookEventService = webhookEventService;
     }
 
     private FileVO replayPersonalUpload(CrossStoreOperation operation, Long ownerId, Long parentId) {
@@ -709,7 +713,7 @@ public class FileService {
      * @param response 响应对象
      */
     public void downloadFile(String fileUuid, Long parentId, HttpServletResponse response) {
-        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
+        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.DOWNLOAD);
         Long ownerId = userFileDTO.getUserId();
 
         //TODO：未来需要支持打包下载
@@ -922,7 +926,7 @@ public class FileService {
      * @return 处理结果
      */
     public String shareFile(String fileUuid, Long parentId) {
-        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.READ);
+        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
         if(!userFileAvailable(userFileDTO)) {
             throw new BaseException("文件不可用，无法分享");
         }
@@ -1203,8 +1207,17 @@ public class FileService {
      * @return 列表结果
      */
     public List<FileVO> listFiles(Long parentId,Long userId) {
+        authorizationService.require(
+                AccessSubject.user(BaseContext.getCurrentId()),
+                ResourceType.USER_PRIVATE,
+                userId,
+                ResourceAction.READ
+        );
         parentId = normalizeParentId(parentId, userId);
-        UserFileDTO parent = requireFileById(parentId,FilePermission.READ);
+        UserFileDTO parent = fileInfoMapper.getByFileId(parentId,userId);
+        if(parent == null || parent.getStatus() == StatusConstant.DISABLE) {
+            throw new NotFoundException("目录不存在或已失效");
+        }
         if(parent.getDir() != 1) {
             throw new BaseException("目标位置不是目录");
         }
@@ -1212,6 +1225,41 @@ public class FileService {
         List<FileVO> files = new ArrayList<>();
         list.forEach(fileiter -> files.add(toFileVO(fileiter)));
         return files;
+    }
+
+    public List<FileVO> listFilesByCategory(String category, String keyword, Long userId) {
+        authorizationService.require(
+                AccessSubject.user(BaseContext.getCurrentId()),
+                ResourceType.USER_PRIVATE,
+                userId,
+                ResourceAction.READ
+        );
+        String normalizedCategory = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
+        if(!Set.of("images","videos","music","documents").contains(normalizedCategory)) {
+            throw new BaseException("不支持的文件分类");
+        }
+        String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+        return fileInfoMapper.listFileByUserId(userId).stream()
+                .filter(file -> !file.isDir())
+                .filter(file -> normalizedKeyword.isEmpty() || file.getName().toLowerCase(Locale.ROOT).contains(normalizedKeyword))
+                .filter(file -> matchesCategory(file,normalizedCategory))
+                .toList();
+    }
+
+    private boolean matchesCategory(FileVO file, String category) {
+        String type = file.getType();
+        if(type == null || type.isBlank()) {
+            int dot = file.getName() == null ? -1 : file.getName().lastIndexOf('.');
+            type = dot < 0 ? "" : file.getName().substring(dot + 1);
+        }
+        String extension = type.toLowerCase(Locale.ROOT).replaceFirst("^\\.","");
+        return switch(category) {
+            case "images" -> IMAGE_TYPES.contains(extension);
+            case "videos" -> VIDEO_TYPES.contains(extension);
+            case "music" -> AUDIO_TYPES.contains(extension);
+            case "documents" -> DOCUMENT_TYPES.contains(extension);
+            default -> false;
+        };
     }
 
     /**
@@ -1258,6 +1306,7 @@ public class FileService {
         if(rows == 0) {throw new BaseException("重命名失败");}
         userFileDTO.setFileName(newName);
         userFileDTO.setUpdatetime(LocalDateTime.now());
+        emitFileEvent("FILE_UPDATED",userFileDTO);
         return toFileVO(userFileDTO);
     }
 
@@ -1299,6 +1348,7 @@ public class FileService {
         if(rows == 0) {
             throw new BaseException("文件移入回收站失败");
         }
+        if(quotaService != null && userFileDTO.getDir() == 0) quotaService.releaseReference("USER_FILE",userFileDTO.getId());
     }
 
     /**
@@ -1312,6 +1362,8 @@ public class FileService {
     public boolean deleteFiles(String fileUuid,Long parentId) {
         UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.DELETE);
         softDeleteTree(userFileDTO);
+        userFileDTO.setUpdatetime(LocalDateTime.now());
+        emitFileEvent("FILE_DELETED",userFileDTO);
         return StatusConstant.SUCCESS;
     }
 
@@ -1336,9 +1388,7 @@ public class FileService {
      */
     public List<FileVO> listRecycleFiles() {
         User user = currentUser();
-        List<UserFileDTO> recycleFiles = Admin(user) ?
-                fileInfoMapper.listRecycleRootAny() :
-                fileInfoMapper.listRecycleRootByUserId(user.getId());
+        List<UserFileDTO> recycleFiles = fileInfoMapper.listRecycleRootByUserId(user.getId());
         List<FileVO> files = new ArrayList<>();
         recycleFiles.forEach(file -> files.add(toFileVO(file)));
         return files;
@@ -1366,6 +1416,7 @@ public class FileService {
         if(parent != null) {
             fileInfoMapper.lockUserFileById(parent.getId());
         }
+        storageService.requireAvailable(userFileDTO.getUserId(),restoreAdditionalBytes(userFileDTO));
         String restoredName = resolveRestoreName(userFileDTO);
         if(!restoredName.equals(userFileDTO.getFileName())) {
             if(fileInfoMapper.updateRecycledNameById(userFileDTO.getId(),restoredName,LocalDateTime.now()) == 0) {
@@ -1376,6 +1427,33 @@ public class FileService {
         restoreTree(userFileDTO);
         refreshRestoredPaths(userFileDTO);
         return StatusConstant.SUCCESS;
+    }
+
+    private long restoreAdditionalBytes(UserFileDTO root) {
+        long additional = 0L;
+        Set<String> counted = new HashSet<>();
+        Queue<UserFileDTO> queue = new LinkedList<>();
+        queue.offer(root);
+        while(!queue.isEmpty()) {
+            UserFileDTO current = queue.poll();
+            if(current.getDir() == 0 && current.getStatus() == StatusConstant.RECYCLE
+                    && counted.add(current.getFileUuid())) {
+                Integer active = fileInfoMapper.countUserActiveByFileUuid(current.getUserId(),current.getFileUuid());
+                if(active == null || active == 0) {
+                    File physical = fileInfoMapper.getFileByFileUuid(current.getFileUuid(),current.getUserId());
+                    if(physical != null && physical.getSize() != null) {
+                        additional = Math.addExact(additional,storageService.additionalBytes(
+                                current.getUserId(),current.getFileUuid(),physical.getSize()));
+                    }
+                }
+            }
+            if(current.getDir() == 1) {
+                listChildrenActiveOrRecycle(current.getId(),current.getUserId()).stream()
+                        .filter(child -> child.getStatus() == StatusConstant.RECYCLE)
+                        .forEach(queue::offer);
+            }
+        }
+        return additional;
     }
 
     /**
@@ -1395,6 +1473,7 @@ public class FileService {
         if(rows == 0) {
             throw new BaseException("文件恢复失败");
         }
+        recordUserQuotaReference(userFileDTO);
         List<UserFileDTO> children = listChildrenActiveOrRecycle(userFileDTO.getId(),userFileDTO.getUserId());
         children.forEach(child -> {
             if(child.getStatus() == StatusConstant.RECYCLE) {
@@ -1466,6 +1545,7 @@ public class FileService {
             throw new BaseException("文件元数据不存在");
         }
         hardDeleteUserFile(userFileDTO);
+        spaceFileLifecycleService.personalFileRemoved(userFileDTO);
         if(fileInfoMapper.updateFileCount(userFileDTO.getFileUuid(),-1) == 0) {
             throw new BaseException("文件引用计数更新失败");
         }
@@ -1554,14 +1634,28 @@ public class FileService {
                 log.warn("新建文件失败");
                 throw new BaseException("新建文件失败");
             }
+            recordUserQuotaReference(userFileDTO);
+            spaceFileLifecycleService.personalFileAdded(userFileDTO);
             resultRef.set(String.valueOf(userFileDTO.getId()));
             crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+            emitFileEvent("FILE_CREATED",userFileDTO);
             return toFileVO(userFileDTO);
         }
 
+        String effectiveKey = idempotencyKey == null || idempotencyKey.isBlank() ? UuidUtil.randomUuid() : idempotencyKey;
+        requireValidIdempotencyKey(effectiveKey);
+        String operationKey = CrossStoreOperationService.key("DIRECTORY_CREATE",userId,effectiveKey);
+        AtomicReference<String> resultRef = new AtomicReference<>();
+        CrossStoreOperation operation = crossStoreOperationService.claim(
+                operationKey,"DIRECTORY_CREATE",
+                CrossStoreOperationService.payloadHash(ownerId,parentId,name,"dir"),UuidUtil.randomUuid());
+        if(CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
+            return replayCreatedFile(operation,ownerId,parentId);
+        }
+        crossStoreOperationService.completeAfterCommit(operationKey,resultRef::get);
         requireNoNameConflict(safeName,1,parentId,ownerId,null);
 
-        String uuid = UuidUtil.randomUuid();
+        String uuid = operation.getResourceId();
         File file = File.builder()
                 .fileUuid(uuid)
                 .parentId(parentId)
@@ -1587,6 +1681,9 @@ public class FileService {
                 .build();
         fileInfoMapper.insertFile_User(userFileDTO);
         fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),getPath(userFileDTO.getId(),ownerId),ownerId);
+        resultRef.set(String.valueOf(userFileDTO.getId()));
+        crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
+        emitFileEvent("FILE_CREATED",userFileDTO);
         return toFileVO(userFileDTO);
     }
 
@@ -1640,6 +1737,8 @@ public class FileService {
             log.info("文件移动成功");
             files.setPath(getPath(files.getId(),files.getUserId()));
             fileInfoMapper.updatePath(files.getId(),files.getFileUuid(),files.getPath(),files.getUserId());
+            files.setUpdatetime(LocalDateTime.now());
+            emitFileEvent("FILE_UPDATED",files);
             return true;
         }
         else {
@@ -1662,7 +1761,24 @@ public class FileService {
                 fileInfoMapper.updatePath(userFileDTO.getId(),userFileDTO.getFileUuid(),userFileDTO.getPath(),files.getUserId());
             }
         }
+        files.setUpdatetime(LocalDateTime.now());
+        emitFileEvent("FILE_UPDATED",files);
         return true;
+    }
+
+    private void emitFileEvent(String eventType,UserFileDTO file) {
+        if(webhookEventService == null || file == null || file.getId() == null || file.getUserId() == null) return;
+        LocalDateTime updated = file.getUpdatetime() == null ? LocalDateTime.now() : file.getUpdatetime();
+        long version = Math.max(1,updated.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+        webhookEventService.publish(file.getUserId(),eventType,"FILE",String.valueOf(file.getId()),version,
+                file.getId(),null,Map.of("fileId",file.getId(),"isDir",file.getDir() == 1),
+                Map.of("name",file.getFileName(),"parentId",file.getParentId() == null ? 0 : file.getParentId()));
+    }
+
+    private void recordUserQuotaReference(UserFileDTO file) {
+        if(quotaService != null && file != null && file.getDir() == 0 && file.getId() != null && file.getFileUuid() != null) {
+            quotaService.recordUserFile(file.getId(),file.getUserId(),file.getFileUuid());
+        }
     }
 
     /**
@@ -1696,6 +1812,57 @@ public class FileService {
 
         copyFileTree(files,filet.getId(),files.getUserId());
         return true;
+    }
+
+    @Transactional
+    public Boolean batchDeleteFiles(List<Long> fileIds) {
+        List<Long> ids = normalizeBatchIds(fileIds);
+        ids.forEach(id -> requireFileById(id,FilePermission.DELETE));
+        ids.forEach(id -> softDeleteTree(requireFileById(id,FilePermission.DELETE)));
+        return true;
+    }
+
+    @Transactional
+    public Boolean batchMoveFiles(List<Long> fileIds, Long targetParentId) {
+        List<Long> ids = normalizeBatchIds(fileIds);
+        Long userId = BaseContext.getCurrentId();
+        Long targetId = normalizeParentId(targetParentId,userId);
+        UserFileDTO target = requireFileById(targetId,FilePermission.WRITE);
+        if(target.getDir() != 1) {
+            throw new BaseException("目标位置不是目录");
+        }
+        ids.forEach(id -> requireFileById(id,FilePermission.MODIFY));
+        for(Long id : ids) {
+            movefiles(id,targetId);
+        }
+        return true;
+    }
+
+    @Transactional
+    public Boolean batchCopyFiles(List<Long> fileIds, Long targetParentId) {
+        List<Long> ids = normalizeBatchIds(fileIds);
+        Long userId = BaseContext.getCurrentId();
+        Long targetId = normalizeParentId(targetParentId,userId);
+        UserFileDTO target = requireFileById(targetId,FilePermission.WRITE);
+        if(target.getDir() != 1) {
+            throw new BaseException("目标位置不是目录");
+        }
+        ids.forEach(id -> requireFileById(id,FilePermission.READ));
+        for(Long id : ids) {
+            copyfiles(id,targetId);
+        }
+        return true;
+    }
+
+    private List<Long> normalizeBatchIds(List<Long> fileIds) {
+        if(fileIds == null || fileIds.isEmpty()) {
+            throw new BaseException("请至少选择一个文件");
+        }
+        List<Long> ids = fileIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+        if(ids.isEmpty() || ids.size() > 100) {
+            throw new BaseException("一次只能处理 1 到 100 个文件");
+        }
+        return ids;
     }
 
     /**
@@ -1765,10 +1932,12 @@ public class FileService {
             log.warn("复制文件节点失败");
             throw new BaseException("复制失败");
         }
+        recordUserQuotaReference(copied);
         copied.setPath(getPath(copied.getId(),userId));
         fileInfoMapper.updatePath(copied.getId(),copied.getFileUuid(),copied.getPath(),userId);
 
         if(source.getDir() == 0) {
+            spaceFileLifecycleService.personalFileAdded(copied);
             if(fileInfoMapper.updateFileCount(source.getFileUuid(),1) == 0) {
                 throw new BaseException("文件引用计数更新失败");
             }

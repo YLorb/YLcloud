@@ -37,6 +37,9 @@ public class SpaceKnowledgeDocumentProfileVO {
     private Integer profileVersion;
     private Long currentVersionId;
     private Long latestVersionId;
+    private String latestAssetState;
+    private BigDecimal latestConfidence;
+    private String latestConflictReason;
     private String sourceFileHash;
     private String sourceParserVersion;
     private String profileSchemaVersion;

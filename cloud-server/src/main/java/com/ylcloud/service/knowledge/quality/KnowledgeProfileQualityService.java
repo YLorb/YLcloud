@@ -5,12 +5,23 @@ import com.ylcloud.entity.FileRagChunk;
 import com.ylcloud.service.knowledge.profile.KnowledgeProfileDraft;
 import com.ylcloud.service.knowledge.profile.KnowledgeProfileValidationResult;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
 public class KnowledgeProfileQualityService {
+    private int autoActivateThreshold = 75;
+
+    @Value("${ylcloud.knowledge.quality.auto-activate-threshold:75}")
+    public void setAutoActivateThreshold(int autoActivateThreshold) {
+        if(autoActivateThreshold < 0 || autoActivateThreshold > 100) {
+            throw new IllegalArgumentException("knowledge quality threshold must be between 0 and 100");
+        }
+        this.autoActivateThreshold = autoActivateThreshold;
+    }
+
     public KnowledgeProfileQualityResult evaluate(KnowledgeProfileDraft profile,
                                                   KnowledgeProfileValidationResult validationResult,
                                                   List<FileRagChunk> usedChunks,
@@ -33,7 +44,10 @@ public class KnowledgeProfileQualityService {
         result.getDimensionScores().put("structure",structure);
         int total = summary + category + tags + keywords + questions + coverage + structure;
         result.setTotalScore(total);
-        result.setProfileStatus(total >= 75 ? SpaceConstant.KNOWLEDGE_PROFILE_VALID : SpaceConstant.KNOWLEDGE_PROFILE_NEEDS_REVIEW);
+        boolean structuralFailure = !validationResult.isSchemaValid()
+                || issues.stream().anyMatch(issue -> "ERROR".equalsIgnoreCase(issue.severity()));
+        result.setProfileStatus(!structuralFailure && total >= autoActivateThreshold
+                ? SpaceConstant.KNOWLEDGE_PROFILE_VALID : SpaceConstant.KNOWLEDGE_PROFILE_NEEDS_REVIEW);
         result.setIssues(issues);
         return result;
     }

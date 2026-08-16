@@ -1,6 +1,7 @@
 package com.ylcloud.service.rag;
 
 import com.ylcloud.config.RagProperties;
+import com.ylcloud.DTO.RagChatMessageDTO;
 import com.ylcloud.entity.FileRagChunk;
 import com.ylcloud.entity.SpaceRagConfig;
 import org.slf4j.Logger;
@@ -37,9 +38,9 @@ public class RagChatService {
      * @param config 配置对象
      * @return 处理结果
      */
-    public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config) {
+    public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config, List<RagChatMessageDTO> history) {
         if(chunks == null || chunks.isEmpty()) {
-            return RagChatResult.success(properties.getChat().getNoAnswerText());
+            return RagChatResult.noAnswer(properties.getChat().getNoAnswerText());
         }
         if(!Boolean.TRUE.equals(properties.getChat().getEnabled())) {
             return RagChatResult.failed(fallbackAnswer(),"RAG chat is disabled");
@@ -51,15 +52,18 @@ public class RagChatService {
             request.setSystemPrompt(properties.getChat().getSystemPrompt());
             request.setQuestion(question);
             request.setContexts(buildContexts(chunks));
+            request.setHistory(history == null ? List.of() : history);
             request.setMaxTokens(properties.getChat().getMaxAnswerTokens());
             request.setTemperature(resolveTemperature(config));
             RagChatResponse response = ragModelClient.chat(request);
             if(response.getAnswer() == null || response.getAnswer().isBlank()) {
-                RagChatResult result = RagChatResult.failed(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
+                RagChatResult result = RagChatResult.noAnswer(properties.getChat().getNoAnswerText(),"RAG chat returned empty answer");
                 result.setModelName(model);
                 return result;
             }
-            RagChatResult result = RagChatResult.success(response.getAnswer());
+            RagChatResult result = isNoAnswerResponse(response.getAnswer())
+                    ? RagChatResult.noAnswer(response.getAnswer())
+                    : RagChatResult.success(response.getAnswer());
             result.setModelName(model);
             return result;
         } catch (Exception ex) {
@@ -68,6 +72,10 @@ public class RagChatService {
             result.setModelName(resolveChatModel(config));
             return result;
         }
+    }
+
+    public RagChatResult answer(String question, List<FileRagChunk> chunks, SpaceRagConfig config) {
+        return answer(question,chunks,config,List.of());
     }
 
     /**
@@ -122,6 +130,20 @@ public class RagChatService {
      */
     private String fallbackAnswer() {
         return properties.getChat().getUnavailableText();
+    }
+
+    private boolean isNoAnswerResponse(String answer) {
+        if(answer == null || answer.isBlank()) {
+            return true;
+        }
+        String normalized = answer.replaceAll("\\s+","").trim();
+        String configured = properties.getChat().getNoAnswerText();
+        if(configured != null && normalized.equals(configured.replaceAll("\\s+","").trim())) {
+            return true;
+        }
+        return normalized.contains("无法从当前知识库回答")
+                || normalized.contains("当前知识库中没有检索到足够的依据")
+                || (normalized.contains("没有检索到足够") && normalized.contains("无法回答"));
     }
 
     /**

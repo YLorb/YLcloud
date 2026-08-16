@@ -11,9 +11,11 @@ import java.time.LocalDateTime;
 public class AsyncTaskVO {
     private String id;
     private Long taskId;
+    private Long parentTaskId;
     private Long spaceId;
     private Long documentId;
     private String source;
+    private String taskDomain;
     private String type;
     private String title;
     private String status;

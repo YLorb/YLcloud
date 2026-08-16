@@ -8,7 +8,8 @@ This document is the execution contract for the validation Agent. The implementa
 
 The release gate covers:
 
-- Flyway V17 application and legacy profile compatibility.
+- Flyway V17/V21/V22 application, legacy profile compatibility, the knowledge-profile toggle, and cross-store vector state.
+- Full ordinary Maven reactor tests before real-MySQL integration tests.
 - Upload -> RAG -> chunk -> embedding -> profile -> retrieval.
 - `SYNC_RETRIEVAL_SOURCE` source snapshot writes.
 - Sequential idempotency, concurrent idempotency, conflict handling, and transaction rollback.
@@ -64,10 +65,12 @@ Pass the actual container names and Qdrant host URL when the isolated validation
 
 The command performs these suites in order:
 
-1. V17 Flyway history and schema-column checks.
-2. `KnowledgeProfileWriteServiceMysqlIT` against real MySQL.
-3. `scripts/p0-acceptance.ps1`.
-4. `scripts/p1-deploy-acceptance.ps1`.
+1. V17/V21/V22 Flyway history and required schema-column checks.
+2. Full `mvn test` reactor.
+3. `KnowledgeProfileWriteServiceMysqlIT` against real MySQL.
+4. `scripts/p0-acceptance.ps1`.
+5. `scripts/p1-deploy-acceptance.ps1`.
+6. Optional multipart fault injection when both `-RunMultipartFaultInjection` and `-ConfirmDisposableEnvironment` are supplied.
 
 Reports and logs are written under:
 
@@ -107,6 +110,9 @@ Remove the four environment variables after execution. Never include the databas
 The updated P0 suite must report all of the following:
 
 - DOCX structured parsing and retrieval succeeded.
+- Knowledge profile is enabled by default; disabling it leaves RAG indexing successful and creates no profile task.
+- Initial profile task reports one successful and zero failed documents.
+- A successful indexed document is `ACTIVE` in the V22 vector-state model.
 - Initial Pipeline task exposed core stage events.
 - A legacy profile with null signature/revision 0 selected `SYNC_RETRIEVAL_SOURCE`.
 - Source signature is nonblank and revision becomes 1.
@@ -137,7 +143,7 @@ The validation Agent must inspect these items even when all scripts pass:
 - generated reports contain no password, token, or provider API key;
 - only acceptance-owned fixtures were deleted;
 - task events show the actual terminal stage and reason;
-- V17 is applied once and a second application restart does not rerun it.
+- V17/V21/V22 are each applied once and a second application restart does not rerun them.
 
 ## Pass Criteria
 
@@ -165,7 +171,9 @@ Any missing real-environment execution remains **PENDING VALIDATION**, even if u
 
 ## Results
 
-- [ ] V17 applied and restart-safe
+- [ ] V17/V21/V22 applied and restart-safe
+- [ ] Knowledge-profile default/disabled behavior
+- [ ] V22 vector-state invariant
 - [ ] Legacy profile first synchronization
 - [ ] Sequential idempotency
 - [ ] Concurrent identical snapshots
