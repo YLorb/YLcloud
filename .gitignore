@@ -82,6 +82,9 @@ cloud-frontend/.playwright-cli/
 ### Local shortcuts ###
 /Obsidian.lnk
 
+### Local visual QA artifacts ###
+/output/playwright/
+
 ### Local environment and secrets ###
 .env
 .env.*
