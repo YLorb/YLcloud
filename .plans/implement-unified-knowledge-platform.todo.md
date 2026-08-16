@@ -16,6 +16,9 @@ Feature + Refactor + Infrastructure Migration
 - `ADR-20260725-002`：RabbitMQ 统一异步任务架构。
 - `TEST-20260725-001`：统一知识平台专项测试要求。
 - `TEST-20260725-002`：统一异步任务与消息队列专项测试要求。
+- `TEST-20260816-001`：Space 文件提交人与修改人可见性测试要求。
+- `TEST-20260816-002`：Space 文件在线预览测试要求。
+- `TEST-20260816-003`：Space 文件树与共享浏览体验测试要求。
 
 ## Status
 
@@ -43,6 +46,9 @@ Todo。全部实现、专项测试、集成门禁和观察窗口完成后，才�
 | P14 | 每日 04:00 在线全备、隔离恢复后轮换、默认保留 1 份 | 013 |
 | P15 | Compose 手动升级、备份门禁、维护模式和回滚 | 014, 016 |
 | P16 | 所有能力具备生产 UI、测试证据和发布门禁 | 015, 016, 021 |
+| P17 | Space 文件列表和版本历史展示可靠的提交人/最后修改人归因 | 20260816-001 |
+| P18 | Space 当前文件和历史版本可在成员权限内在线预览 | 20260816-002 |
+| P19 | Space 按目录浏览并复用 Personal 的核心 File Explorer 体验，同时保持双逻辑模型、独立授权和默认知识化 | 20260816-003 |
 
 ### Async/MQ requirements
 
@@ -55,7 +61,7 @@ Todo。全部实现、专项测试、集成门禁和观察窗口完成后，才�
 | M5 | Knowledge Pipeline 迁移 | 020 |
 | M6 | Space RAG、稳定 Point ID、批量扇出和最终切换 | 021 |
 
-Coverage: platform 16/16，async/MQ 6/6，总计 22/22，100%。
+Coverage: platform 19/19，async/MQ 6/6，总计 25/25，100%。
 
 ## Integration Decisions
 
@@ -65,7 +71,7 @@ Coverage: platform 16/16，async/MQ 6/6，总计 22/22，100%。
 4. Space/文件领域状态由 TASK-003/004 定义；TASK-017/020/021 负责把相应重型执行迁入统一任务中心，不得在 MQ Consumer 中重新定义领域状态。
 5. MySQL 同时是平台业务状态和异步任务事实源。RabbitMQ 只负责唤醒和削峰，不替代审计、备份或恢复事实。
 6. 仓库只保留一个 `scripts/deploy.sh`：TASK-016 创建版本化发布、健康检查、冒烟和镜像自动回滚；TASK-014 在同一脚本/运维入口上补齐备份门禁、维护模式和整个平台升级/恢复规则，不创建第二套部署脚本。
-7. 两份 TEST 都是必需专项门禁。任务按自身链接执行专项测试；TASK-015 最终发布必须同时满足 TEST-001 与 TEST-002。
+7. 五份 TEST 都是必需专项门禁。任务按自身链接执行专项测试；TASK-015 最终发布必须同时满足 TEST-20260725-001/002 与 TEST-20260816-001/002/003。
 8. 所有任务 ID 不变。实施顺序由依赖决定，而不是由编号大小决定。
 
 ## Current State
@@ -75,6 +81,9 @@ Coverage: platform 16/16，async/MQ 6/6，总计 22/22，100%。
 - 异步工作由 `ThreadPoolTaskExecutor`、`@Async`、定时恢复器和多个领域任务表分别承载。
 - `/api/async` 仅聚合部分领域任务；没有统一尝试历史、租约续期、通用取消和跨进程消费。
 - 生产仍可能由 `BootstrapAdminInitializer` 创建管理员；ADMIN 权限旁路和旧逐 Tool Grant 仍需删除。
+- Space 后端已有当前文件和历史版本预览接口，但 Space 文件页面尚未提供预览入口。
+- `space_file.created_by` 和 `file_version.created_by` 已有部分归因数据，但文件 VO/UI 未完整展示，且缺少不受 RAG 技术状态污染的最后修改人/用户修改时间。
+- Space 后端已有目录节点、`parentId` 和树/子节点能力，但当前 Space 页面仍把全量文件平铺展示，上传和导入未绑定当前目录；Personal 与 Space 也没有带独立授权上下文的共享 File Explorer。
 
 ## Desired State
 
@@ -83,6 +92,8 @@ Coverage: platform 16/16，async/MQ 6/6，总计 22/22，100%。
 - 纳入 MQ 迁移的六个重型异步域全部登记 MySQL 统一任务，通过 RabbitMQ 分域执行。
 - RabbitMQ 中断、重复投递、Worker 崩溃和迟到结果不会丢任务或覆盖新资源版本。
 - 单机 Compose 具备真实恢复验证、受控升级、版本化部署、自动镜像回滚和完整发布证据。
+- Space 成员可安全预览当前文件和历史版本，并能看到可靠、可解释且不泄露账号资料的提交人/最后修改人信息。
+- Space 成员可按目录浏览和管理文件；Personal 与 Space 共享核心文件浏览体验，但继续使用双逻辑模型、独立授权和不同知识化规则。
 
 ## Architecture and Type Constraints
 
@@ -125,6 +136,11 @@ flowchart TD
   T003 --> T004["004 Space 文件知识生命周期"]
   T016 --> T004
   T004 --> T005["005 知识资产质量"]
+  T004 --> T161["20260816-001 文件贡献者可见性"]
+  T002 --> T162["20260816-002 Space 文件预览"]
+  T004 --> T162
+  T002 --> T163["20260816-003 Space 文件树"]
+  T004 --> T163
   T004 --> T017["017 mq-v2 清理维护"]
   T016 --> T017
   T017 --> T018["018 mq-v3 用户记忆"]
@@ -163,6 +179,9 @@ flowchart TD
 
   T014 --> T015["015 前端与最终验收"]
   T021 --> T015
+  T161 --> T015
+  T162 --> T015
+  T163 --> T015
   T009 --> T015
   T010 --> T015
   T011 --> T015
@@ -203,9 +222,12 @@ mq-v1 至 mq-v6 仍按版本顺序独立实现、测试、提交、推送和观�
 17. TASK-20260725-013：完整备份与恢复，包含 RabbitMQ 配置/Secret 和 MySQL 任务事实恢复验证。
 18. TASK-20260725-014：扩展 TASK-016 的同一个部署入口，增加备份门禁、维护模式和整个平台升级回滚。
 
-### Wave 5: Final release
+### Wave 5: Space visibility and final release
 
-19. TASK-20260725-015：统一前端、全链路验收和发布。开始条件是 TASK-001～014 与 TASK-016～021 全部完成，不以 TASK 编号连续性代替依赖检查。
+19. TASK-20260816-001：补齐 Space 文件提交人与最后修改人归因；依赖 TASK-002/004，可与后续平台运维任务并行。
+20. TASK-20260816-002：接入 Space 当前文件和历史版本在线预览；依赖 TASK-002/004，可与 TASK-20260816-001 并行。
+21. TASK-20260816-003：实现 Space 文件树和 Personal/Space 共享 File Explorer 边界；依赖 TASK-002/004，可与 TASK-20260816-001/002 并行。
+22. TASK-20260725-015：统一前端、全链路验收和发布。开始条件是 TASK-001～014、TASK-016～021 与 TASK-20260816-001/002/003 全部完成，不以 TASK 编号连续性代替依赖检查。
 
 ## Removal Specification
 
@@ -232,10 +254,10 @@ mq-v1 至 mq-v6 仍按版本顺序独立实现、测试、提交、推送和观�
 
 ### Final release
 
-- TEST-20260725-001 与 TEST-20260725-002 全部通过。
+- TEST-20260725-001、TEST-20260725-002、TEST-20260816-001、TEST-20260816-002 与 TEST-20260816-003 全部通过。
 - `mvn test`、`npm test`、`npm run build`、Compose 配置/健康和浏览器 E2E 通过。
 - Rabbit 中断、重复投递、Worker 崩溃、下游超时、应用降版、备份恢复和升级失败均有可复现证据。
-- 22 项需求映射全部有实现和测试证据；Removal Specification 全部关单。
+- 25 项需求映射全部有实现和测试证据；Removal Specification 全部关单。
 - 无未处置 DLQ、无旧新执行路径双跑、无 Point ID 跨逻辑文件覆盖。
 
 ## Risks and Rollback
