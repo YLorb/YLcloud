@@ -1,4 +1,4 @@
-import { Slot } from "@radix-ui/react-slot";
+import { Slot, Slottable } from "@radix-ui/react-slot";
 import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 
@@ -45,7 +45,7 @@ export const SidebarItem = forwardRef<HTMLButtonElement, SidebarItemProps>(funct
       aria-current={selected ? "page" : undefined}
       {...props}
     >
-      {children}
+      <Slottable>{children}</Slottable>
       {badge != null && <span className="ui-sidebar-item__badge">{badge}</span>}
     </Comp>
   );
