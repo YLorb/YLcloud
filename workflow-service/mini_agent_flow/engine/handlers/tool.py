@@ -12,6 +12,7 @@ from mini_agent_flow.workers.isolated_process import (
     IsolatedToolError,
     IsolatedToolTimeoutError,
 )
+from mini_agent_flow.tools.sandbox_client import SandboxCancelledError, SandboxClientError, SandboxTimeoutError
 
 
 class ToolNodeHandler:
@@ -30,10 +31,10 @@ class ToolNodeHandler:
                     f"tool {node.tool!r} risk level {spec.risk_level} exceeds max "
                     f"{runtime.max_risk_level}"
                 )
-            if spec.risk_level >= runtime.isolation_risk_threshold and spec.execution_mode != "isolated_process":
+            if spec.risk_level >= runtime.isolation_risk_threshold and spec.execution_mode not in {"isolated_process", "sandbox"}:
                 raise WorkflowExecutionError(
                     f"tool {node.tool!r} risk level {spec.risk_level} requires "
-                    "isolated_process execution"
+                    "isolated execution"
                 )
             if spec.input_schema and spec.input_schema != {"type": "any"}:
                 errors = _validate_value_against_schema(tool_input, spec.input_schema)
@@ -45,7 +46,35 @@ class ToolNodeHandler:
         secrets = self._resolve_secrets(
             spec.required_secret_names if spec is not None else (), runtime
         )
-        if spec is not None and spec.execution_mode == "isolated_process":
+        safe_metadata: dict[str, Any] = {}
+        if spec is not None and spec.execution_mode == "sandbox":
+            if runtime.sandbox_client is None:
+                raise WorkflowExecutionError("sandbox client is unavailable")
+            if not isinstance(tool_input, dict):
+                raise WorkflowExecutionError("sandbox tool input must be an object")
+            if not runtime.idempotency_key:
+                raise WorkflowExecutionError("sandbox tool requires an idempotency key")
+            try:
+                invocation = runtime.sandbox_client.invoke(
+                    spec, tool_input, timeout_seconds=node.timeout_seconds or 60,
+                    idempotency_key=runtime.idempotency_key, trace_id=runtime.trace_id,
+                    parent_span_id=runtime.parent_span_id,
+                )
+                value = invocation.result
+                safe_metadata = {"sandbox_span": invocation.span}
+            except SandboxCancelledError as exc:
+                error = NodeCancelledError(str(exc))
+                setattr(error, "safe_metadata", {"sandbox_span": exc.span})
+                raise error from exc
+            except SandboxTimeoutError as exc:
+                error = NodeTimeoutError(str(exc))
+                setattr(error, "safe_metadata", {"sandbox_span": exc.span})
+                raise error from exc
+            except SandboxClientError as exc:
+                error = WorkflowExecutionError(str(exc))
+                setattr(error, "safe_metadata", {"sandbox_span": exc.span})
+                raise error from exc
+        elif spec is not None and spec.execution_mode == "isolated_process":
             if runtime.isolated_runner is None:
                 raise WorkflowExecutionError("isolated process runner is unavailable")
             try:
@@ -87,6 +116,7 @@ class ToolNodeHandler:
             input_data={"tool": node.tool, "tool_input": tool_input},
             outputs={node.output: value},
             publish_patch={node.output: value} if node.publish else {},
+            safe_metadata=safe_metadata,
         )
 
     def _resolve_secrets(

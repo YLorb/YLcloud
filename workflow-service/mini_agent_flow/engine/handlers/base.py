@@ -11,6 +11,7 @@ from mini_agent_flow.llm.base import LLMClient
 from mini_agent_flow.tools.registry import ToolRegistry
 from mini_agent_flow.tools.secrets import SecretProvider
 from mini_agent_flow.workers.isolated_process import IsolatedProcessRunner
+from mini_agent_flow.tools.sandbox_client import SandboxClient
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,9 @@ class NodeRuntimeContext:
     idempotency_key: str | None = None
     outcome_event: dict[str, Any] | None = None
     isolated_runner: IsolatedProcessRunner | None = None
+    sandbox_client: SandboxClient | None = None
+    trace_id: str = "00000000000000000000000000000000"
+    parent_span_id: str = "0000000000000000"
 
 
 class NodeHandler(Protocol):

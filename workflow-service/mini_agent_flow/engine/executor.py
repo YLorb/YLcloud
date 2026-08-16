@@ -373,6 +373,10 @@ class SequentialWorkflowExecutor:
             raise WorkflowExecutionError(
                 f"tool {tool_name!r} risk level {spec.risk_level} exceeds max {self.max_risk_level}"
             )
+        if spec.execution_mode == "sandbox":
+            raise WorkflowExecutionError(
+                f"tool {tool_name!r} requires the graph sandbox executor"
+            )
 
         self._validate_tool_input(tool_name, tool_input, spec.input_schema)
 

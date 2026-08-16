@@ -91,6 +91,7 @@ class TraceEvent:
     attempt: int = 1
     loop_id: str | None = None
     iteration: int | None = None
+    metadata: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """导出可序列化的 dict，方便测试、CLI 和后续 UI 使用。"""
@@ -139,6 +140,7 @@ class TraceRecorder:
         attempt: int = 1,
         loop_id: str | None = None,
         iteration: int | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """记录成功执行的节点。"""
 
@@ -155,6 +157,7 @@ class TraceRecorder:
             attempt=attempt,
             loop_id=loop_id,
             iteration=iteration,
+            metadata=metadata,
         )
 
     def record_failure(
@@ -171,6 +174,7 @@ class TraceRecorder:
         loop_id: str | None = None,
         iteration: int | None = None,
         status: Literal["failed", "timed_out", "cancelled"] = "failed",
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """记录执行失败的节点。"""
 
@@ -187,6 +191,7 @@ class TraceRecorder:
             attempt=attempt,
             loop_id=loop_id,
             iteration=iteration,
+            metadata=metadata,
         )
 
     def record_skipped(
@@ -277,6 +282,7 @@ class TraceRecorder:
         attempt: int,
         loop_id: str | None,
         iteration: int | None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """构造并保存 TraceEvent。"""
 
@@ -298,6 +304,7 @@ class TraceRecorder:
             attempt=attempt,
             loop_id=loop_id,
             iteration=iteration,
+            metadata=self._sanitize(metadata) if metadata else None,
         )
         self._events.append(event)
 

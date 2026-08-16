@@ -63,6 +63,9 @@ cloud-frontend/.playwright-cli/
 **/coverage/
 **/htmlcov/
 **/.pytest_cache/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
 *.coverage
 *.test.tmp
 *.test-output
@@ -89,3 +92,10 @@ cloud-frontend/.playwright-cli/
 /.secrets/*
 !/.secrets/README.md
 !/.secrets/*.example
+.sandbox-test-deps/
+.docker-codex/
+.sandbox-e2e-deps/
+sandbox-service/tool-catalog.local.json
+sandbox-docker-validation*.log
+sandbox-service-validation.*.log
+sandbox-docker-validation-result.json

@@ -34,6 +34,15 @@ ToolLoader = ImportableToolEntrypoint | ProcessToolProviderDescriptor
 
 
 @dataclass(frozen=True)
+class SandboxToolDescriptor:
+    tool_version: str
+
+    def __post_init__(self) -> None:
+        if not self.tool_version:
+            raise ValueError("sandbox tool requires a version")
+
+
+@dataclass(frozen=True)
 class ToolSpec:
     """工具元数据描述。
 
@@ -48,8 +57,9 @@ class ToolSpec:
     output_schema: dict[str, Any] | None = None
     permission: str = "public"
     risk_level: int = 0
-    execution_mode: Literal["inline", "isolated_process"] = "inline"
+    execution_mode: Literal["inline", "isolated_process", "sandbox"] = "inline"
     loader: ToolLoader | None = None
+    sandbox: SandboxToolDescriptor | None = None
     idempotent: bool = False
     supports_cancellation: bool = False
     required_secret_names: tuple[str, ...] = ()
@@ -66,6 +76,12 @@ class ToolSpec:
             raise ValueError("permission must not be empty")
         if self.execution_mode == "isolated_process" and self.loader is None:
             raise ValueError("isolated_process tool requires a loader descriptor")
+        if self.execution_mode == "sandbox" and self.sandbox is None:
+            raise ValueError("sandbox tool requires a sandbox descriptor")
+        if self.execution_mode == "sandbox" and not self.idempotent:
+            raise ValueError("sandbox tool must be idempotent")
+        if self.execution_mode != "sandbox" and self.sandbox is not None:
+            raise ValueError("sandbox descriptor is only valid for sandbox tools")
         if any(not name for name in self.required_secret_names):
             raise ValueError("required secret names must not be empty")
         if self.cleanup_allowed and not self.idempotent:

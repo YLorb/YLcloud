@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Implementation Quality Gates"
+  short_description: "Implement, test, review, and commit one TASK safely"
+  default_prompt: "Use $implement-task-with-gates to implement the next project TASK and prove every acceptance gate before committing."

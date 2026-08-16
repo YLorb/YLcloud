@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import hashlib
 import warnings
 from dataclasses import dataclass, replace
 from time import sleep
@@ -50,6 +51,7 @@ from mini_agent_flow.engine.trace import TraceRecorder, V1TraceAdapter
 from mini_agent_flow.llm.base import LLMClient
 from mini_agent_flow.tools.registry import ToolRegistry
 from mini_agent_flow.tools.secrets import SecretProvider
+from mini_agent_flow.tools.sandbox_client import SandboxClient
 from mini_agent_flow.workers.isolated_process import IsolatedProcessRunner
 from mini_agent_flow.persistence.sqlite_store import SQLiteRunControlStore
 
@@ -96,6 +98,7 @@ class GraphWorkflowExecutor:
         run_control_store: SQLiteRunControlStore | None = None,
         runtime_config: RuntimeConfig | None = None,
         secret_provider: SecretProvider | None = None,
+        sandbox_client: SandboxClient | None = None,
     ) -> None:
         if max_steps <= 0:
             raise WorkflowExecutionError("max_steps must be greater than 0")
@@ -117,6 +120,7 @@ class GraphWorkflowExecutor:
             max_debug_output_bytes=self.runtime_config.max_debug_output_bytes,
         )
         self.secret_provider = secret_provider
+        self.sandbox_client = sandbox_client if sandbox_client is not None else SandboxClient.from_env()
         self._step_count = 0
         self._budget: BudgetGuard | None = None
 
@@ -296,6 +300,7 @@ class GraphWorkflowExecutor:
                             context_after=context.to_dict(),
                             span=loop_span,
                             status="timed_out" if is_timeout else "failed",
+                            metadata=getattr(error, "safe_metadata", None),
                         )
                         controller.accept_invocation(
                             loop_handle,
@@ -401,6 +406,8 @@ class GraphWorkflowExecutor:
             wrapped = WorkflowExecutionError(
                 str(exc), trace=self._render_trace(trace, is_v1=is_v1)
             )
+            if hasattr(exc, "safe_metadata"):
+                setattr(wrapped, "safe_metadata", getattr(exc, "safe_metadata"))
             controller.fail(wrapped, wrapped.trace, status="timed_out")
             raise wrapped from exc
         except WorkflowExecutionError as exc:
@@ -691,6 +698,7 @@ class GraphWorkflowExecutor:
                     attempt=attempt,
                     loop_id=loop_id,
                     iteration=iteration,
+                    metadata=result.safe_metadata,
                 )
                 return result.disposition
             except Exception as exc:
@@ -714,6 +722,7 @@ class GraphWorkflowExecutor:
                         if isinstance(error, NodeCancelledError)
                         else "timed_out" if isinstance(error, NodeTimeoutError) else "failed"
                     ),
+                    metadata=getattr(error, "safe_metadata", None),
                 )
                 controller.accept_invocation(
                     handle,
@@ -804,6 +813,7 @@ class GraphWorkflowExecutor:
                 loop_id=loop_id,
                 iteration=iteration,
                 status="cancelled" if isinstance(error, NodeCancelledError) else "failed",
+                metadata=getattr(error, "safe_metadata", None),
             )
             controller.accept_invocation(
                 handle,
@@ -823,6 +833,7 @@ class GraphWorkflowExecutor:
             span=span,
             loop_id=loop_id,
             iteration=iteration,
+            metadata=result.safe_metadata,
         )
         return result.disposition
 
@@ -860,6 +871,9 @@ class GraphWorkflowExecutor:
             idempotency_key=idempotency_key,
             outcome_event=safe_outcome,
             isolated_runner=self.isolated_runner,
+            sandbox_client=self.sandbox_client,
+            trace_id=hashlib.sha256(controller.run_id.encode()).hexdigest()[:32],
+            parent_span_id=hashlib.sha256(node.id.encode()).hexdigest()[:16],
         )
 
     def _prepare_handler_commit(

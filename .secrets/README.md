@@ -21,5 +21,6 @@ Optional platform AI secrets:
 - `rag_query_api_key`: optional query-generation override; an empty file falls back to `ark_api_key`.
 - `vlm_api_key`: optional VLM override; an empty file falls back to `ark_api_key`.
 - `rabbitmq_password`: RabbitMQ application user password; use a distinct long random value.
+- `sandbox_service_token`: independent Sandbox service token with at least 32 random bytes; mount the same file read-only into the Workflow client and Sandbox service.
 
 Account passwords are not stored here. They are accepted only over HTTPS and stored as BCrypt hashes. Future user-owned provider keys must use encrypted backend storage, not these global platform secret files.

@@ -1,0 +1,32 @@
+services:
+  sandbox-service:
+    build:
+      context: ./sandbox-service
+    image: ylcloud-sandbox-service:local
+    container_name: ylcloud-sandbox-service
+    restart: unless-stopped
+    user: "${YLCLOUD_SANDBOX_RUNNER_UID:-1000}:${YLCLOUD_SANDBOX_RUNNER_GID:-1000}"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    secrets:
+      - sandbox_service_token
+    environment:
+      SANDBOX_ENABLED: "true"
+      SANDBOX_SERVICE_TOKEN_FILE: /run/secrets/sandbox_service_token
+      SANDBOX_TOOL_CATALOG_FILE: /etc/ylcloud-sandbox/tool-catalog.json
+      DOCKER_HOST: unix:///var/run/sandbox-docker.sock
+    volumes:
+      - ${YLCLOUD_ROOTLESS_DOCKER_SOCKET}:/var/run/sandbox-docker.sock
+      - ./sandbox-service/tool-catalog.example.json:/etc/ylcloud-sandbox/tool-catalog.json:ro
+    ports:
+      - "${YLCLOUD_SANDBOX_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_SANDBOX_HOST_PORT:-8004}:8004"
+
+secrets:
+  sandbox_service_token:
+    file: ./.secrets/sandbox_service_token
