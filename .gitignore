@@ -84,6 +84,8 @@ cloud-frontend/.playwright-cli/
 
 ### Local visual QA artifacts ###
 /output/playwright/
+/output/backups/
+/output/rag-course-e2e/
 
 ### Local environment and secrets ###
 .env

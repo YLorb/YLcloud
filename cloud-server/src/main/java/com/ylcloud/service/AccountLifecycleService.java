@@ -8,6 +8,7 @@ import com.ylcloud.Exception.ForbiddenException;
 import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.VO.AccountStatusVO;
 import com.ylcloud.entity.AccountRecoveryLog;
+import com.ylcloud.entity.AccountDeletionJob;
 import com.ylcloud.entity.User;
 import com.ylcloud.mapper.AccessControlMapper;
 import com.ylcloud.mapper.AccountRecoveryLogMapper;
@@ -32,6 +33,7 @@ public class AccountLifecycleService {
     private final AccessControlMapper auditMapper;
     private final AccountDeletionOrchestrationService deletionService;
     private final SecurityAuditService securityAudit;
+    private final boolean allowTestAccountPurge;
 
     @Value("${ylcloud.account.recovery-days:3}")
     private int recoveryDays;
@@ -40,12 +42,14 @@ public class AccountLifecycleService {
                                    AccountRecoveryLogMapper recoveryLogMapper,
                                    AccessControlMapper auditMapper,
                                    AccountDeletionOrchestrationService deletionService,
-                                   SecurityAuditService securityAudit) {
+                                   SecurityAuditService securityAudit,
+                                   @Value("${ylcloud.e2e.allow-test-account-purge:false}") boolean allowTestAccountPurge) {
         this.userLifecycleMapper = userLifecycleMapper;
         this.recoveryLogMapper = recoveryLogMapper;
         this.auditMapper = auditMapper;
         this.deletionService = deletionService;
         this.securityAudit = securityAudit;
+        this.allowTestAccountPurge = allowTestAccountPurge;
     }
 
     /**
@@ -148,6 +152,56 @@ public class AccountLifecycleService {
 
         log.info("Account recovered: userId={}, by adminId={}", dto.getUserId(), adminId);
         return getStatus(dto.getUserId());
+    }
+
+    /**
+     * 让受控 E2E 测试账号跳过恢复等待期，立即进入既有安全删除编排。
+     * 默认关闭；不允许普通账号、管理员、部署所有者或仍拥有 TEAM 的账号调用此路径。
+     */
+    @Transactional
+    public AccountStatusVO forcePurgeTestAccount(Long adminId, Long userId, String expectedUsername) {
+        if (!allowTestAccountPurge) {
+            throw new ForbiddenException("E2E 测试账号清理能力未开启");
+        }
+
+        User admin = userLifecycleMapper.lockById(adminId);
+        if (admin == null || !"ADMIN".equals(admin.getRole())) {
+            throw new ForbiddenException("仅 ADMIN 可清理 E2E 测试账号");
+        }
+
+        User target = userLifecycleMapper.lockById(userId);
+        if (target == null) throw new NotFoundException("目标用户不存在");
+        if (expectedUsername == null || !expectedUsername.equals(target.getUsername())) {
+            throw new ConflictException("目标用户 ID 与预期用户名不匹配");
+        }
+        if (!expectedUsername.matches("^e2e_course_[A-Za-z0-9_]+$")) {
+            throw new ForbiddenException("只允许清理课程 E2E 测试账号");
+        }
+        if (Boolean.TRUE.equals(target.getDeploymentOwner()) || "ADMIN".equals(target.getRole())) {
+            throw new ForbiddenException("禁止清理管理员或部署所有者账号");
+        }
+        if (!"CANCELLED".equals(getAccountStatus(target))) {
+            throw new ConflictException("E2E 测试账号必须先完成注销验证");
+        }
+        if (userLifecycleMapper.countOwnedTeams(userId) > 0) {
+            throw new ConflictException("E2E 测试账号仍拥有 TEAM Space，拒绝清理");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (userLifecycleMapper.markPurging(userId, now, now) != 1) {
+            throw new ConflictException("账号状态已变化，请重新核对后再试");
+        }
+        AccountDeletionJob job = deletionService.submitDeletionJob(userId);
+
+        securityAudit.recordCritical(new SecurityAuditService.AuditEventBuilder()
+                .eventType("ACCOUNT_LIFECYCLE")
+                .action("E2E_FORCE_PURGE")
+                .subject(adminId, admin.getUsername())
+                .target("ACCOUNT", String.valueOf(userId), expectedUsername)
+                .result("SUCCESS")
+                .detail(java.util.Map.of("jobId", job.getId())));
+
+        return getStatus(userId);
     }
 
     /**

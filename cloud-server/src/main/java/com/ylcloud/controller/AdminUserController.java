@@ -2,9 +2,12 @@ package com.ylcloud.controller;
 
 import com.ylcloud.DTO.AdminUserAccessUpdateDTO;
 import com.ylcloud.DTO.AdminUserCreateDTO;
+import com.ylcloud.DTO.AdminTestAccountPurgeDTO;
 import com.ylcloud.DTO.AdminUserUpdateDTO;
 import com.ylcloud.Result;
+import com.ylcloud.VO.AccountStatusVO;
 import com.ylcloud.VO.AdminUserVO;
+import com.ylcloud.service.AccountLifecycleService;
 import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.AdminUserService;
 import com.ylcloud.service.SecurityAuditService;
@@ -28,12 +31,19 @@ import jakarta.validation.Valid;
 public class AdminUserController {
     private final AdminPermissionService adminPermissionService;
     private final AdminUserService adminUserService;
+    private final AccountLifecycleService accountLifecycleService;
     private final SecurityAuditService auditService;
 
     @GetMapping
     public Result<List<AdminUserVO>> list() {
         adminPermissionService.requireAdmin();
         return Result.success(adminUserService.list());
+    }
+
+    @GetMapping("/{userId}/account-status")
+    public Result<AccountStatusVO> accountStatus(@PathVariable Long userId) {
+        adminPermissionService.requireAdmin();
+        return Result.success(accountLifecycleService.getStatus(userId));
     }
 
     @PostMapping
@@ -84,5 +94,16 @@ public class AdminUserController {
                     "USER", userId.toString(), null, e.getMessage(), Map.of());
             throw e;
         }
+    }
+
+    /**
+     * 仅用于显式开启的 E2E 环境。目标必须是已注销、无 TEAM 所有权的课程测试账号。
+     */
+    @PostMapping("/{userId}/purge-test-account")
+    public Result<AccountStatusVO> purgeTestAccount(@PathVariable Long userId,
+                                                     @RequestBody @Valid AdminTestAccountPurgeDTO dto) {
+        adminPermissionService.requireAdmin();
+        return Result.success(accountLifecycleService.forcePurgeTestAccount(
+                BaseContext.getCurrentId(), userId, dto.getExpectedUsername()));
     }
 }

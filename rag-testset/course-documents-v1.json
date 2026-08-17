@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "excluded_extensions": [".iso", ".zip", ".rar", ".tar", ".gz", ".xz", ".sh", ".png", ".jpg", ".ttf", ".nc", ".conf"],
+  "documents": [
+    {
+      "id": "L01",
+      "source_root": "linux",
+      "relative_path": "T2_Ubuntu系统安装.pptx",
+      "category": "linux",
+      "expected_name": "T2_Ubuntu系统安装.pptx"
+    },
+    {
+      "id": "L02",
+      "source_root": "linux",
+      "relative_path": "T3Linux简单命令介绍以及环境变量.pdf",
+      "category": "linux",
+      "expected_name": "T3Linux简单命令介绍以及环境变量.pdf"
+    },
+    {
+      "id": "L03",
+      "source_root": "linux",
+      "relative_path": "T5_vim使用.pdf",
+      "category": "linux",
+      "expected_name": "T5_vim使用.pdf"
+    },
+    {
+      "id": "L04",
+      "source_root": "linux",
+      "relative_path": "T11进程管理.pdf",
+      "category": "linux",
+      "expected_name": "T11进程管理.pdf"
+    },
+    {
+      "id": "L05",
+      "source_root": "linux",
+      "relative_path": "T13_Shell简介.pdf",
+      "category": "linux",
+      "expected_name": "T13_Shell简介.pdf"
+    },
+    {
+      "id": "L06",
+      "source_root": "linux",
+      "relative_path": "T14_Bash基础.pdf",
+      "category": "linux",
+      "expected_name": "T14_Bash基础.pdf"
+    },
+    {
+      "id": "L07",
+      "source_root": "linux",
+      "relative_path": "作业\\Linux大作业.md",
+      "category": "linux",
+      "expected_name": "Linux大作业.md"
+    },
+    {
+      "id": "L08",
+      "source_root": "linux",
+      "relative_path": "作业\\Linux大作业.docx",
+      "category": "linux",
+      "expected_name": "Linux大作业.docx"
+    },
+    {
+      "id": "G01",
+      "source_root": "geology",
+      "relative_path": "第4章 地质年代与地质作用-.pdf",
+      "category": "geology",
+      "expected_name": "第4章 地质年代与地质作用-.pdf"
+    },
+    {
+      "id": "G02",
+      "source_root": "geology",
+      "relative_path": "板块构造.pdf",
+      "category": "geology",
+      "expected_name": "板块构造.pdf"
+    },
+    {
+      "id": "G03",
+      "source_root": "geology",
+      "relative_path": "地震作用(1).pdf",
+      "category": "geology",
+      "expected_name": "地震作用(1).pdf"
+    },
+    {
+      "id": "G04",
+      "source_root": "geology",
+      "relative_path": "搬运-沉积-成岩作用.pdf",
+      "category": "geology",
+      "expected_name": "搬运-沉积-成岩作用.pdf"
+    }
+  ]
+}
