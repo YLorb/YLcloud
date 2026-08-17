@@ -18,12 +18,14 @@ import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.SpaceFileImportBatchMapper;
 import com.ylcloud.utils.MinioclientUtil;
+import com.ylcloud.utils.HashUtil;
 import com.ylcloud.utils.UuidUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @Service
@@ -82,6 +84,7 @@ public class SpaceFileImportBatchService {
             item.setSourceUserFileId(snapshot.file().getId());
             item.setSourceType(snapshot.file().getDir() == 1 ? "DIRECTORY" : "FILE");
             item.setRelativePath(snapshot.relativePath());
+            item.setRelativePathHash(HashUtil.sha256(snapshot.relativePath().getBytes(StandardCharsets.UTF_8)));
             item.setFileUuid(snapshot.file().getFileUuid());
             item.setItemStatus("PENDING_PREFLIGHT");
             if (snapshot.file().getDir() == 0) {

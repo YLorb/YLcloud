@@ -29,6 +29,9 @@ tags: [sandbox, import, personal, rag, testing, security]
 ## 执行记录（2026-08-17）
 
 - 主 Compose 与 Sandbox runner Compose 静态配置均通过。
-- Java 客户端编译及 310 项回归通过；Sandbox 不可用时配置为 fail-closed。
-- 未执行：镜像构建、恶意样本、超时/资源/网络逃逸、重投/重启及 RAG E2E。`docker compose ps` 明确失败：Docker Desktop Linux engine pipe 不存在；宿主也无 `pytest` 命令。
-- 结论：代码已实现但安全门禁未完成，状态保持 `pending-verification`；启动 Docker 后先运行 `scripts/build-file-preflight-sandbox.ps1`，再执行本文件全部负例。
+- Docker Desktop 4.82.0 / Engine 29.6.1 已由 `DESKTOP-VMOCLJT\\Win10` 启动；`file.preflight`、应用和 Sandbox service 镜像均成功构建并使用不可变 image ID。
+- Java 回归 316 项全部通过；Sandbox 容器内 pytest 11 项全部通过。
+- Win10 宿主真实 Docker 验证通过：Sandbox API 调用 `SUCCEEDED`，幂等重放复用原 span，subject 历史隔离正确；一次性工具容器验证了 `network=none`、只读根、UID 65532、`cap-drop ALL`、`no-new-privileges` 与 PID/CPU/内存限制。
+- 全新数据库 `ylcloud_space_test` 从 V1 成功迁移至 V52，应用健康为 `UP`；导入相对路径唯一键已改为 SHA-256 路径哈希，避免 MySQL 3072 字节索引上限。
+- 未执行：恶意文件/压缩炸弹/路径穿越样本、超时与超大输出、进程树逃逸、应用重启/迟到结果、MinIO/Qdrant/RabbitMQ/RAG E2E。生产形态还必须使用独立 rootless Docker 或隔离执行节点，不能把 Docker Desktop 主 Socket 暴露给 Sandbox 服务。
+- 结论：基础 Docker 与迁移门禁通过，但完整 P0 安全和数据面门禁未完成，状态保持 `pending-verification`。

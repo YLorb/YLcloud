@@ -13,7 +13,7 @@ public interface SpaceFileImportBatchMapper {
     int insertBatch(SpaceFileImportBatch batch);
 
     @Options(useGeneratedKeys=true,keyProperty="id")
-    @Insert("insert into space_file_import_item(batch_id,source_user_file_id,source_type,relative_path,file_uuid,content_hash,file_size,item_status,createtime,updatetime) values(#{batchId},#{sourceUserFileId},#{sourceType},#{relativePath},#{fileUuid},#{contentHash},#{fileSize},#{itemStatus},#{createtime},#{updatetime})")
+    @Insert("insert into space_file_import_item(batch_id,source_user_file_id,source_type,relative_path,relative_path_hash,file_uuid,content_hash,file_size,item_status,createtime,updatetime) values(#{batchId},#{sourceUserFileId},#{sourceType},#{relativePath},#{relativePathHash},#{fileUuid},#{contentHash},#{fileSize},#{itemStatus},#{createtime},#{updatetime})")
     int insertItem(SpaceFileImportItem item);
 
     @Update("update space_file_import_item set item_status=#{status},error_code=#{code},error_message=#{message},space_file_id=#{spaceFileId},sandbox_invocation_id=#{invocationId},updatetime=#{now} where id=#{id}")
@@ -32,6 +32,6 @@ public interface SpaceFileImportBatchMapper {
     @Select("select id,batch_key as batchKey,space_id as spaceId,target_parent_id as targetParentId,failure_policy as failurePolicy,batch_status as batchStatus,total_count as totalCount,passed_count as passedCount,failed_count as failedCount,imported_count as importedCount,error_message as errorMessage,async_task_id as asyncTaskId,created_by as createdBy,resource_version as resourceVersion,createtime,updatetime from space_file_import_batch where id=#{id}")
     SpaceFileImportBatch getBatch(@Param("id") Long id);
 
-    @Select("select id,batch_id as batchId,source_user_file_id as sourceUserFileId,source_type as sourceType,relative_path as relativePath,file_uuid as fileUuid,content_hash as contentHash,file_size as fileSize,item_status as itemStatus,error_code as errorCode,error_message as errorMessage,space_file_id as spaceFileId,sandbox_invocation_id as sandboxInvocationId,createtime,updatetime from space_file_import_item where batch_id=#{batchId} order by id")
+    @Select("select id,batch_id as batchId,source_user_file_id as sourceUserFileId,source_type as sourceType,relative_path as relativePath,relative_path_hash as relativePathHash,file_uuid as fileUuid,content_hash as contentHash,file_size as fileSize,item_status as itemStatus,error_code as errorCode,error_message as errorMessage,space_file_id as spaceFileId,sandbox_invocation_id as sandboxInvocationId,createtime,updatetime from space_file_import_item where batch_id=#{batchId} order by id")
     List<SpaceFileImportItem> listItems(@Param("batchId") Long batchId);
 }

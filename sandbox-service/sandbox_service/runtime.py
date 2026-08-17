@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -39,26 +40,37 @@ class SandboxRuntime(Protocol):
 class DockerRuntime:
     """Executes fixed images without a shell; request data is passed by a mounted JSON file."""
 
-    def __init__(self, docker_binary: str = "docker") -> None:
+    def __init__(self, docker_binary: str = "docker", work_root: str | None = None,
+                 work_volume: str | None = None) -> None:
         self.docker_binary = docker_binary
+        self.work_root = work_root or os.getenv("SANDBOX_WORK_ROOT")
+        self.work_volume = work_volume or os.getenv("SANDBOX_WORK_VOLUME")
+        if self.work_volume and not self.work_root:
+            raise ValueError("SANDBOX_WORK_ROOT is required when SANDBOX_WORK_VOLUME is configured")
 
     def build_command(self, invocation_id: str, tool: SandboxToolDefinition, root: Path) -> list[str]:
         limits = tool.limits
         container_name = f"ylcloud-sbx-{invocation_id.lower()}"
-        return [
+        command = [
             self.docker_binary, "run", "--rm", "--name", container_name, "--network", "none",
             "--read-only", "--user", "65532:65532", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges=true", "--pids-limit", str(limits.pids),
             "--cpus", str(limits.cpus), "--memory", str(limits.memory_bytes),
             "--memory-swap", str(limits.memory_bytes),
             "--tmpfs", f"/tmp:rw,noexec,nosuid,nodev,size={limits.tmpfs_bytes}",
-            "--mount", f"type=bind,src={root / 'request'},dst=/sandbox/request,readonly",
-            "--mount", f"type=bind,src={root / 'output'},dst=/sandbox/output",
-            "--entrypoint", tool.entrypoint[0], tool.image, *tool.entrypoint[1:],
         ]
+        if self.work_volume:
+            command.extend(["--mount", f"type=volume,src={self.work_volume},dst=/sandbox,volume-subpath={root.name}"])
+        else:
+            command.extend([
+                "--mount", f"type=bind,src={root / 'request'},dst=/sandbox/request,readonly",
+                "--mount", f"type=bind,src={root / 'output'},dst=/sandbox/output",
+            ])
+        command.extend(["--entrypoint", tool.entrypoint[0], tool.image, *tool.entrypoint[1:]])
+        return command
 
     def execute(self, invocation_id: str, tool: SandboxToolDefinition, arguments: dict[str, Any], timeout: int) -> RuntimeResult:
-        with tempfile.TemporaryDirectory(prefix="ylcloud-sandbox-") as temp:
+        with tempfile.TemporaryDirectory(prefix="ylcloud-sandbox-", dir=self.work_root) as temp:
             root = Path(temp).resolve()
             request_dir, output_dir = root / "request", root / "output"
             request_dir.mkdir(mode=0o700)

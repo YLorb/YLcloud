@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
-RUN apt-get update && apt-get install --yes --no-install-recommends docker.io ca-certificates \
+RUN apt-get update && apt-get install --yes --no-install-recommends docker-cli ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 sandbox && useradd --system --uid 10001 --gid sandbox --home-dir /nonexistent sandbox
 COPY pyproject.toml ./

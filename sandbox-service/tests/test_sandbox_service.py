@@ -81,6 +81,16 @@ def test_docker_command_has_required_security_controls(tmp_path: Path) -> None:
     assert "sh" not in command and "bash" not in command
 
 
+def test_docker_command_can_use_shared_work_volume(tmp_path: Path) -> None:
+    command = DockerRuntime(work_root=str(tmp_path.parent), work_volume="ylcloud-sandbox-work").build_command(
+        "invocation-1", tool(), tmp_path
+    )
+    joined = " ".join(command)
+    assert "type=volume,src=ylcloud-sandbox-work,dst=/sandbox" in joined
+    assert f"volume-subpath={tmp_path.name}" in joined
+    assert "type=bind" not in joined
+
+
 def test_timeout_has_stable_safe_status() -> None:
     class TimeoutRuntime(InMemoryRuntime):
         def execute(self, invocation_id, definition, arguments, timeout):

@@ -73,6 +73,7 @@ create table space_file_import_item (
     source_user_file_id bigint null,
     source_type varchar(32) not null,
     relative_path varchar(1024) not null,
+    relative_path_hash char(64) not null,
     file_uuid varchar(64),
     content_hash varchar(128),
     file_size bigint,
@@ -83,7 +84,7 @@ create table space_file_import_item (
     sandbox_invocation_id varchar(128),
     createtime timestamp not null,
     updatetime timestamp not null,
-    unique key uk_space_import_item_path (batch_id,relative_path),
+    unique key uk_space_import_item_path (batch_id,relative_path_hash),
     index idx_space_import_item_status (batch_id,item_status,id)
 );
 
