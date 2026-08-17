@@ -8,6 +8,7 @@ import com.ylcloud.Exception.ForbiddenException;
 import com.ylcloud.config.RagProperties;
 import com.ylcloud.constant.SpaceConstant;
 import com.ylcloud.entity.Space;
+import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.entity.SpaceMember;
 import com.ylcloud.mapper.SpaceDissolutionOutboxMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
@@ -24,21 +25,25 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SpaceLifecycleServiceTest {
     private final SpaceMapper spaceMapper = mock(SpaceMapper.class);
     private final SpaceMemberMapper memberMapper = mock(SpaceMemberMapper.class);
+    private final SpaceFileMapper spaceFileMapper = mock(SpaceFileMapper.class);
+    private final SpaceRagMapper spaceRagMapper = mock(SpaceRagMapper.class);
     private final SpaceDissolutionOutboxMapper outboxMapper = mock(SpaceDissolutionOutboxMapper.class);
     private final SpacePermissionService permissionService = mock(SpacePermissionService.class);
+    private final QuotaService quotaService = mock(QuotaService.class);
     private final SpaceService service = new SpaceService(
             spaceMapper,
             memberMapper,
-            mock(SpaceFileMapper.class),
-            mock(SpaceRagMapper.class),
+            spaceFileMapper,
+            spaceRagMapper,
             permissionService,
-            mock(RagProperties.class),
+            new RagProperties(),
             mock(InitialFileVersionService.class),
             outboxMapper
     );
@@ -47,12 +52,29 @@ class SpaceLifecycleServiceTest {
 
     @BeforeEach
     void setUp() {
+        service.setQuotaService(quotaService);
         team = new Space();
         team.setId(10L);
         team.setName("研发团队");
         team.setType(SpaceConstant.TYPE_TEAM);
         team.setOwnerId(1L);
         team.setLifecycleState(SpaceConstant.LIFECYCLE_ACTIVE);
+    }
+
+    @Test
+    void defaultPersonalSpaceRegistersQuotaAccountForSpaceFiles() {
+        doAnswer(invocation -> {
+            ((Space) invocation.getArgument(0)).setId(12L);
+            return 1;
+        }).when(spaceMapper).insert(any(Space.class));
+        doAnswer(invocation -> {
+            ((SpaceFile) invocation.getArgument(0)).setId(13L);
+            return 1;
+        }).when(spaceFileMapper).insert(any(SpaceFile.class));
+
+        service.createDefaultPersonalSpace(7L,"test-user");
+
+        verify(quotaService).registerTeam(12L,7L);
     }
 
     @Test

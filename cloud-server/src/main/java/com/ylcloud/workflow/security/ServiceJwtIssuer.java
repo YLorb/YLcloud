@@ -76,6 +76,7 @@ public class ServiceJwtIssuer {
         }
         Instant now = clock.instant();
         var builder = Jwts.builder()
+                .setHeaderParam("typ", "JWT")
                 .setIssuer(issuer)
                 .setSubject(subject)
                 .setAudience(audience)

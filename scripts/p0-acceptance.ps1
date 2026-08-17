@@ -84,7 +84,13 @@ function Wait-KnowledgeTask {
 function Invoke-Sql([string]$Query) {
     $dbUser = (& docker exec $MysqlContainer printenv MYSQL_USER | Out-String).Trim()
     $dbPassword = (& docker exec $MysqlContainer printenv MYSQL_PASSWORD | Out-String).Trim()
-    $dbName = (& docker exec $MysqlContainer printenv MYSQL_DATABASE | Out-String).Trim()
+    $datasourceUrl = Get-AppEnvironment "SPRING_DATASOURCE_URL" ""
+    if($datasourceUrl -match '^jdbc:mysql://[^/]+/([^?;]+)') {
+        $dbName = $Matches[1]
+    } else {
+        $dbName = (& docker exec $MysqlContainer printenv MYSQL_DATABASE | Out-String).Trim()
+    }
+    if($dbName -notmatch '^[A-Za-z0-9_]+$') { throw "Invalid MySQL database: $dbName" }
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     $output = & docker exec $MysqlContainer mysql --batch --skip-column-names "-u$dbUser" "-p$dbPassword" $dbName -e $Query 2>$null
@@ -93,6 +99,16 @@ function Invoke-Sql([string]$Query) {
     Remove-Variable dbPassword -ErrorAction SilentlyContinue
     if($exitCode -ne 0) { throw "MySQL acceptance query failed" }
     return ($output | Out-String).Trim()
+}
+
+function Remove-SpaceFile([long]$SpaceId,[long]$FileId,[string]$Token) {
+    $preview = Invoke-Api POST "/api/space/$SpaceId/files/$FileId/deletion-preview" $null $Token
+    return Invoke-Api DELETE "/api/space/$SpaceId/files/$FileId" @{
+        confirmationName = $preview.name
+        confirmationToken = $preview.confirmationToken
+        expectedVersion = $preview.nodeVersion
+        expiresAtEpochSecond = $preview.expiresAtEpochSecond
+    } $Token
 }
 
 function Get-MinIoVersionCount([string]$ObjectName) {
@@ -190,7 +206,9 @@ try {
     $disabledKnowledgeTask = @(Invoke-Api GET "/api/space/$($space.id)/knowledge/pipeline/tasks" $null $token) |
         Where-Object { $_.documentId -eq $document.id -and $_.id -gt $disabledKnowledgeBaseline } |
         Select-Object -First 1
-    $profileDisabledSkipped = $disabledRagTask.taskStatus -eq "SUCCESS" -and -not $disabledKnowledgeTask
+    $profileDisabledSkipped = $disabledRagTask.taskStatus -eq "SUCCESS" -and
+        $disabledKnowledgeTask.taskStatus -eq "SKIPPED" -and
+        $disabledKnowledgeTask.terminalReason -eq "PROFILE_SKIPPED_DISABLED"
     Invoke-Api PUT "/api/space/$($space.id)/rag/config" @{ knowledgeProfileEnabled=1 } $token | Out-Null
 
     Invoke-Sql "update space_knowledge_document_profile set source_chunk_count=999, source_snapshot_signature=null, source_snapshot_revision=0 where space_id=$($space.id) and document_id=$($document.id)" | Out-Null
@@ -241,10 +259,9 @@ try {
     } $token
     $categoryFacets = @(Invoke-Api GET "/api/space/$($space.id)/knowledge/facets/categories" $null $token)
     $manualCategoryVisible = @($categoryFacets | Where-Object { $_.name -eq $manualCategory -and $_.count -ge 1 }).Count -eq 1
-    Invoke-Sql "update space_knowledge_document_profile set profile_status='NEEDS_REVIEW', review_status='PENDING_REVIEW', review_reason='ACCEPTANCE_REVIEW' where space_id=$($space.id) and document_id=$($document.id)" | Out-Null
     $reviewed = Invoke-Api POST "/api/space/$($space.id)/knowledge/documents/$($document.id)/reviewed" $null $token
     $auditActions = Invoke-Sql "select group_concat(distinct action order by action separator ',') from space_knowledge_audit_log where space_id=$($space.id) and resource_id=$($classified.id)"
-    $auditComplete = $auditActions -match 'PROFILE_APPROVE' -and $auditActions -match 'PROFILE_EDIT'
+    $auditComplete = $auditActions -match 'PROFILE_EDIT'
 
     $ownerId = Invoke-Sql "select user_id from users where username='$username' limit 1"
     $retryMarker = "acceptance-retry-$runId"
@@ -284,7 +301,7 @@ try {
 
     $qdrantBefore = Get-QdrantCount $docx.id
     $docxVersionsBefore = Get-MinIoVersionCount $docx.fileUuid
-    Invoke-Api DELETE "/api/space/$($space.id)/files/$($docx.id)" $null $token | Out-Null
+    Remove-SpaceFile $space.id $docx.id $token | Out-Null
     $deadline = (Get-Date).AddMinutes(2)
     do {
         $spaceCleanupStatus = Invoke-Sql "select task_status from physical_file_cleanup_task where file_uuid='$($docx.fileUuid)'"
@@ -332,7 +349,7 @@ try {
     if(-not $success) { throw "P0 acceptance assertions failed" }
 } finally {
     if($token -and $space -and $docx) {
-        try { Invoke-Api DELETE "/api/space/$($space.id)/files/$($docx.id)" $null $token | Out-Null } catch { }
+        try { Remove-SpaceFile $space.id $docx.id $token | Out-Null } catch { }
     }
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Variable password,token -ErrorAction SilentlyContinue

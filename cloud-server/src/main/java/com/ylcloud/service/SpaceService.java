@@ -82,7 +82,9 @@ public class SpaceService {
     @Transactional
     public Space createDefaultPersonalSpace(Long userId, String username) {
         String spaceName = username == null || username.isBlank() ? "我的空间" : username + "的空间";
-        return createSpaceInternal(userId,spaceName,"默认个人空间",SpaceConstant.TYPE_PERSONAL);
+        Space space = createSpaceInternal(userId,spaceName,"默认个人空间",SpaceConstant.TYPE_PERSONAL);
+        if(quotaService != null) quotaService.registerTeam(space.getId(),userId);
+        return space;
     }
 
     /**

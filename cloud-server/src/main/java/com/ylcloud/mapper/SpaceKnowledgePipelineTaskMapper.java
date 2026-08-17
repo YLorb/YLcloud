@@ -81,7 +81,9 @@ public interface SpaceKnowledgePipelineTaskMapper {
 
     @Update("update space_knowledge_pipeline_task set task_status=#{status},stage=#{stage},progress=100," +
             "total_count=#{total},success_count=#{success},failed_count=#{failed},error_message=#{error}," +
-            "terminal_stage=#{stage},terminal_reason=#{reason},finished_time=#{now},updatetime=#{now} " +
+            "terminal_stage=case when #{status}='SUCCESS' then coalesce(terminal_stage,#{stage}) else #{stage} end," +
+            "terminal_reason=case when #{status}='SUCCESS' then coalesce(terminal_reason,#{reason}) else #{reason} end," +
+            "finished_time=#{now},updatetime=#{now} " +
             "where id=#{id} and resource_version=#{version} and async_task_id=#{asyncTaskId} and task_status='RUNNING'")
     int finishAsync(@Param("id") Long id,@Param("version") long version,@Param("asyncTaskId") Long asyncTaskId,
                     @Param("status") String status,@Param("stage") String stage,

@@ -7,17 +7,41 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Date;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ServiceJwtTest {
     private static final String ACTIVE = "active-service-secret-32-bytes-minimum-0001";
     private static final String PREVIOUS = "previous-service-secret-32-bytes-minimum-01";
     private static final Instant NOW = Instant.parse("2026-07-22T00:00:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
+
+    @Test
+    void issuedTokenDeclaresJwtTypeForCrossLanguageVerifiers() {
+        ServiceJwtIssuer issuer = new ServiceJwtIssuer(
+                ACTIVE, "ylcloud-app", "ylcloud-app", 300, CLOCK
+        );
+
+        String token = issuer.issue(
+                ServiceJwtAudience.MODEL_SERVICE,
+                Set.of("model.embed"),
+                ServiceJwtBinding.run("cross-language-contract"),
+                120
+        );
+        String header = new String(
+                Base64.getUrlDecoder().decode(token.substring(0, token.indexOf('.'))),
+                StandardCharsets.UTF_8
+        );
+
+        assertTrue(header.contains("\"alg\":\"HS256\""));
+        assertTrue(header.contains("\"typ\":\"JWT\""));
+    }
 
     @Test
     void issuesShortBoundTokenAndRejectsWrongAudienceScopeAndBinding() {

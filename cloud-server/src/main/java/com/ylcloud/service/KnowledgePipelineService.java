@@ -56,6 +56,7 @@ import com.ylcloud.async.worker.StaleWorkerException;
 import com.ylcloud.async.worker.TaskCanceledException;
 import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.entity.UnifiedAsyncTask;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DuplicateKeyException;
@@ -74,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 @Service
 public class KnowledgePipelineService {
     private static final int MAX_CONTEXT_CHARS = 8000;
@@ -308,7 +310,12 @@ public class KnowledgePipelineService {
         } catch(TaskCanceledException canceled) {
             taskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
             throw canceled;
-        } catch(StaleWorkerException | StaleTaskException stale) {
+        } catch(StaleTaskException stale) {
+            finishAsync(task,asyncTaskId,SpaceConstant.KNOWLEDGE_TASK_SKIPPED,
+                    SpaceConstant.KNOWLEDGE_STAGE_SKIPPED,1,0,0,null,"RESOURCE_VERSION_STALE");
+            resubmitLatestDocumentVersion(task,stale);
+            throw stale;
+        } catch(StaleWorkerException stale) {
             throw stale;
         } catch(RetryableTaskException retryable) {
             if(finalAttempt) {
@@ -1112,6 +1119,22 @@ public class KnowledgePipelineService {
                              int total,int success,int failed,String error,String reason) {
         taskMapper.finishAsync(task.getId(),resourceVersion(task),asyncTaskId,status,stage,total,success,failed,
                 error,reason,LocalDateTime.now());
+    }
+
+    private void resubmitLatestDocumentVersion(SpaceKnowledgePipelineTask staleTask, StaleTaskException cause) {
+        if(staleTask.getDocumentId() == null) {
+            return;
+        }
+        try {
+            SpaceKnowledgePipelineTask replacement = createDocumentProfileTask(
+                    staleTask.getSpaceId(),staleTask.getDocumentId(),staleTask.getCreatedBy(),
+                    SpaceConstant.KNOWLEDGE_STAGE_WAITING_RAG,false);
+            log.info("Resubmitted stale knowledge task: staleTaskId={}, replacementTaskId={}, documentId={}",
+                    staleTask.getId(),replacement.getId(),staleTask.getDocumentId());
+        } catch(RuntimeException resubmitFailure) {
+            log.warn("Could not resubmit stale knowledge task: taskId={}, documentId={}, staleReason={}, reason={}",
+                    staleTask.getId(),staleTask.getDocumentId(),safeError(cause),safeError(resubmitFailure));
+        }
     }
 
     private String buildContext(List<FileRagChunk> chunks, List<FileRagChunk> usedChunks) {
