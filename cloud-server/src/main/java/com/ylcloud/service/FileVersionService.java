@@ -4,6 +4,7 @@ import com.ylcloud.Exception.BaseException;
 import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.VO.FilePreviewVO;
 import com.ylcloud.VO.FileVersionVO;
+import com.ylcloud.authorization.SpaceFileAction;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.File;
 import com.ylcloud.entity.FileVersion;
@@ -49,6 +50,7 @@ public class FileVersionService {
     private final FileInfoMapper fileInfoMapper;
     private final SpaceFileMapper spaceFileMapper;
     private final SpacePermissionService spacePermissionService;
+    private final SpaceFileAccessService spaceFileAccessService;
     private final SpaceFileService spaceFileService;
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
@@ -71,6 +73,7 @@ public class FileVersionService {
                               FileInfoMapper fileInfoMapper,
                               SpaceFileMapper spaceFileMapper,
                               SpacePermissionService spacePermissionService,
+                              SpaceFileAccessService spaceFileAccessService,
                               SpaceFileService spaceFileService,
                               SpaceRagService spaceRagService,
                               MinioclientUtil minioclientUtil,
@@ -81,6 +84,7 @@ public class FileVersionService {
         this.fileInfoMapper = fileInfoMapper;
         this.spaceFileMapper = spaceFileMapper;
         this.spacePermissionService = spacePermissionService;
+        this.spaceFileAccessService = spaceFileAccessService;
         this.spaceFileService = spaceFileService;
         this.spaceRagService = spaceRagService;
         this.minioclientUtil = minioclientUtil;
@@ -111,7 +115,7 @@ public class FileVersionService {
                                                 String changeNote,
                                                 Long userId,
                                                 String idempotencyKey) {
-        spacePermissionService.requireAdmin(spaceId,userId);
+        spaceFileAccessService.requireNodeAction(spaceId,spaceFileId,userId,SpaceFileAction.VERSION_WRITE);
         SpaceFile spaceFile = requireVersionableSpaceFile(spaceId,spaceFileId);
         if(!spaceFileService.resolveEffectiveVersionEnabled(spaceFile)) {
             throw new BaseException("该文件未开启历史版本维护");
@@ -133,6 +137,8 @@ public class FileVersionService {
         } catch (Exception e) {
             throw new BaseException("新版本文件哈希计算失败");
         }
+
+        spaceFileService.replaceContentGuard(spaceFile,hash);
 
         lockPhysicalFile(spaceFile.getFileUuid());
         AtomicReference<String> resultRef = new AtomicReference<>();
@@ -180,7 +186,7 @@ public class FileVersionService {
      * @return 列表结果
      */
     public List<FileVersionVO> listSpaceFileVersions(Long spaceId, Long spaceFileId, Long userId) {
-        spacePermissionService.requireMember(spaceId,userId);
+        spaceFileAccessService.requireNodeAction(spaceId,spaceFileId,userId,SpaceFileAction.READ);
         SpaceFile spaceFile = requireVersionableSpaceFile(spaceId,spaceFileId);
         List<FileVersionVO> result = new ArrayList<>();
         for(FileVersion version : fileVersionMapper.listByFileUuid(spaceFile.getFileUuid())) {
@@ -199,7 +205,7 @@ public class FileVersionService {
      * @return 处理结果
      */
     public FilePreviewVO previewVersion(Long spaceId, Long spaceFileId, Long versionRecordId, Long userId) {
-        spacePermissionService.requireMember(spaceId,userId);
+        spaceFileAccessService.requireNodeAction(spaceId,spaceFileId,userId,SpaceFileAction.READ);
         SpaceFile spaceFile = requireVersionableSpaceFile(spaceId,spaceFileId);
         FileVersion version = requireVersion(spaceFile,versionRecordId);
         String contentType = resolveContentType(version.getFileName(),version.getFileType());
@@ -231,7 +237,7 @@ public class FileVersionService {
      * @param response 响应对象
      */
     public void previewVersionStream(Long spaceId, Long spaceFileId, Long versionRecordId, Long userId, HttpServletResponse response) {
-        spacePermissionService.requireMember(spaceId,userId);
+        spaceFileAccessService.requireNodeAction(spaceId,spaceFileId,userId,SpaceFileAction.READ);
         SpaceFile spaceFile = requireVersionableSpaceFile(spaceId,spaceFileId);
         FileVersion version = requireVersion(spaceFile,versionRecordId);
         String contentType = resolveContentType(version.getFileName(),version.getFileType());
@@ -259,7 +265,7 @@ public class FileVersionService {
      * @param response 响应对象
      */
     public void downloadVersion(Long spaceId, Long spaceFileId, Long versionRecordId, Long userId, HttpServletResponse response) {
-        spacePermissionService.requireMember(spaceId,userId);
+        spaceFileAccessService.requireNodeAction(spaceId,spaceFileId,userId,SpaceFileAction.READ);
         SpaceFile spaceFile = requireVersionableSpaceFile(spaceId,spaceFileId);
         FileVersion version = requireVersion(spaceFile,versionRecordId);
         try {
@@ -291,7 +297,7 @@ public class FileVersionService {
                                         String changeNote,
                                         Long userId,
                                         String idempotencyKey) {
-        spacePermissionService.requireAdmin(spaceId,userId);
+        spaceFileAccessService.requireNodeAction(spaceId,spaceFileId,userId,SpaceFileAction.VERSION_WRITE);
         SpaceFile spaceFile = requireVersionableSpaceFile(spaceId,spaceFileId);
         if(!spaceFileService.resolveEffectiveVersionEnabled(spaceFile)) {
             throw new BaseException("该文件未开启历史版本维护");
@@ -307,9 +313,8 @@ public class FileVersionService {
         if(operation != null && CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
             return replayVersionInSpace(operation,spaceId);
         }
-        if(createCopy) {
-            return restoreVersionAsCopy(spaceFile,source,changeNote,userId,operation,resultRef);
-        }
+        if(createCopy) return toVO(spaceId,spaceFileId,current);
+        spaceFileService.replaceContentGuard(spaceFile,source.getFileHash());
         String restoredName = resolveAvailableSpaceName(spaceFile,source.getFileName());
         ensureMinioVersioningEnabled();
         String newMinioVersionId;
@@ -378,6 +383,10 @@ public class FileVersionService {
         copyNode.setDir(0);
         copyNode.setParentId(sourceNode.getParentId());
         copyNode.setPath(replacePathName(sourceNode.getPath(),copyName));
+        copyNode.setNodeVersion(1L);
+        copyNode.setDepth(sourceNode.getDepth());
+        copyNode.setContentHash(sourceVersion.getFileHash());
+        copyNode.setLifecycleState("ACTIVE");
         copyNode.setVersionEnabled(sourceNode.getVersionEnabled());
         copyNode.setStatus(StatusConstant.ENABLE);
         copyNode.setCreatedBy(userId);

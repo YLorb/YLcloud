@@ -169,6 +169,7 @@ services:
       - vlm_api_key
       - rabbitmq_password
       - export_master_key
+      - sandbox_service_token
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -194,6 +195,9 @@ services:
       YLCLOUD_RAG_QUERY_API_KEY_FILE: /run/secrets/rag_query_api_key
       YLCLOUD_VLM_API_KEY_FILE: /run/secrets/vlm_api_key
       YLCLOUD_EXPORT_MASTER_KEY_FILE: /run/secrets/export_master_key
+      YLCLOUD_SPACE_IMPORT_SANDBOX_ENABLED: ${YLCLOUD_SPACE_IMPORT_SANDBOX_ENABLED:-true}
+      YLCLOUD_SPACE_IMPORT_SANDBOX_BASE_URL: ${YLCLOUD_SPACE_IMPORT_SANDBOX_BASE_URL:-http://sandbox-service:8004}
+      YLCLOUD_SPACE_IMPORT_SANDBOX_TOKEN_FILE: /run/secrets/sandbox_service_token
       YLCLOUD_DEPLOY_STATE_ROOT: /var/lib/ylcloud-deploy
       YLCLOUD_RABBITMQ_HOST: rabbitmq
       YLCLOUD_RABBITMQ_PORT: 5672
@@ -287,3 +291,5 @@ secrets:
     file: ./.secrets/vlm_api_key
   export_master_key:
     file: ./.secrets/export_master_key
+  sandbox_service_token:
+    file: ./.secrets/sandbox_service_token

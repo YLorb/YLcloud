@@ -3,8 +3,13 @@ package com.ylcloud.service;
 import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
+import com.ylcloud.mapper.SpaceFileContentGuardMapper;
+import com.ylcloud.mapper.SpaceFileDeleteBatchMapper;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
 import com.ylcloud.utils.MinioclientUtil;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 
@@ -20,8 +25,11 @@ class SpaceFileRemovalLifecycleTest {
         SpaceRagService rag = mock(SpaceRagService.class);
         PhysicalFileCleanupService cleanup = mock(PhysicalFileCleanupService.class);
         SpaceFileLifecycleService lifecycle = mock(SpaceFileLifecycleService.class);
+        SpaceFileContentGuardMapper guards = mock(SpaceFileContentGuardMapper.class);
         SpaceFileService service = new SpaceFileService(
-                files,physical,mock(SpaceService.class),permissions,rag,mock(MinioclientUtil.class),
+                files,guards,mock(SpaceFileDeleteBatchMapper.class),mock(UnifiedTaskCenterService.class),
+                mock(TransactionTemplate.class),physical,mock(SpaceService.class),permissions,
+                mock(SpaceFileAccessService.class),mock(SpaceFilePreflightService.class),rag,mock(MinioclientUtil.class),
                 mock(SiteSettingService.class),cleanup,mock(InitialFileVersionService.class),
                 mock(CrossStoreFileWriteService.class),mock(CrossStoreOperationService.class),lifecycle
         );
@@ -39,7 +47,7 @@ class SpaceFileRemovalLifecycleTest {
         when(physical.updateFileCount("shared-file",-1)).thenReturn(1);
         when(physical.getFileCount("shared-file")).thenReturn(1);
 
-        assertTrue(service.removeFile(2L,7L,9L));
+        ReflectionTestUtils.invokeMethod(service,"removeIsolatedNode",2L,file,9L);
 
         var order = inOrder(lifecycle,files,physical,rag);
         order.verify(lifecycle).fileRemovalStarted(file);

@@ -2,6 +2,9 @@ package com.ylcloud.service;
 
 import com.ylcloud.DTO.FileDTO;
 import com.ylcloud.DTO.SpaceFileImportDTO;
+import com.ylcloud.DTO.SpaceFileMoveDTO;
+import com.ylcloud.DTO.SpaceFileRenameDTO;
+import com.ylcloud.DTO.SpaceFileDeleteConfirmDTO;
 import com.ylcloud.DTO.SpaceFolderCreateDTO;
 import com.ylcloud.DTO.SpaceWebLinkImportDTO;
 import com.ylcloud.DTO.UserFileDTO;
@@ -10,13 +13,23 @@ import com.ylcloud.Exception.ConflictException;
 import com.ylcloud.Exception.NotFoundException;
 import com.ylcloud.VO.FilePreviewVO;
 import com.ylcloud.VO.SpaceFileVO;
+import com.ylcloud.VO.SpaceFileDeletePreviewVO;
+import com.ylcloud.VO.SpaceFileDeleteTaskVO;
+import com.ylcloud.authorization.SpaceFileAction;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.File;
 import com.ylcloud.entity.Space;
 import com.ylcloud.entity.SpaceFile;
+import com.ylcloud.entity.SpaceFileDeleteBatch;
+import com.ylcloud.entity.UnifiedAsyncTask;
+import com.ylcloud.async.task.DomainTaskPayload;
+import com.ylcloud.async.task.TaskCreateCommand;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
 import com.ylcloud.entity.CrossStoreOperation;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
+import com.ylcloud.mapper.SpaceFileContentGuardMapper;
+import com.ylcloud.mapper.SpaceFileDeleteBatchMapper;
 import com.ylcloud.utils.HashUtil;
 import com.ylcloud.utils.Md5Util;
 import com.ylcloud.utils.MinioclientUtil;
@@ -27,6 +40,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
@@ -40,8 +55,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Comparator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.atomic.AtomicReference;
@@ -55,9 +72,15 @@ public class SpaceFileService {
     private static final Pattern TITLE_PATTERN = Pattern.compile("(?is)<title[^>]*>(.*?)</title>");
 
     private final SpaceFileMapper spaceFileMapper;
+    private final SpaceFileContentGuardMapper contentGuardMapper;
+    private final SpaceFileDeleteBatchMapper deleteBatchMapper;
+    private final UnifiedTaskCenterService taskCenter;
+    private final TransactionTemplate transactionTemplate;
     private final FileInfoMapper fileInfoMapper;
     private final SpaceService spaceService;
     private final SpacePermissionService spacePermissionService;
+    private final SpaceFileAccessService spaceFileAccessService;
+    private final SpaceFilePreflightService preflightService;
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
     private final SiteSettingService siteSettingService;
@@ -85,9 +108,15 @@ public class SpaceFileService {
      * @param minioclientUtil 方法入参
      */
     public SpaceFileService(SpaceFileMapper spaceFileMapper,
+                            SpaceFileContentGuardMapper contentGuardMapper,
+                            SpaceFileDeleteBatchMapper deleteBatchMapper,
+                            UnifiedTaskCenterService taskCenter,
+                            TransactionTemplate transactionTemplate,
                             FileInfoMapper fileInfoMapper,
                             SpaceService spaceService,
                             SpacePermissionService spacePermissionService,
+                            SpaceFileAccessService spaceFileAccessService,
+                            SpaceFilePreflightService preflightService,
                             SpaceRagService spaceRagService,
                             MinioclientUtil minioclientUtil,
                             SiteSettingService siteSettingService,
@@ -97,9 +126,15 @@ public class SpaceFileService {
                             CrossStoreOperationService crossStoreOperationService,
                             SpaceFileLifecycleService lifecycleService) {
         this.spaceFileMapper = spaceFileMapper;
+        this.contentGuardMapper = contentGuardMapper;
+        this.deleteBatchMapper = deleteBatchMapper;
+        this.taskCenter = taskCenter;
+        this.transactionTemplate = transactionTemplate;
         this.fileInfoMapper = fileInfoMapper;
         this.spaceService = spaceService;
         this.spacePermissionService = spacePermissionService;
+        this.spaceFileAccessService = spaceFileAccessService;
+        this.preflightService = preflightService;
         this.spaceRagService = spaceRagService;
         this.minioclientUtil = minioclientUtil;
         this.siteSettingService = siteSettingService;
@@ -122,9 +157,9 @@ public class SpaceFileService {
      * @return 列表结果
      */
     public List<SpaceFileVO> listFiles(Long spaceId, Long parentId, Long userId) {
-        spacePermissionService.requireMember(spaceId,userId);
+        spaceFileAccessService.requireRead(spaceId,userId);
         Long realParentId = normalizeParentId(spaceId,parentId);
-        return toVOList(spaceFileMapper.listByParentId(spaceId,realParentId));
+        return toVOList(spaceFileMapper.listByParentId(spaceId,realParentId),userId);
     }
 
     /**
@@ -135,11 +170,11 @@ public class SpaceFileService {
      * @return 列表结果
      */
     public List<SpaceFileVO> tree(Long spaceId, Long userId) {
-        spacePermissionService.requireMember(spaceId,userId);
+        spaceFileAccessService.requireRead(spaceId,userId);
         Long rootId = normalizeParentId(spaceId,null);
         SpaceFile root = spaceFileMapper.getById(spaceId,rootId);
-        SpaceFileVO rootVO = toVO(root);
-        rootVO.setChildren(buildChildren(spaceId,rootId));
+        SpaceFileVO rootVO = toVO(root,userId);
+        rootVO.setChildren(buildChildren(spaceId,rootId,userId));
         return List.of(rootVO);
     }
 
@@ -153,7 +188,7 @@ public class SpaceFileService {
      */
     @Transactional
     public SpaceFileVO createFolder(Long spaceId, SpaceFolderCreateDTO dto, Long userId) {
-        spacePermissionService.requireAdmin(spaceId,userId);
+        spaceFileAccessService.requireCreate(spaceId,userId);
         String folderName = requireSafeFileName(dto.getName());
         Long parentId = normalizeParentId(spaceId,dto.getParentId());
         SpaceFile parent = requireDirectory(spaceId,parentId);
@@ -167,12 +202,16 @@ public class SpaceFileService {
         folder.setDir(1);
         folder.setParentId(parentId);
         folder.setPath(buildPath(parent,folderName,true));
+        requireDepth(parent.getDepth() + 1);
+        folder.setDepth(parent.getDepth() + 1);
+        folder.setNodeVersion(1L);
+        folder.setLifecycleState("ACTIVE");
         folder.setStatus(StatusConstant.ENABLE);
         folder.setCreatedBy(userId);
         folder.setCreatetime(now);
         folder.setUpdatetime(now);
         spaceFileMapper.insert(folder);
-        return toVO(folder);
+        return toVO(folder,userId);
     }
 
     /**
@@ -185,7 +224,7 @@ public class SpaceFileService {
      */
     @Transactional
     public SpaceFileVO importUserFile(Long spaceId, SpaceFileImportDTO dto, Long userId) {
-        spacePermissionService.requireAdmin(spaceId,userId);
+        spaceFileAccessService.requireCreate(spaceId,userId);
         Long parentId = normalizeParentId(spaceId,dto.getParentId());
         SpaceFile parent = requireDirectory(spaceId,parentId);
         spaceFileMapper.lockById(spaceId,parentId);
@@ -198,6 +237,11 @@ public class SpaceFileService {
         requireNoSameName(spaceId,parentId,fileName,0);
         File physical = fileInfoMapper.getFileByFileUuid(userFile.getFileUuid(),userId);
         if(physical == null) throw new BaseException("物理文件不存在");
+        requireNoDuplicateContent(spaceId,physical.getHash());
+        try {
+            preflightService.inspect(fileName,physical.getHash(),physical.getSize(),minioclientUtil.getObjectStream(physical.getFileUuid()),userId);
+        } catch(BaseException ex) { throw ex; }
+        catch(Exception ex) { throw new BaseException(503,"无法读取文件进行 Sandbox 预检"); }
         if(quotaService != null) quotaService.requireTeamStorage(spaceId,quotaKey(physical),physical.getSize());
 
         LocalDateTime now = LocalDateTime.now();
@@ -208,11 +252,18 @@ public class SpaceFileService {
         spaceFile.setDir(0);
         spaceFile.setParentId(parentId);
         spaceFile.setPath(buildPath(parent,fileName,false));
+        requireDepth(parent.getDepth() + 1);
+        spaceFile.setDepth(parent.getDepth() + 1);
+        spaceFile.setNodeVersion(1L);
+        spaceFile.setContentHash(physical.getHash());
+        spaceFile.setLifecycleState("ACTIVE");
+        reserveContent(spaceId,physical.getHash());
         spaceFile.setStatus(StatusConstant.ENABLE);
         spaceFile.setCreatedBy(userId);
         spaceFile.setCreatetime(now);
         spaceFile.setUpdatetime(now);
         spaceFileMapper.insert(spaceFile);
+        activateContentGuard(spaceFile);
         if(quotaService != null) quotaService.recordTeamFile(spaceFile.getId(),spaceId,spaceFile.getFileUuid());
         if(fileInfoMapper.updateFileCount(userFile.getFileUuid(),1) == 0) {
             throw new BaseException("文件引用计数更新失败");
@@ -220,7 +271,7 @@ public class SpaceFileService {
         ensureInitialVersionIfEnabled(spaceFile,userId);
         lifecycleService.fileAdded(spaceFile,userId);
         spaceRagService.handleFileImported(spaceFile,userId);
-        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()),userId);
     }
 
     /**
@@ -245,7 +296,7 @@ public class SpaceFileService {
                                   String name,
                                   Long userId,
                                   String idempotencyKey) {
-        spacePermissionService.requireAdmin(spaceId,userId);
+        spaceFileAccessService.requireCreate(spaceId,userId);
         validateUploadFile(uploadFile);
         String fileName = name == null || name.isBlank() ? uploadFile.getOriginalFilename() : name;
         fileName = requireSafeFileName(fileName);
@@ -253,6 +304,11 @@ public class SpaceFileService {
         SpaceFile parent = requireDirectory(spaceId,realParentId);
         spaceFileMapper.lockById(spaceId,realParentId);
         FileFingerprint fingerprint = calculateFingerprint(uploadFile);
+        requireNoDuplicateContent(spaceId,fingerprint.hash());
+        try {
+            preflightService.inspect(fileName,fingerprint.hash(),uploadFile.getSize(),uploadFile.getInputStream(),userId);
+        } catch(BaseException ex) { throw ex; }
+        catch(Exception ex) { throw new BaseException(503,"无法读取上传文件进行 Sandbox 预检"); }
         if(quotaService != null) quotaService.requireTeamStorage(spaceId,fingerprint.hash(),uploadFile.getSize());
         CrossStoreOperation operation;
         AtomicReference<String> resultRef = new AtomicReference<>();
@@ -278,7 +334,7 @@ public class SpaceFileService {
         spaceRagService.handleFileImported(spaceFile,userId);
         resultRef.set(String.valueOf(spaceFile.getId()));
         crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
-        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()),userId);
     }
 
     /**
@@ -291,7 +347,7 @@ public class SpaceFileService {
      */
     @Transactional
     public SpaceFileVO importWebLink(Long spaceId, SpaceWebLinkImportDTO dto, Long userId) {
-        spacePermissionService.requireAdmin(spaceId,userId);
+        spaceFileAccessService.requireCreate(spaceId,userId);
         URI uri = requireHttpUri(dto.getUrl());
         WebPageSnapshot snapshot = fetchWebPage(uri);
         String fileName = dto.getName() == null || dto.getName().isBlank() ? defaultLinkFileName(snapshot.title(),uri) : dto.getName();
@@ -303,6 +359,8 @@ public class SpaceFileService {
 
         String markdown = buildWebLinkMarkdown(uri,snapshot);
         byte[] content = markdown.getBytes(StandardCharsets.UTF_8);
+        requireNoDuplicateContent(spaceId,HashUtil.sha256(content));
+        preflightService.inspect(fileName,HashUtil.sha256(content),content.length,new ByteArrayInputStream(content),userId);
         if(quotaService != null) quotaService.requireTeamStorage(spaceId,HashUtil.sha256(content),content.length);
         String operationKey = CrossStoreOperationService.key("SPACE_GENERATED",userId,UuidUtil.randomUuid());
         AtomicReference<String> resultRef = new AtomicReference<>();
@@ -319,7 +377,111 @@ public class SpaceFileService {
         spaceRagService.handleFileImported(spaceFile,userId);
         resultRef.set(String.valueOf(spaceFile.getId()));
         crossStoreOperationService.recordResultCandidate(operationKey,resultRef.get());
-        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()));
+        return toVO(spaceFileMapper.getById(spaceId,spaceFile.getId()),userId);
+    }
+
+    /** Activates an immutable, already-preflighted Personal snapshot in a Space. */
+    @Transactional
+    SpaceFileVO importPreflightedReference(Long spaceId,Long parentId,String fileUuid,String expectedHash,
+                                           String requestedName,Long userId) {
+        spaceFileAccessService.requireCreate(spaceId,userId);
+        SpaceFile parent=requireDirectory(spaceId,parentId);
+        spaceFileMapper.lockById(spaceId,parentId);
+        String fileName=requireSafeFileName(requestedName);
+        requireNoSameName(spaceId,parentId,fileName,0);
+        File physical=fileInfoMapper.getFileByFileUuid(fileUuid,userId);
+        if(physical==null || !java.util.Objects.equals(expectedHash,physical.getHash())) {
+            throw new ConflictException("Personal 来源文件在批次创建后已变化");
+        }
+        if(quotaService!=null) quotaService.requireTeamStorage(spaceId,quotaKey(physical),physical.getSize());
+        SpaceFile node=createSpaceFile(spaceId,parent,fileUuid,fileName,userId);
+        if(fileInfoMapper.updateFileCount(fileUuid,1)==0) throw new BaseException("文件引用计数更新失败");
+        ensureInitialVersionIfEnabled(node,userId);
+        lifecycleService.fileAdded(node,userId);
+        spaceRagService.handleFileImported(node,userId);
+        return toVO(spaceFileMapper.getById(spaceId,node.getId()),userId);
+    }
+
+    public List<SpaceFileVO> search(Long spaceId, String query, Integer limit, Long userId) {
+        spaceFileAccessService.requireRead(spaceId,userId);
+        String normalized = query == null ? "" : query.trim();
+        if(normalized.isEmpty()) {
+            return List.of();
+        }
+        int safeLimit = Math.max(1,Math.min(limit == null ? 50 : limit,200));
+        return toVOList(spaceFileMapper.search(spaceId,normalized,safeLimit),userId);
+    }
+
+    public List<SpaceFileVO> duplicatesReport(Long spaceId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        return toVOList(spaceFileMapper.listLegacyDuplicates(spaceId),userId);
+    }
+
+    public List<SpaceFileVO> ancestors(Long spaceId, Long folderId, Long userId) {
+        spaceFileAccessService.requireRead(spaceId,userId);
+        SpaceFile cursor = requireDirectory(spaceId,folderId);
+        List<SpaceFileVO> result = new ArrayList<>();
+        for(int guard = 0; cursor != null && guard <= 100; guard++) {
+            result.add(0,toVO(cursor,userId));
+            if(Long.valueOf(0L).equals(cursor.getParentId())) {
+                return result;
+            }
+            cursor = spaceFileMapper.getById(spaceId,cursor.getParentId());
+        }
+        throw new BaseException("目录祖先链无效或超过 100 层");
+    }
+
+    @Transactional
+    public SpaceFileVO rename(Long spaceId, Long fileId, SpaceFileRenameDTO dto, Long userId) {
+        spaceFileAccessService.requireRead(spaceId,userId);
+        spaceFileMapper.lockActiveSpaceNodes(spaceId);
+        SpaceFile node = spaceFileAccessService.requireNodeAction(spaceId,fileId,userId,SpaceFileAction.RENAME);
+        String name = requireSafeFileName(dto.getName());
+        requireNoSameNameExcluding(spaceId,node.getParentId(),name,node.getDir(),node.getId());
+        SpaceFile parent = requireDirectory(spaceId,node.getParentId());
+        String oldPath = node.getPath();
+        String newPath = buildPath(parent,name,node.getDir() == 1);
+        LocalDateTime now = LocalDateTime.now();
+        if(spaceFileMapper.updateName(spaceId,fileId,name,newPath,dto.getExpectedVersion(),now) != 1) {
+            throw new ConflictException("节点已被其他操作修改，请刷新后重试");
+        }
+        if(node.getDir() == 1) {
+            spaceFileMapper.updateDescendantLocations(spaceId,fileId,oldPath,newPath,0,now);
+        }
+        return toVO(spaceFileMapper.getById(spaceId,fileId),userId);
+    }
+
+    @Transactional
+    public SpaceFileVO move(Long spaceId, Long fileId, SpaceFileMoveDTO dto, Long userId) {
+        spaceFileAccessService.requireRead(spaceId,userId);
+        spaceFileMapper.lockActiveSpaceNodes(spaceId);
+        SpaceFile node = spaceFileAccessService.requireNodeAction(spaceId,fileId,userId,SpaceFileAction.MOVE);
+        SpaceFile target = requireDirectory(spaceId,dto.getTargetParentId());
+        if(target.getId().equals(node.getParentId())) {
+            if(!dto.getExpectedVersion().equals(node.getNodeVersion())) {
+                throw new ConflictException("节点已被其他操作修改，请刷新后重试");
+            }
+            return toVO(node,userId);
+        }
+        if(node.getId().equals(target.getId())
+                || (node.getDir() == 1 && spaceFileMapper.countInSubtree(spaceId,node.getId(),target.getId()) > 0)) {
+            throw new ConflictException("不能把目录移动到自身或其子目录");
+        }
+        requireNoSameName(spaceId,target.getId(),node.getFileName(),node.getDir());
+        int subtreeHeight = spaceFileMapper.maxDepthInSubtree(spaceId,node.getId()) - node.getDepth();
+        int newDepth = target.getDepth() + 1;
+        requireDepth(newDepth + subtreeHeight);
+        String oldPath = node.getPath();
+        String newPath = buildPath(target,node.getFileName(),node.getDir() == 1);
+        int delta = newDepth - node.getDepth();
+        LocalDateTime now = LocalDateTime.now();
+        if(spaceFileMapper.move(spaceId,fileId,target.getId(),newPath,newDepth,dto.getExpectedVersion(),now) != 1) {
+            throw new ConflictException("节点已被其他操作修改，请刷新后重试");
+        }
+        if(node.getDir() == 1) {
+            spaceFileMapper.updateDescendantLocations(spaceId,fileId,oldPath,newPath,delta,now);
+        }
+        return toVO(spaceFileMapper.getById(spaceId,fileId),userId);
     }
 
     /**
@@ -330,43 +492,101 @@ public class SpaceFileService {
      * @param userId 用户 ID
      * @return 处理结果
      */
-    @Transactional
-    public Boolean removeFile(Long spaceId, Long fileId, Long userId) {
-        spacePermissionService.requireAdmin(spaceId,userId);
-        SpaceFile file = spaceFileMapper.getById(spaceId,fileId);
-        if(file == null) {
-            throw new NotFoundException("空间文件不存在");
-        }
+    public SpaceFileDeletePreviewVO deletionPreview(Long spaceId, Long fileId, Long userId) {
+        SpaceFile file = spaceFileAccessService.requireNodeAction(spaceId,fileId,userId,SpaceFileAction.DELETE);
         if(file.getParentId() == 0L) {
             throw new BaseException("不能删除空间根目录");
         }
-        removeTree(spaceId,file,userId);
-        return true;
+        List<SpaceFile> subtree = spaceFileMapper.listSubtree(spaceId,fileId,file.getPath());
+        String digest = subtreeDigest(subtree);
+        long expiresAt=Instant.now().plusSeconds(300).getEpochSecond();
+        int folders = (int) subtree.stream().filter(node -> node.getDir() == 1).count();
+        int files = subtree.size() - folders;
+        int knowledge = (int) subtree.stream().filter(node -> node.getDir() == 0
+                && (Boolean.TRUE.equals(Integer.valueOf(1).equals(node.getSearchable()))
+                || node.getKnowledgeState() != null)).count();
+        return SpaceFileDeletePreviewVO.builder().fileId(fileId).name(file.getFileName())
+                .nodeVersion(file.getNodeVersion()).folderCount(folders).fileCount(files).knowledgeCount(knowledge)
+                .subtreeDigest(digest).expiresAtEpochSecond(expiresAt)
+                .confirmationToken(deleteConfirmationToken(spaceId,file,userId,digest,expiresAt)).build();
     }
 
-    private void removeTree(Long spaceId, SpaceFile file, Long userId) {
-        if(file.getDir() == 1) {
-            for(SpaceFile child : spaceFileMapper.listByParentId(spaceId,file.getId())) {
-                removeTree(spaceId,child,userId);
+    @Transactional
+    public SpaceFileDeleteTaskVO removeFile(Long spaceId, Long fileId, SpaceFileDeleteConfirmDTO dto, Long userId) {
+        spaceFileAccessService.requireRead(spaceId,userId);
+        spaceFileMapper.lockActiveSpaceNodes(spaceId);
+        SpaceFile file = spaceFileAccessService.requireNodeAction(spaceId,fileId,userId,SpaceFileAction.DELETE);
+        if(file.getParentId() == 0L) throw new BaseException("不能删除空间根目录");
+        if(!file.getFileName().equals(dto.getConfirmationName()) || !file.getNodeVersion().equals(dto.getExpectedVersion())) {
+            throw new ConflictException("删除确认信息已过期，请重新预览");
+        }
+        List<SpaceFile> subtree = spaceFileMapper.listSubtree(spaceId,fileId,file.getPath());
+        String digest = subtreeDigest(subtree);
+        if(dto.getExpiresAtEpochSecond() < Instant.now().getEpochSecond()
+                || !deleteConfirmationToken(spaceId,file,userId,digest,dto.getExpiresAtEpochSecond()).equals(dto.getConfirmationToken())) {
+            throw new ConflictException("目录内容已变化，请重新确认删除范围");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        SpaceFileDeleteBatch batch = new SpaceFileDeleteBatch();
+        batch.setBatchKey("space-delete:" + spaceId + ":" + fileId + ":" + digest);
+        batch.setSpaceId(spaceId); batch.setRootFileId(fileId); batch.setRootNodeVersion(file.getNodeVersion());
+        batch.setSubtreeDigest(digest);
+        batch.setFolderCount((int) subtree.stream().filter(node -> node.getDir() == 1).count());
+        batch.setFileCount(subtree.size() - batch.getFolderCount());
+        batch.setKnowledgeCount((int) subtree.stream().filter(node -> node.getDir() == 0 && node.getKnowledgeState() != null).count());
+        batch.setBatchStatus("ISOLATED"); batch.setCreatedBy(userId); batch.setCreatetime(now); batch.setUpdatetime(now);
+        deleteBatchMapper.insert(batch);
+        if(spaceFileMapper.isolateSubtree(spaceId,fileId,file.getPath(),batch.getId(),now) != subtree.size()) {
+            throw new ConflictException("目录内容已变化，请重新确认删除范围");
+        }
+        UnifiedAsyncTask task = taskCenter.createTask(new TaskCreateCommand(
+                batch.getBatchKey(),"cleanup","SPACE_FILE_DELETE",new DomainTaskPayload(batch.getId()),userId,spaceId,
+                "space-delete-batch:" + batch.getId(),1L,null,5));
+        deleteBatchMapper.bindTask(batch.getId(),task.getId(),now);
+        return SpaceFileDeleteTaskVO.builder().batchId(batch.getId()).asyncTaskId(task.getId())
+                .status("ISOLATED").cancellable(false).build();
+    }
+
+    public java.util.Map<String,Object> executeDeleteBatch(Long batchId) {
+        SpaceFileDeleteBatch batch = deleteBatchMapper.getById(batchId);
+        if(batch == null) throw new NotFoundException("删除批次不存在");
+        List<SpaceFile> nodes = spaceFileMapper.listByDeletionBatch(batchId);
+        int processed = 0;
+        try {
+            for(SpaceFile node : nodes) {
+                transactionTemplate.executeWithoutResult(status -> removeIsolatedNode(batch.getSpaceId(),node,batch.getCreatedBy()));
+                processed++;
             }
+            deleteBatchMapper.finish(batchId,"SUCCESS",processed,null,LocalDateTime.now());
+            return java.util.Map.of("batchId",batchId,"processed",processed,"status","SUCCESS");
+        } catch(RuntimeException ex) {
+            deleteBatchMapper.finish(batchId,"FAILED",processed,ex.getMessage(),LocalDateTime.now());
+            throw ex;
         }
+    }
+
+    private void removeIsolatedNode(Long spaceId, SpaceFile file, Long userId) {
+        if(file.getDir() == 0 && file.getFileUuid() != null) lifecycleService.fileRemovalStarted(file);
+        if(spaceFileMapper.disable(spaceId,file.getId(),LocalDateTime.now()) == 0) return;
         if(file.getDir() == 0 && file.getFileUuid() != null) {
-            lifecycleService.fileRemovalStarted(file);
-        }
-        int rows = spaceFileMapper.disable(spaceId,file.getId(),LocalDateTime.now());
-        if(rows == 0) {
-            throw new BaseException("空间文件删除失败");
-        }
-        if(file.getDir() == 0 && file.getFileUuid() != null) {
+            releaseOrReassignContentGuard(file);
             if(quotaService != null) quotaService.releaseReference("SPACE_FILE",file.getId());
-            if(fileInfoMapper.updateFileCount(file.getFileUuid(),-1) == 0) {
-                throw new BaseException("文件引用计数更新失败");
-            }
+            if(fileInfoMapper.updateFileCount(file.getFileUuid(),-1) == 0) throw new BaseException("文件引用计数更新失败");
             spaceRagService.handleFileRemoved(spaceId,file.getId(),userId);
-            if(fileInfoMapper.getFileCount(file.getFileUuid()) == 0) {
-                physicalFileCleanupService.enqueue(file.getFileUuid());
-            }
+            if(fileInfoMapper.getFileCount(file.getFileUuid()) == 0) physicalFileCleanupService.enqueue(file.getFileUuid());
         }
+    }
+
+    private String subtreeDigest(List<SpaceFile> nodes) {
+        String value = nodes.stream().sorted(Comparator.comparing(SpaceFile::getId))
+                .map(node -> node.getId() + ":" + node.getNodeVersion() + ":" + node.getFileUuid())
+                .reduce("",(left,right) -> left + "|" + right);
+        return HashUtil.sha256(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String deleteConfirmationToken(Long spaceId, SpaceFile file, Long userId, String digest, long expiresAt) {
+        return HashUtil.sha256((spaceId + ":" + file.getId() + ":" + file.getNodeVersion() + ":"
+                + userId + ":" + file.getFileName() + ":" + digest + ":" + expiresAt).getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -492,8 +712,7 @@ public class SpaceFileService {
      * @return 处理结果
      */
     private SpaceFile requirePreviewableSpaceFile(Long spaceId, Long fileId, Long userId) {
-        spacePermissionService.requireMember(spaceId,userId);
-        SpaceFile spaceFile = spaceFileMapper.getById(spaceId,fileId);
+        SpaceFile spaceFile = spaceFileAccessService.requireNodeAction(spaceId,fileId,userId,SpaceFileAction.READ);
         if(spaceFile == null || spaceFile.getDir() == 1) {
             throw new NotFoundException("空间文件不存在或不是普通文件");
         }
@@ -627,6 +846,77 @@ public class SpaceFileService {
         }
     }
 
+    private void requireNoSameNameExcluding(Long spaceId, Long parentId, String fileName, Integer dir, Long excludeId) {
+        if(spaceFileMapper.countSameNameExcluding(spaceId,parentId,fileName,dir,excludeId) > 0) {
+            throw new ConflictException("目标目录已存在同名节点");
+        }
+    }
+
+    private void requireDepth(int depth) {
+        if(depth > 100) {
+            throw new ConflictException("目录层级不能超过 100 层");
+        }
+    }
+
+    void requireNoDuplicateContent(Long spaceId, String contentHash) {
+        if(contentHash == null || contentHash.isBlank()) {
+            return;
+        }
+        SpaceFile duplicate = spaceFileMapper.findByContentHash(spaceId,contentHash);
+        if(duplicate != null) {
+            throw new ConflictException("相同文件已存在于 Space：" + duplicate.getPath());
+        }
+    }
+
+    private void reserveContent(Long spaceId, String contentHash) {
+        requireNoDuplicateContent(spaceId,contentHash);
+        if(contentHash == null || contentHash.isBlank()) {
+            return;
+        }
+        try {
+            contentGuardMapper.reserve(spaceId,contentHash,LocalDateTime.now());
+        } catch(DuplicateKeyException ex) {
+            SpaceFile duplicate = spaceFileMapper.findByContentHash(spaceId,contentHash);
+            String location = duplicate == null ? "另一个并发导入任务" : duplicate.getPath();
+            throw new ConflictException("相同文件已存在于 Space：" + location);
+        }
+    }
+
+    private void activateContentGuard(SpaceFile file) {
+        if(file.getContentHash() != null && !file.getContentHash().isBlank()
+                && contentGuardMapper.activate(file.getSpaceId(),file.getContentHash(),file.getId(),LocalDateTime.now()) != 1) {
+            throw new BaseException("文件内容防重占位激活失败");
+        }
+    }
+
+    private void releaseOrReassignContentGuard(SpaceFile removed) {
+        if(removed.getContentHash() == null || removed.getContentHash().isBlank()) {
+            return;
+        }
+        SpaceFile remaining = spaceFileMapper.findByContentHash(removed.getSpaceId(),removed.getContentHash());
+        if(remaining == null) {
+            contentGuardMapper.release(removed.getSpaceId(),removed.getContentHash(),removed.getId());
+        } else {
+            contentGuardMapper.reassign(removed.getSpaceId(),removed.getContentHash(),remaining.getId(),LocalDateTime.now());
+        }
+    }
+
+    void replaceContentGuard(SpaceFile file, String newHash) {
+        if(java.util.Objects.equals(file.getContentHash(),newHash)) return;
+        reserveContent(file.getSpaceId(),newHash);
+        String oldHash = file.getContentHash();
+        if(spaceFileMapper.updateContentHash(file.getSpaceId(),file.getId(),newHash,LocalDateTime.now()) != 1) {
+            throw new BaseException("文件内容防重信息更新失败");
+        }
+        file.setContentHash(newHash);
+        activateContentGuard(file);
+        if(oldHash != null && !oldHash.isBlank()) {
+            SpaceFile remaining = spaceFileMapper.findByContentHash(file.getSpaceId(),oldHash);
+            if(remaining == null) contentGuardMapper.release(file.getSpaceId(),oldHash,file.getId());
+            else contentGuardMapper.reassign(file.getSpaceId(),oldHash,remaining.getId(),LocalDateTime.now());
+        }
+    }
+
     /**
      * 构建 buildChildren 相关逻辑。
      *
@@ -634,12 +924,12 @@ public class SpaceFileService {
      * @param parentId 父级 ID
      * @return 列表结果
      */
-    private List<SpaceFileVO> buildChildren(Long spaceId, Long parentId) {
+    private List<SpaceFileVO> buildChildren(Long spaceId, Long parentId, Long userId) {
         List<SpaceFileVO> children = new ArrayList<>();
         for(SpaceFile child : spaceFileMapper.listByParentId(spaceId,parentId)) {
-            SpaceFileVO vo = toVO(child);
+            SpaceFileVO vo = toVO(child,userId);
             if(child.getDir() == 1) {
-                vo.setChildren(buildChildren(spaceId,child.getId()));
+                vo.setChildren(buildChildren(spaceId,child.getId(),userId));
             }
             children.add(vo);
         }
@@ -652,9 +942,9 @@ public class SpaceFileService {
      * @param files 方法入参
      * @return 列表结果
      */
-    private List<SpaceFileVO> toVOList(List<SpaceFile> files) {
+    private List<SpaceFileVO> toVOList(List<SpaceFile> files, Long userId) {
         List<SpaceFileVO> result = new ArrayList<>();
-        files.forEach(file -> result.add(toVO(file)));
+        files.forEach(file -> result.add(toVO(file,userId)));
         return result;
     }
 
@@ -664,7 +954,7 @@ public class SpaceFileService {
      * @param spaceFile 空间文件对象
      * @return 处理结果
      */
-    private SpaceFileVO toVO(SpaceFile spaceFile) {
+    private SpaceFileVO toVO(SpaceFile spaceFile, Long userId) {
         SpaceFileVO vo = new SpaceFileVO();
         vo.setId(spaceFile.getId());
         vo.setSpaceId(spaceFile.getSpaceId());
@@ -673,6 +963,10 @@ public class SpaceFileService {
         vo.setDir(spaceFile.getDir() == 1);
         vo.setParentId(spaceFile.getParentId());
         vo.setPath(spaceFile.getPath());
+        vo.setNodeVersion(spaceFile.getNodeVersion());
+        vo.setDepth(spaceFile.getDepth());
+        vo.setLifecycleState(spaceFile.getLifecycleState());
+        vo.setCreatedBy(spaceFile.getCreatedBy());
         vo.setVersionEnabled(spaceFile.getVersionEnabled());
         vo.setEffectiveVersionEnabled(resolveEffectiveVersionEnabled(spaceFile));
         vo.setKnowledgeState(spaceFile.getKnowledgeState());
@@ -691,6 +985,7 @@ public class SpaceFileService {
         } else {
             vo.setType("dir");
         }
+        vo.setCapability(spaceFileAccessService.capabilities(spaceFile,userId));
         return vo;
     }
 
@@ -705,7 +1000,7 @@ public class SpaceFileService {
      */
     @Transactional
     public SpaceFileVO updateVersionEnabled(Long spaceId, Long fileId, Integer versionEnabled, Long userId) {
-        spacePermissionService.requireAdmin(spaceId,userId);
+        spaceFileAccessService.requireNodeAction(spaceId,fileId,userId,SpaceFileAction.VERSION_MANAGE);
         if(versionEnabled != null && !StatusConstant.ENABLE.equals(versionEnabled) && !StatusConstant.DISABLE.equals(versionEnabled)) {
             throw new BaseException("文件历史版本开关只能为 1、0 或 null");
         }
@@ -719,7 +1014,7 @@ public class SpaceFileService {
         }
         SpaceFile updated = spaceFileMapper.getById(spaceId,fileId);
         ensureInitialVersionIfEnabled(updated,userId);
-        return toVO(updated);
+        return toVO(updated,userId);
     }
 
     /**
@@ -730,11 +1025,11 @@ public class SpaceFileService {
      * @return 列表结果
      */
     public List<SpaceFileVO> listVersionEnabledFiles(Long spaceId, Long userId) {
-        spacePermissionService.requireMember(spaceId,userId);
+        spaceFileAccessService.requireRead(spaceId,userId);
         List<SpaceFileVO> result = new ArrayList<>();
         for(SpaceFile file : spaceFileMapper.listAll(spaceId)) {
             if(file.getDir() == 0 && resolveEffectiveVersionEnabled(file)) {
-                result.add(toVO(file));
+                result.add(toVO(file,userId));
             }
         }
         return result;
@@ -862,6 +1157,15 @@ public class SpaceFileService {
         spaceFile.setDir(0);
         spaceFile.setParentId(parent.getId());
         spaceFile.setPath(buildPath(parent,fileName,false));
+        requireDepth(parent.getDepth() + 1);
+        spaceFile.setDepth(parent.getDepth() + 1);
+        spaceFile.setNodeVersion(1L);
+        spaceFile.setLifecycleState("ACTIVE");
+        File physical = fileInfoMapper.getFileByFileUuid(fileUuid,userId);
+        if(physical != null) {
+            spaceFile.setContentHash(physical.getHash());
+            reserveContent(spaceId,physical.getHash());
+        }
         spaceFile.setStatus(StatusConstant.ENABLE);
         spaceFile.setCreatedBy(userId);
         spaceFile.setCreatetime(now);
@@ -869,6 +1173,7 @@ public class SpaceFileService {
         if(spaceFileMapper.insert(spaceFile) == 0) {
             throw new BaseException("空间文件保存失败");
         }
+        activateContentGuard(spaceFile);
         if(quotaService != null) quotaService.recordTeamFile(spaceFile.getId(),spaceId,fileUuid);
         return spaceFile;
     }
@@ -1096,7 +1401,7 @@ public class SpaceFileService {
         if(file == null || !parentId.equals(file.getParentId())) {
             throw new BaseException("幂等上传结果已不在原目录，请使用新的 Idempotency-Key");
         }
-        return toVO(file);
+        return toVO(file,file.getCreatedBy());
     }
 
     private void requireValidIdempotencyKey(String value) {

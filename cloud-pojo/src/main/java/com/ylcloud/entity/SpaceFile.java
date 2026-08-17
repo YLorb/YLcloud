@@ -16,6 +16,12 @@ public class SpaceFile {
     private Integer dir;
     private Long parentId;
     private String path;
+    private Long nodeVersion;
+    private Integer depth;
+    private String contentHash;
+    private String lifecycleState;
+    private Long deletionBatchId;
+    private Integer legacyDuplicate;
     private Integer versionEnabled;
     private String knowledgeState;
     private Long knowledgeVersion;

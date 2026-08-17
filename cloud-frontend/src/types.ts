@@ -164,6 +164,10 @@ export type SpaceFile = {
   dir?: boolean;
   parentId?: number | null;
   path?: string;
+  nodeVersion?: number;
+  depth?: number;
+  lifecycleState?: string;
+  createdBy?: number;
   type?: string;
   size?: number;
   versionEnabled?: number | null;
@@ -176,6 +180,35 @@ export type SpaceFile = {
   createtime?: string;
   updatetime?: string;
   children?: SpaceFile[];
+  capability?: {
+    canRead: boolean;
+    canCreate: boolean;
+    canRename: boolean;
+    canMove: boolean;
+    canRemove: boolean;
+    canUploadVersion: boolean;
+    canManageVersions: boolean;
+  };
+};
+
+export type SpaceFileDeletePreview = {
+  fileId: number;
+  name: string;
+  nodeVersion: number;
+  folderCount: number;
+  fileCount: number;
+  knowledgeCount: number;
+  subtreeDigest: string;
+  confirmationToken: string;
+  expiresAtEpochSecond: number;
+};
+
+export type SpaceFileDeleteTask = { batchId: number; asyncTaskId: number; status: string; cancellable: false };
+export type SpaceFileImportBatch = {
+  id: number; spaceId: number; targetParentId: number; failurePolicy: "ATOMIC" | "SKIP_FAILED";
+  batchStatus: string; totalCount: number; passedCount: number; failedCount: number; importedCount: number;
+  errorMessage?: string; asyncTaskId?: number;
+  items: Array<{ id: number; sourceUserFileId: number; relativePath: string; itemStatus: string; errorCode?: string; errorMessage?: string; spaceFileId?: number; sandboxInvocationId?: string }>;
 };
 
 export type SpaceMember = {

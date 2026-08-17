@@ -15,6 +15,7 @@ import { EmptyState, ErrorState, LoadingState } from "../../components/ui/PageSt
 import { categoryMeta, fileIcon, fileTypeLabel, formatSize, formatTime, matchesCategory } from "../../fileUtils";
 import type { FileItem, FilePreview } from "../../types";
 import { uploadFileWithResume, type UploadProgress } from "./multipartUpload";
+import { FileExplorerBreadcrumbs, FileExplorerSearch } from "./FileExplorerChrome";
 
 type Crumb = { id: number; name: string };
 
@@ -204,16 +205,14 @@ export function FilesPage() {
     <div className="files-page">
       <section className="feature-main">
         <div className="content-toolbar">
-          <nav className="breadcrumbs" aria-label="文件路径">
-            {crumbs.map((crumb, index) => <span key={`${crumb.id}-${index}`}><button onClick={() => openCrumb(crumb)}>{crumb.name}</button>{index < crumbs.length - 1 && <ChevronRight size={15} />}</span>)}
-          </nav>
+          <FileExplorerBreadcrumbs crumbs={crumbs} label="文件路径" onOpen={openCrumb} />
           <div className="toolbar-actions">
             {!isRecycle && !isAggregate && <><input ref={fileInput} hidden type="file" multiple onChange={(event) => upload(event.target.files)} /><Button variant="primary" onClick={() => fileInput.current?.click()}><Upload size={16} />上传文件</Button><Button onClick={() => setFolderOpen(true)}><FolderPlus size={16} />新建文件夹</Button></>}
             <Button variant="ghost" size="icon" aria-label="刷新" onClick={() => refresh()}><RefreshCw size={17} /></Button>
           </div>
         </div>
         <div className="filter-bar">
-          <label className="search-box"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isAggregate ? "搜索全部已存文件" : "搜索当前视图"} aria-label="搜索文件" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={15} /></button>}</label>
+          <FileExplorerSearch value={query} onChange={setQuery} placeholder={isAggregate ? "搜索全部已存文件" : "搜索当前视图"} />
           <div className="segmented-control" aria-label="视图模式"><button className={view === "list" ? "active" : ""} onClick={() => { setView("list"); localStorage.setItem("ylcloud_files_view", "list"); }} aria-label="列表视图"><List size={17} /></button><button className={view === "grid" ? "active" : ""} onClick={() => { setView("grid"); localStorage.setItem("ylcloud_files_view", "grid"); }} aria-label="网格视图"><Grid2X2 size={17} /></button></div>
         </div>
         {selectedItems.length > 0 && !isRecycle && <div className="bulk-action-bar" role="region" aria-label="批量文件操作"><strong>已选择 {selectedItems.length} 项</strong><span>文件夹不会下载或添加到知识库。</span><div><Button disabled={!selectedDocuments.length} onClick={downloadSelected}><Download size={16} />下载</Button><Button onClick={() => { setBatchTransfer("move"); setTransferFolderId("0"); }}><FolderInput size={16} />移动</Button><Button onClick={() => { setBatchTransfer("copy"); setTransferFolderId("0"); }}><Copy size={16} />复制</Button><Button disabled={!selectedDocuments.length} onClick={() => { setKnowledgeSpaceId(""); setBatchKnowledgeOpen(true); }}><Database size={16} />添加到知识库</Button><Button variant="danger" onClick={() => setBatchDeleteOpen(true)}><Trash2 size={16} />删除</Button><Button variant="ghost" onClick={() => setSelectedIds(new Set())}>取消选择</Button></div></div>}

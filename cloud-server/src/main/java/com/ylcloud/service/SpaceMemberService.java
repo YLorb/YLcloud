@@ -179,7 +179,10 @@ public class SpaceMemberService {
             return SpaceConstant.ROLE_MEMBER;
         }
         String normalized = role.trim().toUpperCase();
-        if(!SpaceConstant.ROLE_MEMBER.equals(normalized) && !SpaceConstant.ROLE_ADMIN.equals(normalized) && !SpaceConstant.ROLE_OWNER.equals(normalized)) {
+        if(!SpaceConstant.ROLE_MEMBER.equals(normalized)
+                && !SpaceConstant.ROLE_VIEWER.equals(normalized)
+                && !SpaceConstant.ROLE_ADMIN.equals(normalized)
+                && !SpaceConstant.ROLE_OWNER.equals(normalized)) {
             throw new BaseException("空间角色不合法");
         }
         return normalized;

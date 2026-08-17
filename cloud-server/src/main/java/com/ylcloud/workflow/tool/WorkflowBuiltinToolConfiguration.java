@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.DTO.UserMemoryUpdateDTO;
 import com.ylcloud.DTO.SpaceFolderCreateDTO;
+import com.ylcloud.DTO.SpaceFileDeleteConfirmDTO;
+import com.ylcloud.VO.SpaceFileDeletePreviewVO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.entity.FileRagChunk;
 import com.ylcloud.entity.KnowledgeChatMessage;
@@ -149,7 +151,14 @@ public class WorkflowBuiltinToolConfiguration {
     @Bean WorkflowToolHandler knowledgeFileDelete(SpaceFileService files) {
         return tool("knowledge.file.delete", RiskLevel.HIGH, "tool.knowledge.delete", (ctx, args) -> {
             long spaceId = longArg(args, "spaceId"); long fileId = longArg(args, "fileId");
-            return Map.of("deleted", files.removeFile(spaceId, fileId, ctx.userId()), "spaceId", spaceId, "fileId", fileId);
+            SpaceFileDeletePreviewVO preview = files.deletionPreview(spaceId,fileId,ctx.userId());
+            SpaceFileDeleteConfirmDTO confirmation = new SpaceFileDeleteConfirmDTO();
+            confirmation.setConfirmationName(preview.getName());
+            confirmation.setConfirmationToken(preview.getConfirmationToken());
+            confirmation.setExpectedVersion(preview.getNodeVersion());
+            confirmation.setExpiresAtEpochSecond(preview.getExpiresAtEpochSecond());
+            return Map.of("deleteTask",files.removeFile(spaceId,fileId,confirmation,ctx.userId()),
+                    "spaceId",spaceId,"fileId",fileId);
         });
     }
 

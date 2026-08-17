@@ -17,6 +17,10 @@ public class SpaceFileVO {
     private Boolean dir;
     private Long parentId;
     private String path;
+    private Long nodeVersion;
+    private Integer depth;
+    private String lifecycleState;
+    private Long createdBy;
     private String type;
     private Long size;
     private Integer versionEnabled;
@@ -29,4 +33,5 @@ public class SpaceFileVO {
     private LocalDateTime createtime;
     private LocalDateTime updatetime;
     private List<SpaceFileVO> children;
+    private SpaceFileCapabilityVO capability;
 }

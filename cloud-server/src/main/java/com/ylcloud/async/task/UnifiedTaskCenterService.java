@@ -236,6 +236,9 @@ public class UnifiedTaskCenterService {
         UnifiedAsyncTask task = mapper.getByIdForUpdate(taskId);
         if(task == null) throw new NotFoundException("统一任务不存在");
         authorizationService.requireOperate(task,operatorId);
+        if("SPACE_FILE_DELETE".equals(task.getTaskType())) {
+            throw new ConflictException("文件删除在隔离后不可撤销或取消");
+        }
         if(TERMINAL.contains(task.getStatus())) throw new ConflictException("终态任务不能取消");
         LocalDateTime now = LocalDateTime.now();
         int changed = "RUNNING".equals(task.getStatus())

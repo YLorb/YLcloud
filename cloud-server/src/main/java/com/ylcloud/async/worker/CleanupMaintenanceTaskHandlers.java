@@ -7,6 +7,8 @@ import com.ylcloud.service.CrossStoreRecoveryService;
 import com.ylcloud.service.MultipartUploadCleanupService;
 import com.ylcloud.service.PhysicalFileCleanupService;
 import com.ylcloud.service.RagIndexConsistencyService;
+import com.ylcloud.service.SpaceFileService;
+import com.ylcloud.service.SpaceFileImportBatchService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -45,6 +47,16 @@ public class CleanupMaintenanceTaskHandlers {
     TaskHandler ragConsistencyValidateTaskHandler(ObjectMapper json,RagIndexConsistencyService service) {
         return handler("RAG_CONSISTENCY_VALIDATE",json,
                 (task,id,context) -> service.executeValidationAsync(id,task.getId(),task.getResourceVersion(),context));
+    }
+
+    @Bean
+    TaskHandler spaceFileDeleteTaskHandler(ObjectMapper json, SpaceFileService service) {
+        return handler("SPACE_FILE_DELETE",json,(task,id,context) -> service.executeDeleteBatch(id));
+    }
+
+    @Bean
+    TaskHandler spaceFileImportTaskHandler(ObjectMapper json, SpaceFileImportBatchService service) {
+        return handler("SPACE_FILE_IMPORT",json,(task,id,context) -> service.executeBatch(id));
     }
 
     private TaskHandler handler(String taskType,ObjectMapper json,IdExecution execution) {

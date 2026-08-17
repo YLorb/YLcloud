@@ -295,6 +295,9 @@ public class SpaceService {
         root.setDir(1);
         root.setParentId(0L);
         root.setPath("/");
+        root.setNodeVersion(1L);
+        root.setDepth(0);
+        root.setLifecycleState("ACTIVE");
         root.setStatus(StatusConstant.ENABLE);
         root.setCreatedBy(ownerId);
         root.setCreatetime(now);

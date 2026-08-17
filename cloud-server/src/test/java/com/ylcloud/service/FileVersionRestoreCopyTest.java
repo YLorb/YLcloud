@@ -21,6 +21,7 @@ class FileVersionRestoreCopyTest {
             mock(FileInfoMapper.class),
             spaceFileMapper,
             mock(SpacePermissionService.class),
+            mock(SpaceFileAccessService.class),
             mock(SpaceFileService.class),
             mock(SpaceRagService.class),
             mock(MinioclientUtil.class),

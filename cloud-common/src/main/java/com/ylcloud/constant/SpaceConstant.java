@@ -29,6 +29,9 @@ public class SpaceConstant {
      */
     public static final String ROLE_MEMBER = "MEMBER";
 
+    /** Read-only Space member. */
+    public static final String ROLE_VIEWER = "VIEWER";
+
     public static final String LIFECYCLE_ACTIVE = "ACTIVE";
 
     public static final String LIFECYCLE_DISSOLVING = "DISSOLVING";

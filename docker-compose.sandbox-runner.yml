@@ -23,7 +23,7 @@ services:
       DOCKER_HOST: unix:///var/run/sandbox-docker.sock
     volumes:
       - ${YLCLOUD_ROOTLESS_DOCKER_SOCKET}:/var/run/sandbox-docker.sock
-      - ./sandbox-service/tool-catalog.example.json:/etc/ylcloud-sandbox/tool-catalog.json:ro
+      - ./sandbox-service/tool-catalog.local.json:/etc/ylcloud-sandbox/tool-catalog.json:ro
     ports:
       - "${YLCLOUD_SANDBOX_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_SANDBOX_HOST_PORT:-8004}:8004"
 

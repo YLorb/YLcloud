@@ -344,6 +344,10 @@ export const api = {
   listSpaceFiles: (spaceId: number, parentId?: number | null) =>
     request<SpaceFile[]>(`/api/space/${spaceId}/files/list?${params({ parentId })}`),
   treeSpaceFiles: (spaceId: number) => request<SpaceFile[]>(`/api/space/${spaceId}/files/tree`),
+  listSpaceFileAncestors: (spaceId: number, folderId: number) =>
+    request<SpaceFile[]>(`/api/space/${spaceId}/files/${folderId}/ancestors`),
+  searchSpaceFiles: (spaceId: number, query: string) =>
+    request<SpaceFile[]>(`/api/space/${spaceId}/files/search?${params({ q: query, limit: 100 })}`),
   listVersionEnabledSpaceFiles: (spaceId: number) =>
     request<SpaceFile[]>(`/api/space/${spaceId}/files/version-enabled`),
   createSpaceFolder: (spaceId: number, payload: { name: string; parentId?: number | null }) =>
@@ -356,6 +360,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  importSpaceFileBatch: (spaceId: number, payload: { sourceNodeIds: number[]; targetParentId?: number | null; failurePolicy: "ATOMIC" | "SKIP_FAILED" }) =>
+    request<import("./types").SpaceFileImportBatch>(`/api/space/${spaceId}/files/import-batches`, {
+      method: "POST", body: JSON.stringify(payload)
+    }),
   uploadSpaceFile: (spaceId: number, file: File, parentId?: number | null, name?: string) => {
     const body = new FormData();
     body.set("file", file);
@@ -367,8 +375,14 @@ export const api = {
       headers: { "Idempotency-Key": crypto.randomUUID() }
     });
   },
-  removeSpaceFile: (spaceId: number, fileId: number) =>
-    request<boolean>(`/api/space/${spaceId}/files/${fileId}`, { method: "DELETE" }),
+  previewSpaceFileDeletion: (spaceId: number, fileId: number) =>
+    request<import("./types").SpaceFileDeletePreview>(`/api/space/${spaceId}/files/${fileId}/deletion-preview`, { method: "POST" }),
+  removeSpaceFile: (spaceId: number, fileId: number, payload: { confirmationName: string; confirmationToken: string; expectedVersion: number; expiresAtEpochSecond: number }) =>
+    request<import("./types").SpaceFileDeleteTask>(`/api/space/${spaceId}/files/${fileId}`, { method: "DELETE", body: JSON.stringify(payload) }),
+  renameSpaceFile: (spaceId: number, fileId: number, name: string, expectedVersion: number) =>
+    request<SpaceFile>(`/api/space/${spaceId}/files/${fileId}/rename`, { method: "PUT", body: JSON.stringify({ name, expectedVersion }) }),
+  moveSpaceFile: (spaceId: number, fileId: number, targetParentId: number, expectedVersion: number) =>
+    request<SpaceFile>(`/api/space/${spaceId}/files/${fileId}/move`, { method: "PUT", body: JSON.stringify({ targetParentId, expectedVersion }) }),
   updateSpaceFileVersionSetting: (spaceId: number, fileId: number, versionEnabled: number) =>
     request<SpaceFile>(`/api/space/${spaceId}/files/${fileId}/version-setting`, {
       method: "PUT",
