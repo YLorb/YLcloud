@@ -6,6 +6,8 @@ $deps = Join-Path $workspace '.sandbox-e2e-deps'
 $catalog = Join-Path $workspace 'sandbox-service\tool-catalog.local.json'
 $python = 'C:\Users\Win10\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 $serviceProcess = $null
+$catalogExisted = Test-Path -LiteralPath $catalog -PathType Leaf
+$catalogBackup = if ($catalogExisted) { [System.IO.File]::ReadAllBytes($catalog) } else { $null }
 
 Set-Location $workspace
 if (Test-Path -LiteralPath $resultFile) { Remove-Item -LiteralPath $resultFile -Force }
@@ -80,5 +82,10 @@ finally {
     if ($serviceProcess -and -not $serviceProcess.HasExited) { Stop-Process -Id $serviceProcess.Id -Force }
     docker rm --force ylcloud-sandbox-security-check 2>$null | Out-Null
     if (Test-Path -LiteralPath $deps) { Remove-Item -LiteralPath $deps -Recurse -Force }
-    if (Test-Path -LiteralPath $catalog) { Remove-Item -LiteralPath $catalog -Force }
+    if ($catalogExisted) {
+        [System.IO.File]::WriteAllBytes($catalog, $catalogBackup)
+    }
+    elseif (Test-Path -LiteralPath $catalog -PathType Leaf) {
+        Remove-Item -LiteralPath $catalog -Force
+    }
 }

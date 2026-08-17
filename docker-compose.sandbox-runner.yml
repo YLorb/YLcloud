@@ -1,4 +1,23 @@
 services:
+  sandbox-work-init:
+    image: ylcloud-sandbox-service:local
+    user: "0:0"
+    restart: "no"
+    read_only: true
+    network_mode: none
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER"]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      SANDBOX_WORK_UID: "${YLCLOUD_SANDBOX_RUNNER_UID:-1000}"
+      SANDBOX_WORK_GID: "${YLCLOUD_SANDBOX_RUNNER_GID:-1000}"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - 'chown "$${SANDBOX_WORK_UID}:$${SANDBOX_WORK_GID}" /work && chmod 700 /work'
+    volumes:
+      - sandbox-work:/work
+
   sandbox-service:
     build:
       context: ./sandbox-service
@@ -11,6 +30,9 @@ services:
     read_only: true
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
+    depends_on:
+      sandbox-work-init:
+        condition: service_completed_successfully
     pids_limit: 128
     mem_limit: 512m
     cpus: 1.0

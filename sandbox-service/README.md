@@ -28,3 +28,5 @@ Catalog 是 JSON 数组；每项至少包含 `name`、`version`、固定 `image`
 单元测试运行 `pytest -q`。Win10 Docker Desktop 的完整 API→一次性容器验收运行 `scripts/run-sandbox-docker-validation.ps1`；脚本会构建示例 `json-echo` Tool、校验幂等与主体历史、检查容器安全参数，并清理临时容器和进程。
 
 生产发布前还必须完成 [[../docs/obsidian/10-规划与实施/测试/TEST-20260813-001-Sandbox实施测试要求]] 中的 Linux Rootless、AppArmor/SELinux、恶意文件、超时进程树、MinIO 和 RabbitMQ 门禁。
+
+`sandbox-service` 是常驻控制面，只有收到平台预置 Tool Invocation 时才创建 `--rm` 一次性执行容器。Space 文件激活前的 `file.preflight` 和显式声明 `execution_mode: sandbox` 的 Agent Tool 会触发；浏览、搜索、下载、预览、RAG 查询和普通 Agent Tool 不触发。Compose 中的 `sandbox-work-init` 只负责把专用工作卷权限收敛到 Runner UID/GID，不挂载 Docker Socket，成功退出后才启动控制面。

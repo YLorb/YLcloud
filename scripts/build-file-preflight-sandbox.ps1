@@ -35,5 +35,6 @@ $catalog = @(
     }
 )
 $catalogPath = Join-Path $PSScriptRoot "../sandbox-service/tool-catalog.local.json"
-ConvertTo-Json -InputObject $catalog -Depth 12 | Set-Content -LiteralPath $catalogPath -Encoding utf8NoBOM
+$catalogJson = ConvertTo-Json -InputObject $catalog -Depth 12
+[System.IO.File]::WriteAllText($catalogPath, $catalogJson, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Pinned file.preflight catalog written to $catalogPath ($imageId)"

@@ -33,5 +33,7 @@ tags: [sandbox, import, personal, rag, testing, security]
 - Java 回归 316 项全部通过；Sandbox 容器内 pytest 11 项全部通过。
 - Win10 宿主真实 Docker 验证通过：Sandbox API 调用 `SUCCEEDED`，幂等重放复用原 span，subject 历史隔离正确；一次性工具容器验证了 `network=none`、只读根、UID 65532、`cap-drop ALL`、`no-new-privileges` 与 PID/CPU/内存限制。
 - 全新数据库 `ylcloud_space_test` 从 V1 成功迁移至 V52，应用健康为 `UP`；导入相对路径唯一键已改为 SHA-256 路径哈希，避免 MySQL 3072 字节索引上限。
+- Docker Desktop 高权限开发模式经用户明确授权后完成真实 `file.preflight`：普通文本返回 `SUCCEEDED/safe=true`，`MZ` 文件头返回 `SUCCEEDED/safe=false/EXECUTABLE_CONTENT`；两次执行均为 `network=none`、exit code 0，任务容器结束后自动删除。
+- 重建时发现 catalog bind 源曾被验证脚本删除、named volume 默认 root 所有导致 Runner 不可写；已分别通过“验证前备份/结束后恢复 catalog”和 `sandbox-work-init` 最小 `CHOWN/FOWNER` 初始化服务解决。初始化服务不挂载 Docker Socket，成功退出后控制面才启动。
 - 未执行：恶意文件/压缩炸弹/路径穿越样本、超时与超大输出、进程树逃逸、应用重启/迟到结果、MinIO/Qdrant/RabbitMQ/RAG E2E。生产形态还必须使用独立 rootless Docker 或隔离执行节点，不能把 Docker Desktop 主 Socket 暴露给 Sandbox 服务。
 - 结论：基础 Docker 与迁移门禁通过，但完整 P0 安全和数据面门禁未完成，状态保持 `pending-verification`。
