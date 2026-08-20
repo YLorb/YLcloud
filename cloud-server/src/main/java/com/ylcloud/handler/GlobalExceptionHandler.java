@@ -12,6 +12,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 @Slf4j
@@ -56,6 +57,13 @@ public class GlobalExceptionHandler {
         String message = "请求参数类型错误: " + ex.getName();
         log.warn("参数类型错误: {}", message);
         return badRequest(message);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Result<?>> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex) {
+        log.warn("上传内容超过站点限制: maxUploadSize={}", ex.getMaxUploadSize());
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(Result.error(HttpStatus.PAYLOAD_TOO_LARGE.value(),"上传内容超过站点限制"));
     }
 
     @ExceptionHandler(Exception.class)

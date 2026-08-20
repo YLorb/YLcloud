@@ -107,6 +107,7 @@ public class RagProperties {
         private Boolean hydeEnabled = true;
         private Boolean stepBackEnabled = true;
         private Integer maxExpandedQueries = 4;
+        private Integer parallelism = 3;
         private String model = "doubao-seed-2-0-pro-260215";
     }
 

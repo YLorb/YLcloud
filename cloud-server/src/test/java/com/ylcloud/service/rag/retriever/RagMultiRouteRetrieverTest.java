@@ -8,8 +8,12 @@ import com.ylcloud.service.rag.query.QueryPlan;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -75,6 +79,41 @@ class RagMultiRouteRetrieverTest {
         verify(vectorStore).search(1L,"HyDE 假设答案",chunks,20,null);
         verify(mapper,atLeastOnce()).searchBySpaceAndKeyword(anyLong(),anyString(),anyInt());
         verify(mapper,atLeastOnce()).searchBySpaceAndMetadata(anyLong(),anyString(),anyInt());
+    }
+
+    @Test
+    void runsIndependentVectorRoutesConcurrently() {
+        RagProperties properties = new RagProperties();
+        FileRagChunkMapper mapper = mock(FileRagChunkMapper.class);
+        QdrantVectorStoreService vectorStore = mock(QdrantVectorStoreService.class);
+        FileRagChunk value = chunk(1L,"标准化石定义");
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maxActive = new AtomicInteger();
+        when(vectorStore.search(anyLong(),anyString(),anyList(),anyInt(),isNull())).thenAnswer(invocation -> {
+            int current = active.incrementAndGet();
+            maxActive.accumulateAndGet(current,Math::max);
+            try {
+                Thread.sleep(60);
+                return List.of(value);
+            } finally {
+                active.decrementAndGet();
+            }
+        });
+        QueryPlan plan = new QueryPlan();
+        plan.setOriginal("标准化石");
+        plan.setExpandedQueries(List.of("演化快的化石","地层年代化石"));
+        plan.setHydeDocument("标准化石具有延续时间短和分布广等特征");
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try {
+            RagMultiRouteRetriever retriever = new RagMultiRouteRetriever(
+                    properties,mapper,vectorStore,new RagCandidateMerger(properties),
+                    new Bm25KeywordRetriever(properties,new IkRagKeywordTokenizer()),executor);
+
+            assertFalse(retriever.retrieve(1L,plan,List.of(value),5,null).isEmpty());
+            assertTrue(maxActive.get() >= 2,"vector routes should overlap");
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     private FileRagChunk chunk(Long id, String content) {

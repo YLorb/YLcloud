@@ -7,6 +7,7 @@ param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot "..\output\rag-course-e2e"),
     [int]$TimeoutMinutes = 20,
     [int]$CleanupTimeoutMinutes = 20,
+    [string]$ExpectedAppContainerId,
     [switch]$KeepGoing
 )
 
@@ -47,6 +48,7 @@ function Invoke-YlCloudEnvelope {
         Method = $Method
         Uri = "$BaseUrl$Path"
         Headers = @{ Accept = "application/json" }
+        TimeoutSec = 300
     }
     if(-not $Anonymous) {
         if([string]::IsNullOrWhiteSpace($Authorization)) {
@@ -161,6 +163,9 @@ try {
         "-OutputRoot", $wrapperDir,
         "-TimeoutMinutes", [string]$TimeoutMinutes
     )
+    if(-not [string]::IsNullOrWhiteSpace($ExpectedAppContainerId)) {
+        $coreArguments += @("-ExpectedAppContainerId",$ExpectedAppContainerId)
+    }
     if($KeepGoing) { $coreArguments += "-KeepGoing" }
 
     $previousToken = $env:YLCLOUD_E2E_TOKEN

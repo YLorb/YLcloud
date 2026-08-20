@@ -23,6 +23,8 @@ class SandboxService:
     def invoke(self, request: InvocationRequest) -> InvocationResponse:
         stable_payload = request.model_dump(mode="json")
         stable_payload.pop("invocation_id", None)
+        # Trace context identifies an individual attempt, not the logical operation.
+        stable_payload.pop("parent_trace", None)
         payload_digest = self._digest(stable_payload)
         cached = self._responses.get(request.idempotency_key)
         if cached:

@@ -76,7 +76,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -277,6 +276,7 @@ public class SpaceRagService {
      */
     @Transactional
     public SpaceRagQueryVO query(Long spaceId, SpaceRagQueryDTO dto, Long userId) {
+        long startedAt = System.nanoTime();
         spacePermissionService.requireMember(spaceId,userId);
         if(!Boolean.TRUE.equals(siteSettingService.getBoolean(SiteSettingService.LLM_ENABLED,true))) {
             throw new BaseException("管理员已停用 AI 问答");
@@ -287,8 +287,11 @@ public class SpaceRagService {
         }
         int limit = resolveQueryTopK(config,dto.getRetrievalMode());
         QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),dto.getHistory());
+        long rewriteFinishedAt = System.nanoTime();
         List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
+        long retrievalFinishedAt = System.nanoTime();
         RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config,dto.getHistory());
+        long generationFinishedAt = System.nanoTime();
         String answer = chatResult.getAnswer();
         boolean noAnswer = chatResult.isNoAnswer() || answer == null || answer.isBlank();
         List<Long> hitChunkIds = new ArrayList<>();
@@ -312,7 +315,19 @@ public class SpaceRagService {
         vo.setHitChunkIds(hitChunkIds);
         vo.setContexts(contexts);
         vo.setCitations(noAnswer ? new ArrayList<>() : buildCitations(spaceId,chunks));
+        vo.setRetrievedChunkIds(chunks.stream().map(FileRagChunk::getId).toList());
+        vo.setRewriteDurationMs(elapsedMillis(startedAt,rewriteFinishedAt));
+        vo.setRetrievalDurationMs(elapsedMillis(rewriteFinishedAt,retrievalFinishedAt));
+        vo.setGenerationDurationMs(elapsedMillis(retrievalFinishedAt,generationFinishedAt));
+        vo.setTotalDurationMs(elapsedMillis(startedAt,generationFinishedAt));
+        log.info("RAG query stages: spaceId={}, retrievedChunks={}, noAnswer={}, rewriteMs={}, retrievalMs={}, generationMs={}, totalMs={}",
+                spaceId,chunks.size(),noAnswer,vo.getRewriteDurationMs(),vo.getRetrievalDurationMs(),
+                vo.getGenerationDurationMs(),vo.getTotalDurationMs());
         return vo;
+    }
+
+    private long elapsedMillis(long start, long end) {
+        return Math.max(0L,(end - start) / 1_000_000L);
     }
 
     /**
@@ -1354,11 +1369,9 @@ public class SpaceRagService {
                 break;
             }
         }
-        return selected.values().stream()
-                .sorted(Comparator.comparing(FileRagChunk::getFileUuid,Comparator.nullsLast(String::compareTo))
-                        .thenComparing(FileRagChunk::getFileHash,Comparator.nullsLast(String::compareTo))
-                        .thenComparing(FileRagChunk::getChunkIndex,Comparator.nullsLast(Integer::compareTo)))
-                .toList();
+        // LinkedHashMap preserves the fused relevance order. Sorting by physical document position here
+        // used to discard relevant late-document chunks before rerank when candidateTopK was small.
+        return new ArrayList<>(selected.values());
     }
 
     private void addNeighborChunks(Map<Long, FileRagChunk> selected,

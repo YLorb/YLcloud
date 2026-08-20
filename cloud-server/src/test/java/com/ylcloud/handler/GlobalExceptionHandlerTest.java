@@ -8,6 +8,7 @@ import com.ylcloud.Exception.UnauthorizedException;
 import com.ylcloud.Result;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -29,6 +30,16 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(500,response.getStatusCode().value());
         assertEquals(500,response.getBody().getCode());
+    }
+
+    @Test
+    void mapsOversizedMultipartRequestToHttp413() {
+        ResponseEntity<Result<?>> response = handler.handleMaxUploadSizeExceededException(
+                new MaxUploadSizeExceededException(2_147_483_648L));
+
+        assertEquals(413,response.getStatusCode().value());
+        assertEquals(413,response.getBody().getCode());
+        assertEquals("上传内容超过站点限制",response.getBody().getMessage());
     }
 
     private void assertStatus(BaseException exception, int expected) {

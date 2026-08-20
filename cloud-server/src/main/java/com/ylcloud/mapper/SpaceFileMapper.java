@@ -85,6 +85,10 @@ public interface SpaceFileMapper {
             "from space_file where space_id = #{spaceId} and status = 1 and lifecycle_state='ACTIVE' order by parent_id, is_dir desc, updatetime desc")
     List<SpaceFile> listAll(@Param("spaceId") Long spaceId);
 
+    @Select("select file_uuid from space_file where space_id=#{spaceId} and status=1 and is_dir=0 " +
+            "and file_uuid is not null order by id for update")
+    List<String> listActiveFileUuidsForCleanup(@Param("spaceId") Long spaceId);
+
     @Select("select id, space_id as spaceId, file_uuid as fileUuid, file_name as fileName, is_dir as dir, " +
             "parent_id as parentId,path,node_version as nodeVersion,depth,content_hash as contentHash,lifecycle_state as lifecycleState,deletion_batch_id as deletionBatchId,legacy_duplicate as legacyDuplicate,version_enabled as versionEnabled, knowledge_state as knowledgeState, knowledge_version as knowledgeVersion, searchable, last_knowledge_error as lastKnowledgeError, removed_at as removedAt, status, created_by as createdBy, createtime, updatetime " +
             "from space_file where space_id=#{spaceId} and status=1 and lifecycle_state='ACTIVE' " +

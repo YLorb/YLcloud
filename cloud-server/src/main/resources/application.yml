@@ -8,8 +8,9 @@ spring:
     active: dev
   servlet:
     multipart:
-      max-file-size: 20MB
-      max-request-size: 25MB
+      # Keep the transport limit aligned with ylcloud.upload.max-file-size and the public site setting.
+      max-file-size: ${YLCLOUD_UPLOAD_MAX_FILE_SIZE_BYTES:2147483648}
+      max-request-size: ${YLCLOUD_UPLOAD_MAX_REQUEST_SIZE_BYTES:2164260864}
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -92,7 +93,7 @@ ylcloud:
     max-ttl-seconds: ${YLCLOUD_SERVICE_JWT_MAX_TTL_SECONDS:300}
     clock-skew-seconds: ${YLCLOUD_SERVICE_JWT_CLOCK_SKEW_SECONDS:30}
   upload:
-    max-file-size: 2147483648
+    max-file-size: ${YLCLOUD_UPLOAD_MAX_FILE_SIZE_BYTES:2147483648}
     multipart-threshold-bytes: ${YLCLOUD_UPLOAD_MULTIPART_THRESHOLD_BYTES:20971520}
     chunk-lease-seconds: ${YLCLOUD_UPLOAD_CHUNK_LEASE_SECONDS:3600}
     merge-lease-seconds: ${YLCLOUD_UPLOAD_MERGE_LEASE_SECONDS:600}
@@ -146,6 +147,7 @@ ylcloud:
       hyde-enabled: ${YLCLOUD_RAG_HYDE_ENABLED:true}
       step-back-enabled: ${YLCLOUD_RAG_STEP_BACK_ENABLED:true}
       max-expanded-queries: ${YLCLOUD_RAG_MAX_EXPANDED_QUERIES:4}
+      parallelism: ${YLCLOUD_RAG_QUERY_PARALLELISM:3}
       model: ${YLCLOUD_RAG_QUERY_MODEL:${YLCLOUD_ARK_MODEL:doubao-seed-2-0-pro-260215}}
     retrieval:
       dense-weight: 0.45

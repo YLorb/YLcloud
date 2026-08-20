@@ -8,9 +8,13 @@ import com.ylcloud.service.rag.query.QueryPlan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
 public class RagMultiRouteRetriever {
@@ -20,17 +24,29 @@ public class RagMultiRouteRetriever {
     private final QdrantVectorStoreService qdrantVectorStoreService;
     private final RagCandidateMerger candidateMerger;
     private final Bm25KeywordRetriever bm25KeywordRetriever;
+    private final Executor queryExecutor;
 
     public RagMultiRouteRetriever(RagProperties ragProperties,
                                   FileRagChunkMapper fileRagChunkMapper,
                                   QdrantVectorStoreService qdrantVectorStoreService,
                                   RagCandidateMerger candidateMerger,
                                   Bm25KeywordRetriever bm25KeywordRetriever) {
+        this(ragProperties,fileRagChunkMapper,qdrantVectorStoreService,candidateMerger,bm25KeywordRetriever,Runnable::run);
+    }
+
+    @Autowired
+    public RagMultiRouteRetriever(RagProperties ragProperties,
+                                  FileRagChunkMapper fileRagChunkMapper,
+                                  QdrantVectorStoreService qdrantVectorStoreService,
+                                  RagCandidateMerger candidateMerger,
+                                  Bm25KeywordRetriever bm25KeywordRetriever,
+                                  @Qualifier("ragQueryExecutor") Executor queryExecutor) {
         this.ragProperties = ragProperties;
         this.fileRagChunkMapper = fileRagChunkMapper;
         this.qdrantVectorStoreService = qdrantVectorStoreService;
         this.candidateMerger = candidateMerger;
         this.bm25KeywordRetriever = bm25KeywordRetriever;
+        this.queryExecutor = queryExecutor;
     }
 
     public List<FileRagChunk> retrieve(Long spaceId, String question, List<FileRagChunk> spaceChunks,
@@ -58,6 +74,20 @@ public class RagMultiRouteRetriever {
         double expansionWeight = retrieval.getQueryExpansionWeight() == null ? 0.70 : retrieval.getQueryExpansionWeight();
         List<RagCandidate> candidates = new ArrayList<>();
         List<String> retrievalQueries = plan.retrievalQueries();
+        List<CompletableFuture<List<FileRagChunk>>> vectorSearches = new ArrayList<>();
+        for(int i = 0; i < retrievalQueries.size(); i++) {
+            String query = retrievalQueries.get(i);
+            boolean originalRoute = i == 0;
+            boolean stepBackRoute = plan.getStepBackQuery() != null && plan.getStepBackQuery().equals(query);
+            int currentVectorLimit = originalRoute ? vectorLimit : stepBackRoute ? stepBackLimit : multiQueryLimit;
+            vectorSearches.add(CompletableFuture.supplyAsync(
+                    () -> qdrantVectorStoreService.search(spaceId,query,spaceChunks,currentVectorLimit,minScore),
+                    queryExecutor));
+        }
+        CompletableFuture<List<FileRagChunk>> hydeSearch = plan.getHydeDocument() == null || plan.getHydeDocument().isBlank()
+                ? null
+                : CompletableFuture.supplyAsync(() -> qdrantVectorStoreService.search(
+                        spaceId,plan.getHydeDocument(),spaceChunks,hydeLimit,minScore),queryExecutor);
         for(int i = 0; i < retrievalQueries.size(); i++) {
             String query = retrievalQueries.get(i);
             boolean originalRoute = i == 0;
@@ -68,7 +98,7 @@ public class RagMultiRouteRetriever {
             String vectorSource = originalRoute ? "vector" : stepBackRoute ? "stepback_vector" : "multi_query_vector";
             String bm25Source = originalRoute ? "bm25" : stepBackRoute ? "stepback_bm25" : "multi_query_bm25";
             candidates.addAll(candidateMerger.fromChunks(
-                    qdrantVectorStoreService.search(spaceId,query,spaceChunks,currentVectorLimit,minScore),
+                    vectorSearches.get(i).join(),
                     vectorSource,
                     weight
             ));
@@ -103,9 +133,9 @@ public class RagMultiRouteRetriever {
                     0.75
             ));
         }
-        if(plan.getHydeDocument() != null && !plan.getHydeDocument().isBlank()) {
+        if(hydeSearch != null) {
             candidates.addAll(candidateMerger.fromChunks(
-                    qdrantVectorStoreService.search(spaceId,plan.getHydeDocument(),spaceChunks,hydeLimit,minScore),
+                    hydeSearch.join(),
                     "hyde_vector",
                     0.65
             ));

@@ -17,7 +17,7 @@ ylcloud:
     previous-secret: ${YLCLOUD_SERVICE_JWT_PREVIOUS_SECRET:}
     previous-valid-until-epoch-seconds: ${YLCLOUD_SERVICE_JWT_PREVIOUS_VALID_UNTIL_EPOCH_SECONDS:0}
   upload:
-    max-file-size: 2147483648
+    max-file-size: ${YLCLOUD_UPLOAD_MAX_FILE_SIZE_BYTES:2147483648}
     multipart-threshold-bytes: ${YLCLOUD_UPLOAD_MULTIPART_THRESHOLD_BYTES:20971520}
   minio:
     endpoint: ${YLCLOUD_MINIO_ENDPOINT:http://127.0.0.1:9000}

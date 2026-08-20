@@ -32,6 +32,7 @@ function Invoke-YlCloudEnvelope {
         Method = $Method
         Uri = "$BaseUrl$Path"
         Headers = @{ Accept = "application/json" }
+        TimeoutSec = 300
     }
     if(-not $Anonymous) {
         if([string]::IsNullOrWhiteSpace($Authorization)) {
@@ -333,6 +334,9 @@ function Invoke-ResumeProvision {
         "-UploadedFilesPath", $resolvedUploadedFilesPath,
         "-KeepGoing"
     )
+    if(-not [string]::IsNullOrWhiteSpace($script:expectedAppContainerId)) {
+        $coreArguments += @("-ExpectedAppContainerId",$script:expectedAppContainerId)
+    }
     $previousToken = $env:YLCLOUD_E2E_TOKEN
     try {
         $env:YLCLOUD_E2E_TOKEN = [string]$resumeLogin.token
@@ -347,6 +351,10 @@ function Invoke-ResumeProvision {
 }
 
 Assert-TestRuntime
+$expectedAppContainerId = [string](& docker inspect ylcloud-app --format '{{.Id}}')
+if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($expectedAppContainerId)) {
+    throw "Cannot capture ylcloud-app container identity"
+}
 if(-not [string]::IsNullOrWhiteSpace($RecoverProvisionPath) -and -not [string]::IsNullOrWhiteSpace($ResumeProvisionPath)) {
     throw "RecoverProvisionPath and ResumeProvisionPath are mutually exclusive"
 }
@@ -455,6 +463,7 @@ try {
             "-TimeoutMinutes", [string]$TimeoutMinutes,
             "-CleanupTimeoutMinutes", [string]$CleanupTimeoutMinutes
         )
+        $wrapperArguments += @("-ExpectedAppContainerId",$expectedAppContainerId)
         if($KeepGoing) { $wrapperArguments += "-KeepGoing" }
 
         $previousAdminUsername = $env:YLCLOUD_E2E_ADMIN_USERNAME

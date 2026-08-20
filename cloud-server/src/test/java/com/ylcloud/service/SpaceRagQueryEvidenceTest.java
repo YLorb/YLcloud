@@ -133,6 +133,7 @@ class SpaceRagQueryEvidenceTest {
         assertTrue(result.getCitations().isEmpty());
         assertTrue(result.getContexts().isEmpty());
         assertTrue(result.getHitChunkIds().isEmpty());
+        assertEquals(List.of(11L),result.getRetrievedChunkIds());
         verify(documentMapper,never()).getBySpaceAndChunkId(anyLong(),anyLong());
         ArgumentCaptor<com.ylcloud.entity.SpaceRagQueryLog> logCaptor =
                 ArgumentCaptor.forClass(com.ylcloud.entity.SpaceRagQueryLog.class);
@@ -165,5 +166,30 @@ class SpaceRagQueryEvidenceTest {
 
         assertEquals("metadata",ReflectionTestUtils.invokeMethod(service,"metadataString",metadata,"parser"));
         assertEquals("true",ReflectionTestUtils.invokeMethod(service,"metadataString",metadata,"fallback"));
+    }
+
+    @Test
+    void contextExpansionPreservesFusedRelevanceOrderInsteadOfDocumentPosition() {
+        FileRagChunk mostRelevant = positionedChunk(101L,90,"标准化石定义");
+        FileRagChunk earlierInDocument = positionedChunk(102L,2,"章节开头");
+        QueryPlan plan = new QueryPlan();
+        plan.setOriginal("什么是标准化石？");
+        plan.setIntent("general");
+
+        List<FileRagChunk> expanded = ReflectionTestUtils.invokeMethod(
+                service,"expandContextChunks",List.of(mostRelevant,earlierInDocument),
+                List.of(earlierInDocument,mostRelevant),plan,5);
+
+        assertEquals(List.of(101L,102L),expanded.stream().map(FileRagChunk::getId).toList());
+    }
+
+    private FileRagChunk positionedChunk(Long id, int index, String content) {
+        FileRagChunk value = new FileRagChunk();
+        value.setId(id);
+        value.setFileUuid("file-1");
+        value.setFileHash("hash-1");
+        value.setChunkIndex(index);
+        value.setContent(content);
+        return value;
     }
 }

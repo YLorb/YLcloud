@@ -517,6 +517,11 @@ export type RagQuery = {
   hitChunkIds?: number[];
   contexts?: string[];
   citations?: RagCitation[];
+  retrievedChunkIds?: number[];
+  rewriteDurationMs?: number;
+  retrievalDurationMs?: number;
+  generationDurationMs?: number;
+  totalDurationMs?: number;
 };
 
 export type StorageQuota = {

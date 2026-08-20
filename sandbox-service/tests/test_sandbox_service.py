@@ -50,6 +50,17 @@ def test_invocation_is_idempotent_across_new_invocation_id() -> None:
     assert runtime.calls == 1
 
 
+def test_invocation_is_idempotent_across_new_trace_context() -> None:
+    runtime = InMemoryRuntime({("data.json.echo", "1.0.0"): lambda value: value})
+    service = SandboxService(ToolCatalog([tool()]), runtime)
+    first_request = request()
+    retry_request = request(invocation_id="invocation-2")
+    retry_request.parent_trace.trace_id = "c" * 32
+    retry_request.parent_trace.span_id = "d" * 16
+    assert service.invoke(first_request) == service.invoke(retry_request)
+    assert runtime.calls == 1
+
+
 def test_idempotency_key_rejects_different_payload() -> None:
     service = SandboxService(ToolCatalog([tool()]), InMemoryRuntime({("data.json.echo", "1.0.0"): lambda value: value}))
     service.invoke(request())

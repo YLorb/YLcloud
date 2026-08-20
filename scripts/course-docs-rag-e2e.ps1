@@ -8,6 +8,8 @@ param(
     [string]$QaPath,
     [string]$OutputRoot,
     [int]$TimeoutMinutes = 20,
+    [int]$RequestTimeoutSeconds = 300,
+    [string]$ExpectedAppContainerId,
     [ValidateSet("precise", "balanced", "broad")][string]$RetrievalMode = "balanced",
     [switch]$SkipUpload,
     [string]$UploadedFilesPath,
@@ -69,6 +71,7 @@ function Invoke-YlCloudEnvelope {
         [string]$Path,
         [object]$Body = $null
     )
+    Assert-AppContainerIdentity
     $request = @{
         Method = $Method
         Uri = "$BaseUrl$Path"
@@ -76,6 +79,7 @@ function Invoke-YlCloudEnvelope {
             Authorization = $script:Authorization
             Accept = "application/json"
         }
+        TimeoutSec = $RequestTimeoutSeconds
     }
     if($null -ne $Body) {
         $request.ContentType = "application/json; charset=utf-8"
@@ -86,6 +90,17 @@ function Invoke-YlCloudEnvelope {
         throw "$Method $Path failed: code=$($result.code), message=$($result.message)"
     }
     return $result
+}
+
+function Assert-AppContainerIdentity {
+    if([string]::IsNullOrWhiteSpace($ExpectedAppContainerId)) { return }
+    $actual = [string](& docker inspect ylcloud-app --format '{{.Id}}' 2>$null)
+    if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($actual)) {
+        throw "TRANSPORT_ENVIRONMENT_CHANGED: ylcloud-app is not running"
+    }
+    if($actual.Trim() -ne $ExpectedAppContainerId.Trim()) {
+        throw "TRANSPORT_ENVIRONMENT_CHANGED: ylcloud-app container identity changed"
+    }
 }
 
 function New-SpaceFolder {
@@ -104,8 +119,10 @@ function Send-SpaceFile {
         [string]$Name,
         [string]$IdempotencyKey
     )
+    Assert-AppContainerIdentity
     $arguments = @(
         "--silent", "--show-error", "--fail-with-body",
+        "--max-time", [string]$RequestTimeoutSeconds,
         "--request", "POST", "$BaseUrl/api/space/$SpaceId/files/upload",
         "--header", "Authorization: $script:Authorization",
         "--header", "Accept: application/json",
@@ -118,6 +135,7 @@ function Send-SpaceFile {
     if($LASTEXITCODE -ne 0) {
         throw "Multipart upload failed for $FilePath"
     }
+    Assert-AppContainerIdentity
     $result = $raw | ConvertFrom-Json
     if($result.code -ne 200) {
         throw "Upload failed for $FilePath`: code=$($result.code), message=$($result.message)"
@@ -361,6 +379,7 @@ foreach($case in $qaCases) {
         $citations = @($data.citations)
         $contexts = @($data.contexts)
         $hitChunkIds = @($data.hitChunkIds)
+        $retrievedChunkIds = @($data.retrievedChunkIds)
         $actualSources = @(Get-DistinctCitationNames $citations)
         $pointResults = Test-RequiredPoints $answer @($case.required_point_patterns)
         $requiredPointsPassed = -not (@($pointResults.Values) -contains $false)
@@ -394,6 +413,11 @@ foreach($case in $qaCases) {
             citationCount = $citations.Count
             contextCount = $contexts.Count
             hitChunkCount = $hitChunkIds.Count
+            retrievedChunkCount = $retrievedChunkIds.Count
+            rewriteDurationMs = $data.rewriteDurationMs
+            retrievalDurationMs = $data.retrievalDurationMs
+            generationDurationMs = $data.generationDurationMs
+            serverTotalDurationMs = $data.totalDurationMs
             answerabilityPassed = $answerabilityPassed
             requiredPointsPassed = $requiredPointsPassed
             citationPassed = $citationPassed
@@ -409,12 +433,20 @@ foreach($case in $qaCases) {
         }
     } catch {
         $qaFailureCount++
+        $failureKind = if($_.Exception.Message -like 'TRANSPORT_ENVIRONMENT_CHANGED:*') {
+            'TRANSPORT_ENVIRONMENT_CHANGED'
+        } elseif($_.Exception.Message -match 'sending the request|timed out|connection|transport') {
+            'TRANSPORT_FAILURE'
+        } else {
+            'BUSINESS_OR_ASSERTION_FAILURE'
+        }
         Add-JsonLine $qaResultsPath ([ordered]@{
             runId=$runId
             caseId=[string]$case.id
             question=[string]$case.question
             automaticPassed=$false
             manualReviewRequired=[bool]$case.manual_review
+            failureKind=$failureKind
             durationMs=[math]::Round(((Get-Date)-$started).TotalMilliseconds)
             error=$_.Exception.Message
         })

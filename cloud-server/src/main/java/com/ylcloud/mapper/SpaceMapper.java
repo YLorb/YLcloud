@@ -97,6 +97,10 @@ public interface SpaceMapper {
     int markDissolving(@Param("spaceId") Long spaceId,
                        @Param("updateTime") LocalDateTime updateTime);
 
+    @Update("update spaces set lifecycle_state='DISSOLVED',rag_status=0,status=0,updatetime=#{now} " +
+            "where id=#{spaceId} and type='TEAM' and lifecycle_state in ('DISSOLVING','DISSOLVED')")
+    int markDissolved(@Param("spaceId") Long spaceId, @Param("now") LocalDateTime now);
+
     /**
      * 执行 disable 函数的业务处理。
      * @return 影响行数

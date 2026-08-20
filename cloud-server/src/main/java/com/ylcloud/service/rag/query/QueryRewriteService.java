@@ -8,12 +8,16 @@ import com.ylcloud.service.rag.RagModelClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
 public class QueryRewriteService {
@@ -58,10 +62,18 @@ public class QueryRewriteService {
 
     private final RagProperties ragProperties;
     private final RagModelClient ragModelClient;
+    private final Executor queryExecutor;
 
     public QueryRewriteService(RagProperties ragProperties, RagModelClient ragModelClient) {
+        this(ragProperties,ragModelClient,Runnable::run);
+    }
+
+    @Autowired
+    public QueryRewriteService(RagProperties ragProperties, RagModelClient ragModelClient,
+                               @Qualifier("ragQueryExecutor") Executor queryExecutor) {
         this.ragProperties = ragProperties;
         this.ragModelClient = ragModelClient;
+        this.queryExecutor = queryExecutor;
     }
 
     public QueryPlan plan(String question) {
@@ -85,15 +97,17 @@ public class QueryRewriteService {
         } else {
             plan.setRewriteSource("local");
         }
+        List<CompletableFuture<Void>> expansions = new ArrayList<>();
         if(Boolean.TRUE.equals(queryProperties.getMultiQueryEnabled())) {
-            applyMultiQuery(plan,queryProperties,historyText);
+            expansions.add(CompletableFuture.runAsync(() -> applyMultiQuery(plan,queryProperties,historyText),queryExecutor));
         }
         if(Boolean.TRUE.equals(queryProperties.getHydeEnabled())) {
-            applyHyde(plan,queryProperties);
+            expansions.add(CompletableFuture.runAsync(() -> applyHyde(plan,queryProperties),queryExecutor));
         }
         if(Boolean.TRUE.equals(queryProperties.getStepBackEnabled())) {
-            applyStepBack(plan,queryProperties);
+            expansions.add(CompletableFuture.runAsync(() -> applyStepBack(plan,queryProperties),queryExecutor));
         }
+        CompletableFuture.allOf(expansions.toArray(new CompletableFuture[0])).join();
         log.info("RAG query rewrite planning finished: rewritten={}, multiQueries={}, hyde={}, stepBack={}, warnings={}",
                 present(plan.getRewrittenQuery()),plan.getExpandedQueries().size(),present(plan.getHydeDocument()),
                 present(plan.getStepBackQuery()),plan.getWarnings().size());
@@ -284,7 +298,7 @@ public class QueryRewriteService {
         return plan.getOriginal() == null ? "" : plan.getOriginal();
     }
 
-    private void addWarning(QueryPlan plan, String warning) {
+    private synchronized void addWarning(QueryPlan plan, String warning) {
         if(plan.getWarnings() == null) {
             plan.setWarnings(new ArrayList<>());
         }

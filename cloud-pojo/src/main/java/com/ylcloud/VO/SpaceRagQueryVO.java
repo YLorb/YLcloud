@@ -16,4 +16,10 @@ public class SpaceRagQueryVO {
     private List<Long> hitChunkIds;
     private List<String> contexts;
     private List<SpaceRagCitationVO> citations;
+    /** Retrieval evidence is retained even when the generation model declines to answer. */
+    private List<Long> retrievedChunkIds;
+    private Long rewriteDurationMs;
+    private Long retrievalDurationMs;
+    private Long generationDurationMs;
+    private Long totalDurationMs;
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.utils.HashUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -41,7 +42,7 @@ public class SpaceFilePreflightService {
                 generator.writeStartObject();
                 generator.writeStringField("contract_version","1.0");
                 generator.writeStringField("invocation_id",invocationId);
-                generator.writeStringField("idempotency_key","space-preflight:" + userId + ":" + contentHash);
+                generator.writeStringField("idempotency_key",buildIdempotencyKey(fileName,contentHash,size,userId));
                 generator.writeStringField("tool_name","file.preflight");
                 generator.writeStringField("tool_version","1.0.0");
                 generator.writeObjectFieldStart("arguments");
@@ -68,9 +69,7 @@ public class SpaceFilePreflightService {
                 throw new BaseException(503,"Sandbox 预检服务不可用");
             }
             JsonNode body = json.readTree(response.body());
-            if(!"SUCCEEDED".equals(body.path("status").asText()) || !body.path("result").path("safe").asBoolean(false)) {
-                throw new BaseException("文件未通过 Sandbox 安全预检");
-            }
+            validateResult(body);
             return body.path("invocation_id").asText(invocationId);
         } catch(BaseException ex) {
             throw ex;
@@ -81,6 +80,22 @@ public class SpaceFilePreflightService {
             throw new BaseException(503,"Sandbox 预检失败，导入已拒绝");
         } finally {
             if(requestFile != null) try { Files.deleteIfExists(requestFile); } catch(Exception ignored) { }
+        }
+    }
+
+    static String buildIdempotencyKey(String fileName, String contentHash, long size, Long userId) {
+        // The preflight result depends on the content and the declared file metadata. Trace and
+        // invocation IDs are deliberately excluded so an exact retry reuses the cached result.
+        String requestFingerprint = HashUtil.sha256(fileName + "\u0000" + contentHash + "\u0000" + size);
+        return "space-preflight:" + userId + ":" + requestFingerprint;
+    }
+
+    static void validateResult(JsonNode body) {
+        if(!"SUCCEEDED".equals(body.path("status").asText())) {
+            throw new BaseException(503,"Sandbox 预检执行失败，导入已拒绝");
+        }
+        if(!body.path("result").path("safe").asBoolean(false)) {
+            throw new BaseException("文件未通过 Sandbox 安全预检");
         }
     }
 

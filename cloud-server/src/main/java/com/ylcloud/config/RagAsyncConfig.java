@@ -25,4 +25,17 @@ public class RagAsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean("ragQueryExecutor")
+    public Executor ragQueryExecutor(RagProperties ragProperties) {
+        Integer configured = ragProperties.getQuery() == null ? null : ragProperties.getQuery().getParallelism();
+        int parallelism = Math.max(1,configured == null ? 3 : configured);
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(parallelism);
+        executor.setMaxPoolSize(parallelism);
+        executor.setQueueCapacity(Math.max(30,parallelism * 10));
+        executor.setThreadNamePrefix("rag-query-");
+        executor.initialize();
+        return executor;
+    }
 }
