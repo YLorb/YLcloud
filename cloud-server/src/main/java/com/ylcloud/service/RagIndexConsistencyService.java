@@ -103,7 +103,7 @@ public class RagIndexConsistencyService {
             isolateAndCleanupStrict(document,"RAG database reference count mismatch",context);
             return Map.of("isolated",true,"reason","reference-count");
         }
-        int vectorCount = vectorStoreService.countByDocumentStrict(document.getSpaceId(),document.getId());
+        int vectorCount = vectorStoreService.countByFileUuidStrict(document.getFileUuid());
         if(vectorCount != activeRefs) {
             isolateAndCleanupStrict(document,"RAG Qdrant vector count mismatch: expected " + activeRefs + ", got " + vectorCount,context);
             return Map.of("isolated",true,"reason","vector-count");
@@ -166,7 +166,7 @@ public class RagIndexConsistencyService {
                 continue;
             }
             try {
-                int vectorCount = vectorStoreService.countByDocumentStrict(document.getSpaceId(),document.getId());
+                int vectorCount = vectorStoreService.countByFileUuidStrict(document.getFileUuid());
                 if(vectorCount != activeRefs) {
                     invalidateAndCleanup(document,"RAG Qdrant vector count mismatch: expected " + activeRefs + ", got " + vectorCount);
                 }

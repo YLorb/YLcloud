@@ -162,7 +162,7 @@ class CleanupMaintenanceMqMigrationTest {
         active.setIndexStatus("SUCCESS"); active.setChunkCount(2); active.setConsistencyAsyncTaskId(52L);
         when(documents.getAnyById(6L)).thenReturn(active);
         when(refs.countActiveByDocumentId(6L)).thenReturn(2);
-        when(vectors.countByDocumentStrict(1L,6L)).thenReturn(2);
+        when(vectors.countByFileUuidStrict("file-6")).thenReturn(2);
         when(documents.completeConsistencyValidation(6L,3L,52L)).thenReturn(1);
         RagIndexConsistencyService service=new RagIndexConsistencyService(documents,refs,
                 mock(RagIndexTransactionService.class),vectors);
@@ -176,5 +176,5 @@ class CleanupMaintenanceMqMigrationTest {
     private AsyncMqProperties maintenanceProperties() { AsyncMqProperties value=new AsyncMqProperties(); value.setEnabled(true); value.setMaintenance(true); return value; }
     private UnifiedAsyncTask unified(Long id,long version) { UnifiedAsyncTask value=new UnifiedAsyncTask(); value.setId(id); value.setResourceVersion(version); return value; }
     private UploadTask upload(Long id,int status) { UploadTask value=new UploadTask(); value.setId(id); value.setUserId(1L); value.setStatus(status); value.setFileUuid("file-"+id); return value; }
-    private SpaceRagDocument document(Long id,String vectorState,Long version) { SpaceRagDocument value=new SpaceRagDocument(); value.setId(id); value.setSpaceId(1L); value.setSpaceFileId(id+10); value.setCreatedBy(1L); value.setStatus(1); value.setVectorState(vectorState); value.setConsistencyVersion(version); value.setUpdatetime(LocalDateTime.now()); return value; }
+    private SpaceRagDocument document(Long id,String vectorState,Long version) { SpaceRagDocument value=new SpaceRagDocument(); value.setId(id); value.setSpaceId(1L); value.setSpaceFileId(id+10); value.setFileUuid("file-"+id); value.setCreatedBy(1L); value.setStatus(1); value.setVectorState(vectorState); value.setConsistencyVersion(version); value.setUpdatetime(LocalDateTime.now()); return value; }
 }

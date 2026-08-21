@@ -29,16 +29,24 @@ class QdrantVectorStoreServiceTest {
     }
 
     @Test
-    void stablePointIdIsLogicalFileAndContentScoped() {
-        assertEquals("7f5033b0-dfae-3368-8975-4bd8eb456aa1",
-                QdrantVectorStoreService.stablePointId(9L,42L,"abc123",0));
+    void stablePointIdIsFileScoped() {
+        String id1 = QdrantVectorStoreService.stablePointId("file-uuid-1","abc123",0);
+        String id2 = QdrantVectorStoreService.stablePointId("file-uuid-1","abc123",0);
+        assertEquals(id1,id2);
         org.junit.jupiter.api.Assertions.assertNotEquals(
-                QdrantVectorStoreService.stablePointId(9L,42L,"abc123",0),
-                QdrantVectorStoreService.stablePointId(9L,43L,"abc123",0));
+                QdrantVectorStoreService.stablePointId("file-uuid-1","abc123",0),
+                QdrantVectorStoreService.stablePointId("file-uuid-2","abc123",0));
         org.junit.jupiter.api.Assertions.assertNotEquals(
-                QdrantVectorStoreService.stablePointId(9L,42L,"abc123",0),
-                QdrantVectorStoreService.stablePointId(9L,42L,"def456",0));
-        assertEquals(QdrantVectorStoreService.stablePointId(9L,42L,"abc123",0),
-                QdrantVectorStoreService.stablePointId(9L,42L,"abc123",0));
+                QdrantVectorStoreService.stablePointId("file-uuid-1","abc123",0),
+                QdrantVectorStoreService.stablePointId("file-uuid-1","def456",0));
+        org.junit.jupiter.api.Assertions.assertNotEquals(
+                QdrantVectorStoreService.stablePointId("file-uuid-1","abc123",0),
+                QdrantVectorStoreService.stablePointId("file-uuid-1","abc123",1));
+    }
+
+    @Test
+    void legacyStablePointIdThrowsUnsupported() {
+        assertThrows(UnsupportedOperationException.class,
+                () -> QdrantVectorStoreService.stablePointId(9L,42L,"abc123",0));
     }
 }

@@ -33,9 +33,6 @@ import java.nio.charset.StandardCharsets;
 public class QdrantVectorStoreService {
     private static final Logger log = LoggerFactory.getLogger(QdrantVectorStoreService.class);
     private static final String CHUNK_ID = "chunkId";
-    private static final String SPACE_ID = "spaceId";
-    private static final String SPACE_FILE_ID = "spaceFileId";
-    private static final String DOCUMENT_ID = "documentId";
     private static final String FILE_UUID = "fileUuid";
     private static final String FILE_HASH = "fileHash";
     private static final String STATUS = "status";
@@ -46,12 +43,6 @@ public class QdrantVectorStoreService {
     private final QdrantEmbeddingStore embeddingStore;
     private final RestClient restClient;
 
-    /**
-     * 初始化 QdrantVectorStoreService 对象。
-     *
-     * @param properties 配置属性
-     * @param embeddingModel 方法入参
-     */
     public QdrantVectorStoreService(RagProperties properties, EmbeddingModel embeddingModel) {
         this.properties = properties;
         this.embeddingModel = embeddingModel;
@@ -76,21 +67,12 @@ public class QdrantVectorStoreService {
         this.restClient = restBuilder.build();
     }
 
-    /**
-     * 执行 upsertSpaceChunks 函数的业务处理。
-     *
-     * @param spaceId 空间 ID
-     * @param spaceFileId 空间文件 ID
-     * @param documentId 文档 ID
-     * @param chunks 文件分片列表
-     */
     public int upsertSpaceChunks(Long spaceId, Long spaceFileId, Long documentId, List<FileRagChunk> chunks) {
         int indexed=stageSpaceChunks(spaceId,spaceFileId,documentId,chunks);
-        cleanupObsoleteSpaceFilePoints(spaceId,spaceFileId,chunks);
+        cleanupObsoleteSpaceFilePoints(chunks);
         return indexed;
     }
 
-    /** Writes and verifies the new stable IDs without removing the currently usable generation. */
     public int stageSpaceChunks(Long spaceId, Long spaceFileId, Long documentId, List<FileRagChunk> chunks) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled())) {
             throw new IllegalStateException("Qdrant vector indexing is disabled");
@@ -110,10 +92,10 @@ public class QdrantVectorStoreService {
                 if(chunk.getId() == null || chunk.getContent() == null || chunk.getContent().isBlank()) {
                     throw new IllegalArgumentException("RAG indexing received an invalid chunk");
                 }
-                String id=stablePointId(spaceId,spaceFileId,chunk.getFileHash(),chunk.getChunkIndex());
+                String id=stablePointId(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex());
                 ids.add(id);
                 currentPointIds.add(id);
-                segments.add(TextSegment.from(chunk.getContent(),metadata(spaceId,spaceFileId,documentId,chunk)));
+                segments.add(TextSegment.from(chunk.getContent(),metadata(chunk)));
             }
             if(segments.isEmpty()) {
                 throw new IllegalArgumentException("RAG indexing batch contains no valid chunk content");
@@ -121,27 +103,28 @@ public class QdrantVectorStoreService {
             List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
             validateEmbeddingBatch(embeddings,segments.size(),properties.getEmbeddingDimension());
             embeddingStore.addAll(ids,embeddings,segments);
-            verifyStoredVector(spaceId,spaceFileId,batch.get(0).getId(),embeddings.get(0));
+            verifyStoredVector(batch.get(0).getFileUuid(),batch.get(0).getFileHash(),batch.get(0).getId(),embeddings.get(0));
             indexedCount += embeddings.size();
         }
         if(indexedCount != chunks.size()) {
             throw new IllegalStateException("Qdrant indexed vector count does not match valid chunk count");
         }
-        awaitPointIdsPresent(spaceId,spaceFileId,currentPointIds);
+        String fileUuid = chunks.get(0).getFileUuid();
+        awaitPointIdsPresent(fileUuid,currentPointIds);
         return indexedCount;
     }
 
-    /** Removes legacy/previous-generation points only after the new generation is committed. */
-    public void cleanupObsoleteSpaceFilePoints(Long spaceId,Long spaceFileId,List<FileRagChunk> chunks) {
+    public void cleanupObsoleteSpaceFilePoints(List<FileRagChunk> chunks) {
         if(chunks==null || chunks.isEmpty()) {
             throw new IllegalArgumentException("RAG point cleanup requires the committed chunk generation");
         }
+        String fileUuid = chunks.get(0).getFileUuid();
         Set<String> currentIds=new HashSet<>();
         for(FileRagChunk chunk:chunks) {
-            currentIds.add(stablePointId(spaceId,spaceFileId,chunk.getFileHash(),chunk.getChunkIndex()));
+            currentIds.add(stablePointId(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex()));
         }
-        removeObsoletePointIds(spaceId,spaceFileId,currentIds);
-        awaitCountBySpaceFile(spaceId,spaceFileId,chunks.size());
+        removeObsoletePointIds(fileUuid,currentIds);
+        awaitCountByFileUuid(fileUuid,chunks.size());
     }
 
     static int validateEmbeddingBatch(List<Embedding> embeddings, int expectedCount, Integer expectedDimension) {
@@ -167,13 +150,13 @@ public class QdrantVectorStoreService {
         return embeddings.get(0).vector().length;
     }
 
-    private void verifyStoredVector(Long spaceId, Long spaceFileId, Long chunkId, Embedding queryEmbedding) {
+    private void verifyStoredVector(String fileUuid, String fileHash, Long chunkId, Embedding queryEmbedding) {
         EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
                     .maxResults(1)
                     .minScore(0.95)
                     .filter(new And(
-                            new And(new IsEqualTo(SPACE_ID,spaceId),new IsEqualTo(SPACE_FILE_ID,spaceFileId)),
+                            new And(new IsEqualTo(FILE_UUID,fileUuid),new IsEqualTo(FILE_HASH,fileHash)),
                             new IsEqualTo(CHUNK_ID,chunkId)))
                     .build();
         for(int attempt = 1; attempt <= 3; attempt++) {
@@ -198,37 +181,41 @@ public class QdrantVectorStoreService {
     }
 
     /**
-     * 搜索 search 相关逻辑。
-     *
-     * @param spaceId 空间 ID
-     * @param question 问题内容
-     * @param candidates 方法入参
-     * @param limit 限制数量
-     * @param minScore 最小分数
-     * @return 列表结果
+     * 向量检索：按 fileUuid 白名单过滤，权限由调用方通过 candidates 保证。
      */
-    public List<FileRagChunk> search(Long spaceId, String question, List<FileRagChunk> candidates, int limit, Double minScore) {
+    public List<FileRagChunk> search(Set<String> allowedFileUuids, String question, List<FileRagChunk> candidates, int limit, Double minScore) {
         if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || question == null || question.isBlank()
                 || candidates == null || candidates.isEmpty()) {
             return List.of();
         }
         try {
             Embedding queryEmbedding = embeddingModel.embed(question).content();
+            Filter filter = new IsEqualTo(STATUS,StatusConstant.ENABLE);
+            log.info("Qdrant search: allowedFiles={}, candidates={}, limit={}, minScore={}",
+                    allowedFileUuids == null ? "all" : allowedFileUuids.size(),
+                    candidates.size(), limit,
+                    minScore == null ? properties.getQdrant().getMinScore() : minScore);
             EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
                     .maxResults(limit)
                     .minScore(minScore == null ? properties.getQdrant().getMinScore() : minScore)
-                    .filter(activeSpaceFilter(spaceId))
+                    .filter(filter)
                     .build();
             EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(request);
+            log.info("Qdrant search result: rawMatches={}", searchResult.matches().size());
             List<FileRagChunk> result = new ArrayList<>();
             for(EmbeddingMatch<TextSegment> match : searchResult.matches()) {
                 Long chunkId = match.embedded().metadata().getLong(CHUNK_ID);
+                String matchFileUuid = match.embedded().metadata().getString(FILE_UUID);
+                if(allowedFileUuids != null && !allowedFileUuids.contains(matchFileUuid)) {
+                    continue;
+                }
                 FileRagChunk chunk = findChunk(candidates,chunkId);
                 if(chunk != null && !result.contains(chunk)) {
                     result.add(chunk);
                 }
             }
+            log.info("Qdrant search filtered: resultSize={}", result.size());
             return result;
         } catch (Exception ex) {
             log.warn("Qdrant vector search failed, falling back to DB keyword search",ex);
@@ -236,116 +223,55 @@ public class QdrantVectorStoreService {
         }
     }
 
-    /**
-     * 删除 deleteBySpaceFile 相关逻辑。
-     *
-     * @param spaceId 空间 ID
-     * @param spaceFileId 空间文件 ID
-     */
     public void deleteBySpaceFile(Long spaceId, Long spaceFileId) {
-        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null || spaceFileId == null) {
-            return;
-        }
-        try {
-            embeddingStore.removeAll(new And(new IsEqualTo(SPACE_ID,spaceId),new IsEqualTo(SPACE_FILE_ID,spaceFileId)));
-        } catch (Exception ex) {
-            log.warn("Failed to remove Qdrant vectors for spaceId={}, spaceFileId={}",spaceId,spaceFileId,ex);
-        }
+        log.info("deleteBySpaceFile is a no-op for shared vectors: spaceId={}, spaceFileId={}", spaceId, spaceFileId);
     }
 
-    /** 删除失败时抛出异常，供持久化任务记录失败并重试。 */
     public void deleteBySpaceFileStrict(Long spaceId, Long spaceFileId) {
-        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null || spaceFileId == null) {
-            return;
-        }
-        embeddingStore.removeAll(new And(new IsEqualTo(SPACE_ID,spaceId),new IsEqualTo(SPACE_FILE_ID,spaceFileId)));
-        awaitCountBySpaceFile(spaceId,spaceFileId,0);
+        log.info("deleteBySpaceFileStrict is a no-op for shared vectors: spaceId={}, spaceFileId={}", spaceId, spaceFileId);
+    }
+
+    public void deleteBySpace(Long spaceId) {
+        log.info("deleteBySpace is a no-op for shared vectors: spaceId={}", spaceId);
+    }
+
+    public void deleteBySpaceStrict(Long spaceId) {
+        log.info("deleteBySpaceStrict is a no-op for shared vectors: spaceId={}", spaceId);
     }
 
     public int countByDocumentStrict(Long spaceId, Long documentId) {
-        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null || documentId == null) {
-            return 0;
-        }
-        return count(Map.of(SPACE_ID,spaceId,DOCUMENT_ID,documentId));
+        return 0;
     }
 
     public int countBySpaceFileStrict(Long spaceId, Long spaceFileId) {
-        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null || spaceFileId == null) {
-            return 0;
-        }
-        return count(Map.of(SPACE_ID,spaceId,SPACE_FILE_ID,spaceFileId));
-    }
-
-    /**
-     * 删除 deleteBySpace 相关逻辑。
-     *
-     * @param spaceId 空间 ID
-     */
-    public void deleteBySpace(Long spaceId) {
-        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) {
-            return;
-        }
-        try {
-            embeddingStore.removeAll(new IsEqualTo(SPACE_ID,spaceId));
-        } catch (Exception ex) {
-            log.warn("Failed to remove Qdrant vectors for spaceId={}",spaceId,ex);
-        }
-    }
-
-    /**
-     * 删除 deleteBySpaceStrict 相关逻辑。
-     *
-     * @param spaceId 空间 ID
-     */
-    public void deleteBySpaceStrict(Long spaceId) {
-        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) {
-            return;
-        }
-        embeddingStore.removeAll(new IsEqualTo(SPACE_ID,spaceId));
-        awaitCountBySpace(spaceId,0);
+        return 0;
     }
 
     public int countBySpaceStrict(Long spaceId) {
-        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || spaceId == null) return 0;
-        return count(Map.of(SPACE_ID,spaceId));
+        return 0;
     }
 
-    /**
-     * 执行 metadata 函数的业务处理。
-     *
-     * @param spaceId 空间 ID
-     * @param spaceFileId 空间文件 ID
-     * @param documentId 文档 ID
-     * @param chunk 文件分片
-     * @return 处理结果
-     */
-    private Metadata metadata(Long spaceId, Long spaceFileId, Long documentId, FileRagChunk chunk) {
+    public int countByFileUuidStrict(String fileUuid) {
+        if(!Boolean.TRUE.equals(properties.getVectorEnabled()) || fileUuid == null || fileUuid.isBlank()) {
+            return 0;
+        }
+        return count(Map.of(FILE_UUID,fileUuid));
+    }
+
+    private Metadata metadata(FileRagChunk chunk) {
         Metadata metadata = new Metadata();
         metadata.put(CHUNK_ID,chunk.getId());
-        metadata.put(SPACE_ID,spaceId);
-        metadata.put(SPACE_FILE_ID,spaceFileId);
-        metadata.put(DOCUMENT_ID,documentId == null ? 0L : documentId);
         metadata.put(FILE_UUID,chunk.getFileUuid() == null ? "" : chunk.getFileUuid());
         metadata.put(FILE_HASH,chunk.getFileHash() == null ? "" : chunk.getFileHash());
         metadata.put(STATUS,StatusConstant.ENABLE);
-        metadata.put(POINT_ID_VERSION,"v1");
+        metadata.put(POINT_ID_VERSION,"v2");
         return metadata;
     }
 
-    /**
-     * 执行 activeSpaceFilter 函数的业务处理。
-     *
-     * @param spaceId 空间 ID
-     * @return 处理结果
-     */
-    private Filter activeSpaceFilter(Long spaceId) {
-        return new And(new IsEqualTo(SPACE_ID,spaceId),new IsEqualTo(STATUS,StatusConstant.ENABLE));
-    }
-
-    private void awaitCountBySpaceFile(Long spaceId, Long spaceFileId, int expectedCount) {
+    private void awaitCountByFileUuid(String fileUuid, int expectedCount) {
         int actual = -1;
         for(int attempt = 1; attempt <= 5; attempt++) {
-            actual = countBySpaceFileStrict(spaceId,spaceFileId);
+            actual = countByFileUuidStrict(fileUuid);
             if(actual == expectedCount) {
                 return;
             }
@@ -353,19 +279,8 @@ public class QdrantVectorStoreService {
                 sleepForVerification(100L * attempt);
             }
         }
-        throw new IllegalStateException("Qdrant point count mismatch for spaceId=" + spaceId +
-                ", spaceFileId=" + spaceFileId + ": expected " + expectedCount + ", got " + actual);
-    }
-
-    private void awaitCountBySpace(Long spaceId, int expectedCount) {
-        int actual = -1;
-        for(int attempt = 1; attempt <= 5; attempt++) {
-            actual = countBySpaceStrict(spaceId);
-            if(actual == expectedCount) return;
-            if(attempt < 5) sleepForVerification(100L * attempt);
-        }
-        throw new IllegalStateException("Qdrant point count mismatch for spaceId=" + spaceId +
-                ": expected=" + expectedCount + ", actual=" + actual);
+        throw new IllegalStateException("Qdrant point count mismatch for fileUuid=" + fileUuid +
+                ": expected " + expectedCount + ", got " + actual);
     }
 
     @SuppressWarnings("unchecked")
@@ -396,13 +311,6 @@ public class QdrantVectorStoreService {
         }
     }
 
-    /**
-     * 查找 findChunk 相关逻辑。
-     *
-     * @param chunks 文件分片列表
-     * @param chunkId 方法入参
-     * @return 处理结果
-     */
     private FileRagChunk findChunk(List<FileRagChunk> chunks, Long chunkId) {
         if(chunkId == null) {
             return null;
@@ -416,24 +324,24 @@ public class QdrantVectorStoreService {
     }
 
     /**
-     * 执行 vectorId 函数的业务处理。
-     *
-     * @param spaceId 空间 ID
-     * @param chunkId 方法入参
-     * @return 处理结果
+     * 文件级 pointId：同一文件无论被多少 Space 引用，pointId 唯一。
      */
-    public static String stablePointId(Long spaceId,Long spaceFileId,String fileHash,Integer chunkIndex) {
-        if(spaceId==null || spaceFileId==null || fileHash==null || fileHash.isBlank() || chunkIndex==null || chunkIndex<0) {
-            throw new IllegalArgumentException("Stable RAG point ID requires space, logical file, hash and chunk index");
+    public static String stablePointId(String fileUuid, String fileHash, Integer chunkIndex) {
+        if(fileUuid==null || fileUuid.isBlank() || fileHash==null || fileHash.isBlank() || chunkIndex==null || chunkIndex<0) {
+            throw new IllegalArgumentException("Stable RAG point ID requires file UUID, hash and chunk index");
         }
-        String source="point-id-v1|"+spaceId+"|"+spaceFileId+"|"+fileHash+"|"+chunkIndex;
+        String source="point-id-v2|"+fileUuid+"|"+fileHash+"|"+chunkIndex;
         return UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
-    private void awaitPointIdsPresent(Long spaceId,Long spaceFileId,Set<String> expectedIds) {
+    public static String stablePointId(Long spaceId, Long spaceFileId, String fileHash, Integer chunkIndex) {
+        throw new UnsupportedOperationException("Legacy stablePointId is removed; use stablePointId(fileUuid, fileHash, chunkIndex)");
+    }
+
+    private void awaitPointIdsPresent(String fileUuid, Set<String> expectedIds) {
         Set<String> actual=Set.of();
         for(int attempt=1;attempt<=5;attempt++) {
-            actual=pointIdsBySpaceFile(spaceId,spaceFileId);
+            actual=pointIdsByFileUuid(fileUuid);
             if(actual.containsAll(expectedIds)) return;
             if(attempt<5) sleepForVerification(100L*attempt);
         }
@@ -442,8 +350,8 @@ public class QdrantVectorStoreService {
         throw new IllegalStateException("Qdrant stable point verification failed; missing="+missing.size());
     }
 
-    private void removeObsoletePointIds(Long spaceId,Long spaceFileId,Set<String> currentIds) {
-        List<String> obsolete=new ArrayList<>(pointIdsBySpaceFile(spaceId,spaceFileId));
+    private void removeObsoletePointIds(String fileUuid, Set<String> currentIds) {
+        List<String> obsolete=new ArrayList<>(pointIdsByFileUuid(fileUuid));
         obsolete.removeAll(currentIds);
         if(obsolete.isEmpty()) return;
         restClient.post()
@@ -452,12 +360,12 @@ public class QdrantVectorStoreService {
     }
 
     @SuppressWarnings("unchecked")
-    private Set<String> pointIdsBySpaceFile(Long spaceId,Long spaceFileId) {
+    private Set<String> pointIdsByFileUuid(String fileUuid) {
         Set<String> ids=new HashSet<>();
         Object offset=null;
         do {
             Map<String,Object> body=new LinkedHashMap<>();
-            body.put("filter",filterBody(Map.of(SPACE_ID,spaceId,SPACE_FILE_ID,spaceFileId)));
+            body.put("filter",filterBody(Map.of(FILE_UUID,fileUuid)));
             body.put("limit",256);
             body.put("with_payload",false);
             body.put("with_vector",false);

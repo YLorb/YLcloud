@@ -27,7 +27,7 @@ class RagIndexConsistencyServiceTest {
         when(documents.listCleanupPending(200)).thenReturn(List.of());
         when(documents.listActiveVectorDocuments()).thenReturn(List.of(active));
         when(refs.countActiveByDocumentId(7L)).thenReturn(2);
-        when(vectors.countByDocumentStrict(1L,7L)).thenReturn(0);
+        when(vectors.countByFileUuidStrict("file-uuid-1")).thenReturn(0);
         when(transactions.failActiveIndex(7L,"RAG Qdrant vector count mismatch: expected 2, got 0")).thenReturn(true);
         when(documents.getAnyById(7L)).thenReturn(failed);
         when(transactions.claimCleanup(7L)).thenReturn(true);
@@ -49,7 +49,7 @@ class RagIndexConsistencyServiceTest {
         when(documents.listCleanupPending(200)).thenReturn(List.of());
         when(documents.listActiveVectorDocuments()).thenReturn(List.of(active));
         when(refs.countActiveByDocumentId(7L)).thenReturn(2);
-        when(vectors.countByDocumentStrict(1L,7L)).thenThrow(new IllegalStateException("unavailable"));
+        when(vectors.countByFileUuidStrict("file-uuid-1")).thenThrow(new IllegalStateException("unavailable"));
 
         new RagIndexConsistencyService(documents,refs,transactions,vectors).reconcile();
 
@@ -61,6 +61,7 @@ class RagIndexConsistencyServiceTest {
         document.setId(7L);
         document.setSpaceId(1L);
         document.setSpaceFileId(2L);
+        document.setFileUuid("file-uuid-1");
         document.setVectorState(vectorState);
         document.setIndexStatus(indexStatus);
         return document;
