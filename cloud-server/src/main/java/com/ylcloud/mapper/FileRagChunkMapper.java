@@ -1,6 +1,7 @@
 package com.ylcloud.mapper;
 
 import com.ylcloud.entity.FileRagChunk;
+import com.ylcloud.entity.AdminChunkSearchHit;
 import com.ylcloud.VO.SpaceDocumentChunkHitVO;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
@@ -154,7 +155,60 @@ public interface FileRagChunkMapper {
             "and c.content like concat('%', #{keyword}, '%') " +
             "order by c.updatetime desc limit #{limit}")
     List<SpaceDocumentChunkHitVO> searchDocumentChunkHits(@Param("spaceId") Long spaceId,
-                                                          @Param("keyword") String keyword,
-                                                          @Param("limit") Integer limit);
+                                                           @Param("keyword") String keyword,
+                                                           @Param("limit") Integer limit);
+
+    /**
+     * 跨 Space 全文搜索：词语精确匹配（LIKE）。
+     * 返回 chunk 信息 + 所属 document + space 信息。
+     */
+    @Select("select c.id as chunkId, c.content as content, d.file_uuid as fileUuid, " +
+            "d.id as documentId, d.space_id as spaceId, d.space_file_id as spaceFileId, " +
+            "d.file_name as fileName, d.file_type as fileType, d.chunk_count as chunkCount " +
+            "from file_rag_chunk c " +
+            "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "join space_rag_document d on d.id = r.document_id " +
+            "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
+            "where r.status = 1 and c.status = 1 and d.status = 1 " +
+            "and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' " +
+            "and sf.status = 1 and sf.lifecycle_state = 'ACTIVE' and sf.searchable = 1 " +
+            "and c.content like concat('%', #{keyword}, '%') " +
+            "order by c.updatetime desc limit #{limit}")
+    List<AdminChunkSearchHit> searchWordMatchAllSpaces(@Param("keyword") String keyword,
+                                                        @Param("limit") Integer limit);
+
+    /**
+     * 指定 Space 全文搜索：词语精确匹配（LIKE）。
+     */
+    @Select("select c.id as chunkId, c.content as content, d.file_uuid as fileUuid, " +
+            "d.id as documentId, d.space_id as spaceId, d.space_file_id as spaceFileId, " +
+            "d.file_name as fileName, d.file_type as fileType, d.chunk_count as chunkCount " +
+            "from file_rag_chunk c " +
+            "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "join space_rag_document d on d.id = r.document_id " +
+            "join space_file sf on sf.id = d.space_file_id and sf.space_id = d.space_id " +
+            "where r.space_id = #{spaceId} and r.status = 1 and c.status = 1 and d.status = 1 " +
+            "and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' " +
+            "and sf.status = 1 and sf.lifecycle_state = 'ACTIVE' and sf.searchable = 1 " +
+            "and c.content like concat('%', #{keyword}, '%') " +
+            "order by c.updatetime desc limit #{limit}")
+    List<AdminChunkSearchHit> searchWordMatchBySpace(@Param("spaceId") Long spaceId,
+                                                      @Param("keyword") String keyword,
+                                                      @Param("limit") Integer limit);
+
+    /**
+     * 跨 Space 向量检索：获取指定 chunk IDs 对应的完整信息。
+     */
+    @Select("select c.id as chunkId, c.content as content, d.file_uuid as fileUuid, " +
+            "d.id as documentId, d.space_id as spaceId, d.space_file_id as spaceFileId, " +
+            "d.file_name as fileName, d.file_type as fileType, d.chunk_count as chunkCount " +
+            "from file_rag_chunk c " +
+            "join space_rag_chunk_ref r on r.file_chunk_id = c.id " +
+            "join space_rag_document d on d.id = r.document_id " +
+            "where r.status = 1 and c.status = 1 and d.status = 1 " +
+            "and d.index_status = 'SUCCESS' and d.vector_state = 'ACTIVE' " +
+            "and c.id in " +
+            "<foreach collection='chunkIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>")
+    List<AdminChunkSearchHit> listByChunkIds(@Param("chunkIds") List<Long> chunkIds);
 
 }
