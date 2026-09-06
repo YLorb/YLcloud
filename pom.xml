@@ -27,7 +27,7 @@
     <properties>
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <langchain4j.beta.version>1.16.2-beta26</langchain4j.beta.version>
+        <langchain4j.beta.version>1.18.1-beta28</langchain4j.beta.version>
         <commons-io.version>2.18.0</commons-io.version>
     </properties>
 

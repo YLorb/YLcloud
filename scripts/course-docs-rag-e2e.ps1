@@ -72,20 +72,20 @@ function Invoke-YlCloudEnvelope {
         [object]$Body = $null
     )
     Assert-AppContainerIdentity
-    $request = @{
-        Method = $Method
-        Uri = "$BaseUrl$Path"
-        Headers = @{
-            Authorization = $script:Authorization
-            Accept = "application/json"
-        }
-        TimeoutSec = $RequestTimeoutSeconds
+    $uri = "$BaseUrl$Path"
+    $headers = @{
+        Authorization = $script:Authorization
+        Accept = "application/json"
     }
     if($null -ne $Body) {
-        $request.ContentType = "application/json; charset=utf-8"
-        $request.Body = ConvertTo-JsonText $Body -Compress
+        $jsonText = ConvertTo-JsonText $Body -Compress
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($jsonText)
+        $response = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -ContentType "application/json; charset=utf-8" -Body $bytes -TimeoutSec $RequestTimeoutSeconds -UseBasicParsing
+    } else {
+        $response = Invoke-WebRequest -Method $Method -Uri $uri -Headers $headers -TimeoutSec $RequestTimeoutSeconds -UseBasicParsing
     }
-    $result = Invoke-RestMethod @request
+    $content = [System.Text.Encoding]::UTF8.GetString($response.RawContentStream.ToArray())
+    $result = $content | ConvertFrom-Json
     if($result.code -ne 200) {
         throw "$Method $Path failed: code=$($result.code), message=$($result.message)"
     }

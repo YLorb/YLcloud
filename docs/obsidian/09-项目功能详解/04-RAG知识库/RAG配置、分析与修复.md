@@ -24,6 +24,21 @@ SpaceRagController 的 GET/PUT /api/space/{spaceId}/rag/config 返回和更新 c
 
 影响索引结构的 chunk 配置变更应提示重建；只影响查询的 topK/temperature 可用于后续请求。画像开关默认 true，但只影响 RAG 完成后的增强任务。
 
+### topK 配置
+
+topK 控制送入 LLM 生成器的 context chunk 数量。当前默认值为 10，可通过 API 配置。
+
+**检索流程**：
+1. 向量检索返回 topK 个候选 chunk
+2. 为每个候选 chunk 获取其左右相邻 chunk（同一文档内）
+3. 合并去重后进行 ReRank 精排
+4. 最终取 topK 个 chunk 送入生成器 context
+
+**配置建议**：
+- 简单事实问答：topK=5~8 足够
+- 复杂跨文档问答：topK=10~15
+- 最大值建议不超过 20，避免 context 过长导致生成质量下降
+
 ## 任务与修复
 
 - documents：查看文档 status、vectorState、chunkCount 和错误。

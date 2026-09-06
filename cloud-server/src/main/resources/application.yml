@@ -253,3 +253,7 @@ ylcloud:
     read-timeout-ms: ${YLCLOUD_LLM_READ_TIMEOUT_MS:60000}
     max-tokens: ${YLCLOUD_LLM_MAX_TOKENS:1024}
     temperature: ${YLCLOUD_LLM_TEMPERATURE:0.2}
+
+logging:
+  level:
+    com.ylcloud.service.rag.QdrantVectorStoreService: INFO
