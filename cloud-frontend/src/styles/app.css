@@ -668,6 +668,36 @@ progress::-webkit-progress-value { background: var(--confirm); border-radius: 99
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
+/* Admin Management Pages */
+.admin-list-page, .admin-dashboard, .admin-storage-page { display: flex; flex-direction: column; gap: 18px; }
+.admin-metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; }
+.admin-chart-placeholder { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 28px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2); color: var(--muted); text-align: center; }
+.admin-chart-placeholder strong { color: var(--muted); font-size: 15px; }
+.admin-chart-placeholder p { max-width: 480px; margin: 0; font-size: 12px; line-height: 1.6; }
+.admin-horizontal-tabs { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.admin-tabs-list { display: flex; gap: 4px; overflow-x: auto; padding: 5px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.admin-tabs-list button { min-height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 650; white-space: nowrap; cursor: pointer; }
+.admin-tabs-list button[data-state="active"] { background: var(--primary-soft); color: var(--primary); }
+.admin-tab--unavailable { position: relative; color: var(--muted); filter: grayscale(1); opacity: .58; }
+.admin-horizontal-tabs [role="tabpanel"] { padding: 22px; outline: none; }
+.admin-storage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.admin-storage-card { padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.admin-storage-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }
+.admin-storage-card__header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.admin-storage-card__icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 11px; background: var(--primary-soft); color: var(--primary); }
+.admin-storage-card__header strong { display: block; font-size: 15px; }
+.admin-storage-card__header small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.admin-storage-card__meta { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+.admin-filter-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+.admin-table-empty { padding: 48px 14px !important; color: var(--muted); text-align: center; font-size: 13px; }
+.admin-page-placeholder { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 28px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2); color: var(--muted); filter: grayscale(1); text-align: center; }
+.admin-page-placeholder strong { color: var(--muted); font-size: 15px; }
+.admin-page-placeholder p { max-width: 480px; margin: 0; font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 800px) {
+  .admin-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* Personal memory management */
 .memory-page { display: grid; gap: 16px; max-width: 1180px; margin: 0 auto; }
 .memory-intro, .memory-panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }

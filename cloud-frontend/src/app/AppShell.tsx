@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Bell, Bot, BrainCircuit, ChevronLeft, ChevronRight, Database, FileImage, FileText,
   Files, Film, HardDrive, HelpCircle, ListTodo, LogOut, Menu, MessageSquarePlus,
-  Moon, Music2, Search, Settings, Shield, Sun, Trash2, User, Users, Wrench, X
+  Moon, Music2, Search, Settings, Sun, Trash2, User, Users, X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -132,11 +132,9 @@ export function AppShell() {
             {settingItems.map(({ to, label, icon: Icon }) => <SidebarItem key={to} asChild level={2} selected={location.pathname.startsWith(to)} title={collapsed ? label : undefined}>
               <NavLink to={to}><Icon size={17} /><span>{label}</span></NavLink>
             </SidebarItem>)}
-            {isAdmin && <>
-              <SidebarItem asChild level={2} selected={location.pathname.startsWith("/admin/settings")}><NavLink to="/admin/settings"><Settings size={17} /><span>系统设置</span></NavLink></SidebarItem>
-              <SidebarItem asChild level={3} selected={location.pathname.startsWith("/admin/audit")}><NavLink to="/admin/audit"><Shield size={16} /><span>安全审计</span></NavLink></SidebarItem>
-              <SidebarItem asChild level={3} selected={location.pathname.startsWith("/admin/operations")}><NavLink to="/admin/operations"><Wrench size={16} /><span>系统运维</span></NavLink></SidebarItem>
-            </>}
+            {isAdmin && <SidebarItem asChild level={2} selected={location.pathname.startsWith("/admin")} title={collapsed ? "系统管理" : undefined}>
+              <NavLink to="/admin"><Settings size={17} /><span>系统管理</span></NavLink>
+            </SidebarItem>}
           </SidebarSection>
         </SidebarBody>
         <SidebarFooter>
