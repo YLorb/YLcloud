@@ -13,8 +13,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 @Service
 public class RagMultiRouteRetriever {
@@ -63,6 +65,10 @@ public class RagMultiRouteRetriever {
         if(spaceChunks == null || spaceChunks.isEmpty() || plan == null || plan.getOriginal() == null || plan.getOriginal().isBlank()) {
             return List.of();
         }
+        Set<String> allowedFileUuids = spaceChunks.stream()
+                .map(FileRagChunk::getFileUuid)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
         RagProperties.Retrieval retrieval = retrievalProperties();
         int vectorLimit = safeLimit(retrieval.getVectorTopK(),20);
         int bm25Limit = safeLimit(retrieval.getBm25TopK(),20);
@@ -81,13 +87,13 @@ public class RagMultiRouteRetriever {
             boolean stepBackRoute = plan.getStepBackQuery() != null && plan.getStepBackQuery().equals(query);
             int currentVectorLimit = originalRoute ? vectorLimit : stepBackRoute ? stepBackLimit : multiQueryLimit;
             vectorSearches.add(CompletableFuture.supplyAsync(
-                    () -> qdrantVectorStoreService.search(spaceId,query,spaceChunks,currentVectorLimit,minScore),
+                    () -> qdrantVectorStoreService.search(allowedFileUuids,query,spaceChunks,currentVectorLimit,minScore),
                     queryExecutor));
         }
         CompletableFuture<List<FileRagChunk>> hydeSearch = plan.getHydeDocument() == null || plan.getHydeDocument().isBlank()
                 ? null
                 : CompletableFuture.supplyAsync(() -> qdrantVectorStoreService.search(
-                        spaceId,plan.getHydeDocument(),spaceChunks,hydeLimit,minScore),queryExecutor);
+                        allowedFileUuids,plan.getHydeDocument(),spaceChunks,hydeLimit,minScore),queryExecutor);
         for(int i = 0; i < retrievalQueries.size(); i++) {
             String query = retrievalQueries.get(i);
             boolean originalRoute = i == 0;

@@ -745,7 +745,7 @@ public class SpaceRagService {
                 fileLifecycleService.indexSucceeded(task.getSpaceId(),task.getSpaceFileId());
             }
             executionContext.checkpoint();
-            qdrantVectorStoreService.cleanupObsoleteSpaceFilePoints(task.getSpaceId(),task.getSpaceFileId(),chunks);
+            qdrantVectorStoreService.cleanupObsoleteSpaceFilePoints(chunks);
             executionContext.checkpoint();
             if(spaceRagTaskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,
                     SpaceConstant.RAG_TASK_SUCCESS,1,1,0,null,LocalDateTime.now())!=1) {

@@ -8,6 +8,7 @@ import com.ylcloud.service.rag.query.QueryPlan;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -18,7 +19,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -39,7 +42,7 @@ class RagMultiRouteRetrieverTest {
                 chunk(3L,"Step-back 背景问题解释检索策略。"),
                 chunk(4L,"HyDE 假设答案描述 RAG 多路召回。")
         );
-        when(vectorStore.search(anyLong(),anyString(),anyList(),anyInt(),isNull())).thenAnswer(invocation -> {
+        when(vectorStore.search(anySet(),anyString(),anyList(),anyInt(),isNull())).thenAnswer(invocation -> {
             String query = invocation.getArgument(1);
             if(query.contains("HyDE")) {
                 return List.of(chunks.get(3));
@@ -72,11 +75,11 @@ class RagMultiRouteRetrieverTest {
         List<FileRagChunk> result = retriever.retrieve(1L,plan,chunks,5,null);
 
         assertFalse(result.isEmpty());
-        verify(vectorStore,times(5)).search(anyLong(),anyString(),anyList(),anyInt(),isNull());
-        verify(vectorStore).search(1L,"Qdrant 配置",chunks,20,null);
-        verify(vectorStore).search(1L,"向量召回角度",chunks,20,null);
-        verify(vectorStore).search(1L,"检索策略背景",chunks,20,null);
-        verify(vectorStore).search(1L,"HyDE 假设答案",chunks,20,null);
+        verify(vectorStore,times(5)).search(anySet(),anyString(),anyList(),anyInt(),isNull());
+        verify(vectorStore).search(anySet(),eq("Qdrant 配置"),eq(chunks),eq(20),isNull());
+        verify(vectorStore).search(anySet(),eq("向量召回角度"),eq(chunks),eq(20),isNull());
+        verify(vectorStore).search(anySet(),eq("检索策略背景"),eq(chunks),eq(20),isNull());
+        verify(vectorStore).search(anySet(),eq("HyDE 假设答案"),eq(chunks),eq(20),isNull());
         verify(mapper,atLeastOnce()).searchBySpaceAndKeyword(anyLong(),anyString(),anyInt());
         verify(mapper,atLeastOnce()).searchBySpaceAndMetadata(anyLong(),anyString(),anyInt());
     }
@@ -89,7 +92,7 @@ class RagMultiRouteRetrieverTest {
         FileRagChunk value = chunk(1L,"标准化石定义");
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maxActive = new AtomicInteger();
-        when(vectorStore.search(anyLong(),anyString(),anyList(),anyInt(),isNull())).thenAnswer(invocation -> {
+        when(vectorStore.search(anySet(),anyString(),anyList(),anyInt(),isNull())).thenAnswer(invocation -> {
             int current = active.incrementAndGet();
             maxActive.accumulateAndGet(current,Math::max);
             try {

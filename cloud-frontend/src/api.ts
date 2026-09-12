@@ -629,5 +629,11 @@ export const api = {
     request<{ status: string; message: string }>(
       `/api/admin/maintenance/enable?${params({ reason: payload.reason })}`, { method: "POST" }),
   disableMaintenance: () =>
-    request<{ status: string; message: string }>("/api/admin/maintenance/disable", { method: "POST" })
+    request<{ status: string; message: string }>("/api/admin/maintenance/disable", { method: "POST" }),
+
+  // Admin Full-Text Search
+  adminFullTextSearch: (payload: { query: string; spaceId?: number; page?: number; pageSize?: number }) =>
+    request<import("./types").AdminFullTextSearchResult>(
+      `/api/admin/search/files?${params({ query: payload.query, spaceId: payload.spaceId, page: payload.page, pageSize: payload.pageSize })}`
+    )
 };

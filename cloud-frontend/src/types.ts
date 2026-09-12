@@ -862,3 +862,32 @@ export type MaintenanceStatus = {
   reason?: string;
   startedAt?: string;
 };
+
+// Admin Full-Text Search Types
+export type AdminFullTextSearchChunkEvidence = {
+  chunkId: number;
+  content: string;
+  score?: number;
+};
+
+export type AdminFullTextSearchFileHit = {
+  documentId: number;
+  spaceId: number;
+  spaceName?: string;
+  spaceFileId: number;
+  fileUuid: string;
+  fileName: string;
+  fileType: string;
+  path?: string;
+  chunkCount: number;
+  matchType: "WORD_MATCH" | "KEYWORD" | "VECTOR";
+  evidences: AdminFullTextSearchChunkEvidence[];
+  previewUrl?: string;
+  downloadUrl?: string;
+};
+
+export type AdminFullTextSearchResult = {
+  files: AdminFullTextSearchFileHit[];
+  total: number;
+  tookMs: number;
+};
