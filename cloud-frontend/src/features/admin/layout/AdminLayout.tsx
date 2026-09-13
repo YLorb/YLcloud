@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3, Bell, ChevronLeft, ChevronRight, Database, FileCog, FileText,
   HardDrive, HelpCircle, ListTodo, LogOut, Menu, MessageSquarePlus,
@@ -6,14 +5,13 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { api } from "../../../api";
 import { Button } from "../../../components/ui/Button";
 import {
   Sidebar, SidebarBody, SidebarFooter, SidebarHeader, SidebarItem, SidebarSection,
   SidebarSectionLabel
 } from "../../../components/ui/Sidebar";
-import { formatSize } from "../../../fileUtils";
 import { useSession } from "../../../app/session";
+import { AdminDataSourceProvider } from "../core/AdminDataSource";
 
 const sidebarItems = [
   { to: "/admin/dashboard", label: "面板首页", icon: BarChart3 },
@@ -51,7 +49,6 @@ export function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dark, setDark] = useState(() => localStorage.getItem("ylcloud_theme") === "dark");
   const title = useMemo(() => matchTitle(location.pathname), [location.pathname]);
-  const quota = useQuery({ queryKey: ["storage-quota"], queryFn: api.storageQuota, staleTime: 60_000, retry: 1 });
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -76,6 +73,7 @@ export function AdminLayout() {
   }
 
   return (
+    <AdminDataSourceProvider>
     <div className={collapsed ? "app-shell app-shell--collapsed" : "app-shell"}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       {mobileOpen && <button className="mobile-scrim" aria-label="关闭导航" onClick={() => setMobileOpen(false)} />}
@@ -97,7 +95,7 @@ export function AdminLayout() {
           </SidebarSection>
         </SidebarBody>
         <SidebarFooter>
-          {!collapsed && <div className="sidebar-quota"><span>存储空间 <strong>{Math.round(quota.data?.usagePercent || 0)}%</strong></span><progress max={100} value={quota.data?.usagePercent || 0} /><small>{formatSize(quota.data?.usedBytes)} / {formatSize(quota.data?.totalBytes)}</small></div>}
+          {!collapsed && <div className="sidebar-quota"><span>演示存储 <strong>0%</strong></span><progress max={100} value={0} /><small>暂无服务器数据</small></div>}
           <SidebarItem onClick={toggleCollapsed} aria-expanded={!collapsed} title={collapsed ? "展开侧边栏" : undefined}>
             {collapsed ? <ChevronRight size={18} /> : <><ChevronLeft size={18} /><span>收起导航</span></>}
           </SidebarItem>
@@ -125,5 +123,6 @@ export function AdminLayout() {
         {sidebarItems.slice(0, 5).map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} className={({ isActive }) => isActive ? "mobile-nav-item mobile-nav-item--active" : "mobile-nav-item"}><Icon size={20} /><span>{label}</span></NavLink>)}
       </nav>
     </div>
+    </AdminDataSourceProvider>
   );
 }

@@ -1,206 +1,101 @@
-import * as Tabs from "@radix-ui/react-tabs";
-import { useMutation } from "@tanstack/react-query";
-import { Lock, Search, FileText, Database, Clock, ChevronDown, ChevronUp } from "lucide-react";
-import { useState } from "react";
-import { api } from "../../../api";
+import { FileSearch, Image, MonitorPlay, Search, Settings2 } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Button } from "../../../components/ui/Button";
-import { LoadingState, ErrorState } from "../../../components/ui/PageState";
-import { StatusBadge } from "../../../components/ui/StatusBadge";
-import type { AdminFullTextSearchFileHit } from "../../../types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/Tabs";
+import { AdminField, AdminFormDialog } from "../components/AdminDialogs";
+import { AdminFilterBar, AdminPage, AdminSearch, AdminSection, AdminSelect, AdminStat, AdminStats } from "../components/AdminPage";
+import { AdminPagination, AdminTable } from "../components/AdminTable";
 
-const otherTabs = [
-  { key: "params", label: "参数设置", available: false },
-  { key: "icons", label: "文件图标", available: false },
-  { key: "preview", label: "文件在线浏览应用", available: false }
-];
-
-const matchTypeLabels: Record<string, { label: string; tone: "success" | "info" | "warning" }> = {
-  WORD_MATCH: { label: "词语匹配", tone: "success" },
-  KEYWORD: { label: "关键词", tone: "info" },
-  VECTOR: { label: "向量同义", tone: "warning" }
-};
+type Mapping = { id: string; extension: string; label: string; application: string; status: string };
 
 export function FileSystemPage() {
-  return (
-    <div className="admin-filesystem-page">
-      <Tabs.Root defaultValue="search" className="admin-horizontal-tabs">
-        <Tabs.List className="admin-tabs-list" aria-label="文件系统">
-          <Tabs.Trigger value="search">全文搜索</Tabs.Trigger>
-          {otherTabs.map(({ key, label }) => (
-            <Tabs.Trigger key={key} value={key} className="admin-tab--unavailable">
-              {label}
-              <Lock size={12} />
-            </Tabs.Trigger>
-          ))}
-        </Tabs.List>
-        <Tabs.Content value="search">
-          <FullTextSearchPanel />
-        </Tabs.Content>
-        {otherTabs.map(({ key, label }) => (
-          <Tabs.Content key={key} value={key}>
-            <div className="admin-page-placeholder">
-              <Lock size={36} />
-              <strong>{label}</strong>
-              <p>功能尚未开放，敬请期待</p>
-            </div>
-          </Tabs.Content>
-        ))}
-      </Tabs.Root>
-    </div>
-  );
-}
-
-function FullTextSearchPanel() {
-  const [enabled, setEnabled] = useState(true);
   const [query, setQuery] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [expandedFiles, setExpandedFiles] = useState<Set<number>>(new Set());
+  const [submitted, setSubmitted] = useState("");
+  const [mode, setMode] = useState("all");
+  const [scope, setScope] = useState("all");
+  const [maxSize, setMaxSize] = useState("");
+  const [previewLimit, setPreviewLimit] = useState("");
+  const [icons, setIcons] = useState<Mapping[]>([]);
+  const [apps, setApps] = useState<Mapping[]>([]);
+  const [dialog, setDialog] = useState<"icons" | "apps" | null>(null);
+  const [extension, setExtension] = useState("");
+  const [label, setLabel] = useState("");
+  const [application, setApplication] = useState("");
 
-  const search = useMutation({
-    mutationFn: () => api.adminFullTextSearch({ query: searchQuery, pageSize: 50 }),
-    onError: () => {}
-  });
-
-  function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = query.trim();
-    if (!trimmed) return;
-    setSearchQuery(trimmed);
-    search.mutate();
+  function search(event: FormEvent) {
+    event.preventDefault();
+    setSubmitted(query.trim());
   }
 
-  function toggleExpand(docId: number) {
-    setExpandedFiles((prev) => {
-      const next = new Set(prev);
-      next.has(docId) ? next.delete(docId) : next.add(docId);
-      return next;
-    });
+  function addMapping(event: FormEvent) {
+    event.preventDefault();
+    const record = { id: crypto.randomUUID(), extension: extension.trim(), label: label.trim(), application: application.trim(), status: "已启用" };
+    if (dialog === "icons") setIcons((current) => [...current, record]);
+    else setApps((current) => [...current, record]);
+    setDialog(null);
+    setExtension(""); setLabel(""); setApplication("");
+    toast.success("演示数据已更新，未保存到服务器");
   }
 
-  return (
-    <div className="admin-fulltext-search">
-      <header className="panel-header">
-        <div>
-          <span className="section-eyebrow">文件系统</span>
-          <h2>全文搜索</h2>
-          <p>基于 Qdrant 向量库的智能全文检索，支持词语匹配、关键词检索和向量同义检索</p>
-        </div>
-        <label className="admin-toggle-switch">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-          <span className="admin-toggle-thumb" />
-          <span>{enabled ? "已启用" : "已关闭"}</span>
-        </label>
-      </header>
-
-      {!enabled && (
-        <div className="admin-fulltext-disabled">
-          <Database size={32} />
-          <strong>全文搜索已关闭</strong>
-          <p>开启后，管理员可以通过关键词或语义搜索所有已索引的文件内容。搜索基于 Qdrant 向量库，支持三种检索模式：</p>
-          <ul>
-            <li><StatusBadge tone="success">词语匹配</StatusBadge> 精确匹配搜索词在文件内容中的出现</li>
-            <li><StatusBadge tone="info">关键词检索</StatusBadge> 基于关键词的文本搜索</li>
-            <li><StatusBadge tone="warning">向量同义检索</StatusBadge> 基于语义相似度的智能检索</li>
-          </ul>
-        </div>
-      )}
-
-      {enabled && (
-        <>
-          <form className="admin-fulltext-search-bar" onSubmit={handleSearch}>
-            <div className="search-box">
-              <Search size={17} />
-              <input
-                placeholder="输入关键词搜索文件内容..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
-            <Button type="submit" variant="primary" loading={search.isPending}>
-              搜索
-            </Button>
+  return <AdminPage eyebrow="文件管理" title="文件系统" description="设计文件处理、全文搜索、图标和在线浏览应用的管理入口。">
+    <Tabs defaultValue="search" className="admin-horizontal-tabs">
+      <TabsList className="admin-tabs-list" aria-label="文件系统分类">
+        <TabsTrigger value="search"><FileSearch size={15} />全文搜索</TabsTrigger>
+        <TabsTrigger value="params"><Settings2 size={15} />参数设置</TabsTrigger>
+        <TabsTrigger value="icons"><Image size={15} />文件图标</TabsTrigger>
+        <TabsTrigger value="apps"><MonitorPlay size={15} />在线浏览应用</TabsTrigger>
+      </TabsList>
+      <TabsContent value="search">
+        <AdminSection title="全文搜索" description="检索模式与范围均为前端演示；不会查询 Qdrant 或读取真实文件。">
+          <form className="admin-search-form" onSubmit={search}>
+            <AdminFilterBar>
+              <AdminSearch value={query} onChange={setQuery} label="搜索文件内容" placeholder="输入文件名、关键词或内容" />
+              <AdminSelect label="检索方式" value={mode} onChange={setMode} options={[{ value: "all", label: "综合检索" }, { value: "keyword", label: "关键词" }, { value: "semantic", label: "语义" }]} />
+              <AdminSelect label="范围" value={scope} onChange={setScope} options={[{ value: "all", label: "全部空间" }, { value: "personal", label: "个人文件" }, { value: "space", label: "团队空间" }]} />
+              <Button variant="primary" type="submit"><Search size={15} />搜索</Button>
+            </AdminFilterBar>
           </form>
-
-          {search.isPending && <LoadingState label="正在搜索..." />}
-
-          {search.isError && (
-            <ErrorState
-              message={search.error instanceof Error ? search.error.message : "搜索失败"}
-              onRetry={() => search.mutate()}
-            />
-          )}
-
-          {search.isSuccess && search.data && (
-            <div className="admin-fulltext-results">
-              <div className="admin-fulltext-summary">
-                <span>找到 <strong>{search.data.total}</strong> 个相关文件</span>
-                <span className="muted-text"><Clock size={14} /> 耗时 {search.data.tookMs}ms</span>
-              </div>
-
-              {search.data.files.length === 0 && (
-                <div className="admin-page-placeholder">
-                  <Search size={36} />
-                  <strong>没有找到匹配的文件</strong>
-                  <p>请尝试使用其他关键词搜索</p>
-                </div>
-              )}
-
-              {search.data.files.map((file) => (
-                <FullTextSearchResultItem
-                  key={file.documentId}
-                  file={file}
-                  expanded={expandedFiles.has(file.documentId)}
-                  onToggle={() => toggleExpand(file.documentId)}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
+          <div className="admin-search-summary">当前条件：{submitted ? `“${submitted}”` : "尚未搜索"} · {mode === "all" ? "综合检索" : mode === "keyword" ? "关键词" : "语义"} · {scope === "all" ? "全部空间" : scope === "personal" ? "个人文件" : "团队空间"} · 0 个结果</div>
+          <AdminTable columns={[{ key: "file", label: "文件", render: () => null }, { key: "space", label: "所属空间", render: () => null }, { key: "match", label: "匹配方式", render: () => null }, { key: "evidence", label: "检索证据", render: () => null }]} items={[]} getKey={() => ""} emptyTitle="暂无检索结果" emptyMessage="本阶段仅展示搜索页面结构，不会查询服务器索引。" />
+          <AdminPagination />
+        </AdminSection>
+      </TabsContent>
+      <TabsContent value="params">
+        <AdminSection title="文件系统参数" description="定义上传、预览与文件类型处理的管理表单。">
+          <div className="admin-settings-form">
+            <AdminField label="单文件上传上限（MB）" hint="仅演示字段；不影响真实上传限制。"><input type="number" min="0" value={maxSize} onChange={(event) => setMaxSize(event.target.value)} placeholder="未读取服务器配置" /></AdminField>
+            <AdminField label="在线预览大小上限（MB）"><input type="number" min="0" value={previewLimit} onChange={(event) => setPreviewLimit(event.target.value)} placeholder="未读取服务器配置" /></AdminField>
+            <AdminField label="未知文件类型"><select defaultValue="download"><option value="download">下载文件</option><option value="reject">禁止预览</option></select></AdminField>
+            <Button variant="confirm" onClick={() => toast.success("演示参数已更新，未保存到服务器")}>保存演示参数</Button>
+          </div>
+        </AdminSection>
+      </TabsContent>
+      <TabsContent value="icons">
+        <MappingPanel kind="icons" items={icons} onAdd={() => setDialog("icons")} />
+      </TabsContent>
+      <TabsContent value="apps">
+        <MappingPanel kind="apps" items={apps} onAdd={() => setDialog("apps")} />
+      </TabsContent>
+    </Tabs>
+    <AdminFormDialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)} title={dialog === "icons" ? "添加文件图标映射" : "添加在线浏览应用"} description="只添加当前页面的演示记录。" onSubmit={addMapping}>
+      <AdminField label="文件扩展名"><input required value={extension} onChange={(event) => setExtension(event.target.value)} placeholder=".pdf" /></AdminField>
+      <AdminField label="显示名称"><input required value={label} onChange={(event) => setLabel(event.target.value)} placeholder={dialog === "icons" ? "PDF 文件" : "PDF 预览器"} /></AdminField>
+      {dialog === "apps" && <AdminField label="应用标识"><input required value={application} onChange={(event) => setApplication(event.target.value)} placeholder="viewer-pdf" /></AdminField>}
+    </AdminFormDialog>
+  </AdminPage>;
 }
 
-function FullTextSearchResultItem({
-  file,
-  expanded,
-  onToggle
-}: {
-  file: AdminFullTextSearchFileHit;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const matchInfo = matchTypeLabels[file.matchType] || { label: file.matchType, tone: "neutral" as const };
-
-  return (
-    <div className="admin-fulltext-result-item">
-      <div className="admin-fulltext-result-header" onClick={onToggle}>
-        <div className="admin-fulltext-result-info">
-          <FileText size={18} className="admin-fulltext-result-icon" />
-          <div>
-            <strong>{file.fileName}</strong>
-            <small>{file.spaceName ? `${file.spaceName} / ` : ""}{file.fileType || "未知类型"} · {file.chunkCount} 个分块</small>
-          </div>
-        </div>
-        <div className="admin-fulltext-result-actions">
-          <StatusBadge tone={matchInfo.tone}>{matchInfo.label}</StatusBadge>
-          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </div>
-      </div>
-
-      {expanded && file.evidences && file.evidences.length > 0 && (
-        <div className="admin-fulltext-evidences">
-          <span className="admin-fulltext-evidence-label">检索证据</span>
-          {file.evidences.map((ev, i) => (
-            <div key={i} className="admin-fulltext-evidence-item">
-              <code className="admin-fulltext-evidence-content">{ev.content}</code>
-              {ev.score != null && (
-                <span className="admin-fulltext-evidence-score">相似度: {ev.score.toFixed(4)}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function MappingPanel({ kind, items, onAdd }: { kind: "icons" | "apps"; items: Mapping[]; onAdd: () => void }) {
+  const icons = kind === "icons";
+  return <AdminSection title={icons ? "文件图标" : "在线浏览应用"} description={icons ? "按扩展名配置文件类型图标。" : "管理文件类型与预览应用的匹配规则。"} actions={<Button variant="primary" onClick={onAdd}>添加演示映射</Button>}>
+    <AdminStats><AdminStat label="映射规则" value={items.length} detail="当前页面临时记录" /><AdminStat label="已启用" value={items.filter((item) => item.status === "已启用").length} detail="仅用于演示" tone="info" /></AdminStats>
+    <AdminTable items={items} getKey={(item) => item.id} columns={[
+      { key: "extension", label: "扩展名", render: (item) => <code>{item.extension}</code> },
+      { key: "label", label: "显示名称", render: (item) => item.label },
+      { key: "application", label: icons ? "图标标识" : "应用标识", render: (item) => item.application || "默认" },
+      { key: "status", label: "状态", render: (item) => item.status }
+    ]} emptyTitle={icons ? "尚无图标映射" : "尚无浏览应用"} emptyMessage="可添加临时演示映射；刷新后恢复为空。" />
+    <AdminPagination total={items.length} />
+  </AdminSection>;
 }

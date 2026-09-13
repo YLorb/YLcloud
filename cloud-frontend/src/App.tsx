@@ -29,7 +29,11 @@ const UsersPage = lazy(() => import("./features/admin/pages/UsersPage").then((mo
 const AdminFilesPage = lazy(() => import("./features/admin/pages/AdminFilesPage").then((module) => ({ default: module.AdminFilesPage })));
 const SharesPage = lazy(() => import("./features/admin/pages/SharesPage").then((module) => ({ default: module.SharesPage })));
 const AdminTasksPage = lazy(() => import("./features/admin/pages/AdminTasksPage").then((module) => ({ default: module.AdminTasksPage })));
-const PlaceholderPage = lazy(() => import("./features/admin/pages/PlaceholderPage").then((module) => ({ default: module.PlaceholderPage })));
+const NodesPage = lazy(() => import("./features/admin/pages/NodesPage").then((module) => ({ default: module.NodesPage })));
+const OrdersPage = lazy(() => import("./features/admin/pages/OrdersPage").then((module) => ({ default: module.OrdersPage })));
+const EventsPage = lazy(() => import("./features/admin/pages/EventsPage").then((module) => ({ default: module.EventsPage })));
+const ReportsPage = lazy(() => import("./features/admin/pages/ReportsPage").then((module) => ({ default: module.ReportsPage })));
+const OAuthAppsPage = lazy(() => import("./features/admin/pages/OAuthAppsPage").then((module) => ({ default: module.OAuthAppsPage })));
 
 function LazyPage({ children }: { children: ReactNode }) {
   return <Suspense fallback={<LoadingState label="正在加载页面" />}>{children}</Suspense>;
@@ -90,16 +94,16 @@ const router = createBrowserRouter([
               { path: "settings", element: <LazyPage><AdminSettingsPage /></LazyPage> },
               { path: "fs", element: <LazyPage><FileSystemPage /></LazyPage> },
               { path: "storage", element: <LazyPage><StoragePoliciesPage /></LazyPage> },
-              { path: "nodes", element: <LazyPage><PlaceholderPage title="节点" /></LazyPage> },
+              { path: "nodes", element: <LazyPage><NodesPage /></LazyPage> },
               { path: "user-groups", element: <LazyPage><UserGroupsPage /></LazyPage> },
               { path: "user-list", element: <LazyPage><UsersPage /></LazyPage> },
               { path: "file-list", element: <LazyPage><AdminFilesPage /></LazyPage> },
               { path: "shares", element: <LazyPage><SharesPage /></LazyPage> },
               { path: "tasks", element: <LazyPage><AdminTasksPage /></LazyPage> },
-              { path: "orders", element: <LazyPage><PlaceholderPage title="订单" /></LazyPage> },
-              { path: "events", element: <LazyPage><PlaceholderPage title="事件" /></LazyPage> },
-              { path: "reports", element: <LazyPage><PlaceholderPage title="滥用举报" /></LazyPage> },
-              { path: "oauth", element: <LazyPage><PlaceholderPage title="OAuth 应用" /></LazyPage> }
+              { path: "orders", element: <LazyPage><OrdersPage /></LazyPage> },
+              { path: "events", element: <LazyPage><EventsPage /></LazyPage> },
+              { path: "reports", element: <LazyPage><ReportsPage /></LazyPage> },
+              { path: "oauth", element: <LazyPage><OAuthAppsPage /></LazyPage> }
             ]
           }
         ]
