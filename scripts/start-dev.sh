@@ -5,11 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${YLCLOUD_DEV_RUN_DIR:-/tmp/ylcloud-dev}"
 JAVA_BIN="${JAVA_BIN:-$(command -v java || true)}"
 MAVEN_BIN="${MAVEN_BIN:-$(command -v mvn || true)}"
-BACKEND_JAR="${ROOT_DIR}/cloud-server/target/cloud-server-1.0-SNAPSHOT.jar"
+BACKEND_JAR="${ROOT_DIR}/src/cloud-server/target/cloud-server-1.0-SNAPSHOT.jar"
 
 mkdir -p "${RUN_DIR}"
 
-ENV_FILE="${YLCLOUD_ENV_FILE:-${ROOT_DIR}/.env}"
+ENV_FILE="${YLCLOUD_ENV_FILE:-${ROOT_DIR}/config/.env}"
 if [[ -f "${ENV_FILE}" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -79,7 +79,7 @@ start_backend() {
   fi
 
   log "building backend jar"
-  (cd "${ROOT_DIR}" && "${MAVEN_BIN}" -pl cloud-server -am package -DskipTests)
+  (cd "${ROOT_DIR}" && "${MAVEN_BIN}" -pl :cloud-server -am package -DskipTests)
 
   [[ -f "${BACKEND_JAR}" ]] || fail "backend jar not found: ${BACKEND_JAR}"
   [[ -x "${JAVA_BIN}" ]] || fail "java not executable: ${JAVA_BIN}"
@@ -90,11 +90,11 @@ start_backend() {
     setsid env \
       SERVER_PORT="${BACKEND_PORT}" \
       SPRING_PROFILES_ACTIVE="${YLCLOUD_SPRING_PROFILE:-dev}" \
-      YLCLOUD_JWT_SECRET_FILE="${YLCLOUD_JWT_SECRET_FILE:-${ROOT_DIR}/.secrets/jwt_secret}" \
-      YLCLOUD_LLM_API_KEY_FILE="${YLCLOUD_LLM_API_KEY_FILE:-${ROOT_DIR}/.secrets/llm_api_key}" \
-      YLCLOUD_ARK_API_KEY_FILE="${YLCLOUD_ARK_API_KEY_FILE:-${ROOT_DIR}/.secrets/ark_api_key}" \
-      YLCLOUD_RAG_QUERY_API_KEY_FILE="${YLCLOUD_RAG_QUERY_API_KEY_FILE:-${ROOT_DIR}/.secrets/rag_query_api_key}" \
-      YLCLOUD_VLM_API_KEY_FILE="${YLCLOUD_VLM_API_KEY_FILE:-${ROOT_DIR}/.secrets/vlm_api_key}" \
+      YLCLOUD_JWT_SECRET_FILE="${YLCLOUD_JWT_SECRET_FILE:-${ROOT_DIR}/config/secrets/jwt_secret}" \
+      YLCLOUD_LLM_API_KEY_FILE="${YLCLOUD_LLM_API_KEY_FILE:-${ROOT_DIR}/config/secrets/llm_api_key}" \
+      YLCLOUD_ARK_API_KEY_FILE="${YLCLOUD_ARK_API_KEY_FILE:-${ROOT_DIR}/config/secrets/ark_api_key}" \
+      YLCLOUD_RAG_QUERY_API_KEY_FILE="${YLCLOUD_RAG_QUERY_API_KEY_FILE:-${ROOT_DIR}/config/secrets/rag_query_api_key}" \
+      YLCLOUD_VLM_API_KEY_FILE="${YLCLOUD_VLM_API_KEY_FILE:-${ROOT_DIR}/config/secrets/vlm_api_key}" \
       YLCLOUD_DATASOURCE_URL="${YLCLOUD_DATASOURCE_URL:-jdbc:mysql://127.0.0.1:${MYSQL_PORT}/${YLCLOUD_MYSQL_DATABASE:-ylcloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai}" \
       YLCLOUD_DATASOURCE_USERNAME="${YLCLOUD_DATASOURCE_USERNAME:-${YLCLOUD_MYSQL_USER:-ylcloud}}" \
       YLCLOUD_DATASOURCE_PASSWORD="${YLCLOUD_DATASOURCE_PASSWORD:-${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}}" \
@@ -145,7 +145,7 @@ start_frontend() {
 
   log "starting frontend on port ${FRONTEND_PORT}"
   (
-    cd "${ROOT_DIR}/cloud-frontend"
+    cd "${ROOT_DIR}/src/cloud-frontend"
     npm run dev -- --host 127.0.0.1 --port "${FRONTEND_PORT}" \
       >"${RUN_DIR}/frontend.log" 2>&1 &
     echo $! >"${RUN_DIR}/frontend.pid"
@@ -174,7 +174,7 @@ main() {
   fi
 
   log "starting docker dependencies"
-  (cd "${ROOT_DIR}" && docker compose --env-file "${ENV_FILE}" -f docker-compose.yml up -d --build mysql minio qdrant model-service document-parser-service)
+  (cd "${ROOT_DIR}" && docker compose -p ylcloud --env-file "${ENV_FILE}" -f config/docker-compose.yml up -d --build mysql minio qdrant model-service document-parser-service)
 
   for _ in $(seq 1 60); do
     if [[ "$(docker inspect --format '{{.State.Health.Status}}' ylcloud-mysql 2>/dev/null || true)" == "healthy" ]]; then

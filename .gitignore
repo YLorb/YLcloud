@@ -6,10 +6,7 @@ target/
 .m2repo/
 
 ### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
+/.idea/
 *.iws
 *.iml
 *.ipr
@@ -39,21 +36,24 @@ build/
 ### Mac OS ###
 .DS_Store
 
-cloud-server/src/main/resources/db/permission-share.sql
+src/cloud-server/src/main/resources/db/permission-share.sql
 
 ### Frontend ###
-cloud-frontend/node_modules/
-cloud-frontend/dist/
-cloud-frontend/*.log
-cloud-frontend/*.err.log
+src/cloud-frontend/node_modules/
+src/cloud-frontend/dist/
+src/cloud-frontend/*.log
+src/cloud-frontend/*.err.log
 /model-service-build.log
 /model-service-build.err.log
 /outputs/
-cloud-frontend/*.tsbuildinfo
-cloud-frontend/qa-*.png
-cloud-frontend/edge-profile*/
-cloud-frontend/.playwright-cli/
+src/cloud-frontend/*.tsbuildinfo
+src/cloud-frontend/qa-*.png
+src/cloud-frontend/edge-profile*/
+src/cloud-frontend/.playwright-cli/
+src/cloud-frontend/.vite/
 /.playwright-cli/
+/.agents/
+/.qoder/
 .tmp_frontend_reference/
 
 ### Local test artifacts ###
@@ -72,6 +72,7 @@ cloud-frontend/.playwright-cli/
 *.test-results
 
 ### Local logs ###
+/log/
 *.log
 *.err.log
 *.out.log
@@ -93,15 +94,21 @@ cloud-frontend/.playwright-cli/
 .env.*
 !.env.example
 !.env.server.example
+/config/.env*
+!/config/.env.example
+!/config/.env.server.example
 
 # Commit documentation and examples, never real secret files.
 /.secrets/*
 !/.secrets/README.md
 !/.secrets/*.example
+/config/secrets/*
+!/config/secrets/README.md
+!/config/secrets/*.example
 .sandbox-test-deps/
 .docker-codex/
 .sandbox-e2e-deps/
-sandbox-service/tool-catalog.local.json
+src/sandbox-service/tool-catalog.local.json
 sandbox-docker-validation*.log
 sandbox-service-validation.*.log
 sandbox-docker-validation-result.json

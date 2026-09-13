@@ -64,7 +64,7 @@
 
 ## 4. 主题 Token 建议
 
-建议先替换或扩展 `cloud-frontend/src/styles.css` 中的全局变量。
+建议先替换或扩展 `src/cloud-frontend/src/styles.css` 中的全局变量。
 
 ```css
 :root {
@@ -518,7 +518,7 @@ KnowledgeOpsPage
 
 知识库问答页应参考 ChatGPT 的对话式工作台，而不是后台卡片或普通表单页。
 
-当前项目中对应页面是 `cloud-frontend/src/features/chat/ChatView.tsx`。它已有左侧范围选择、消息列表、输入框和 RAG 调用逻辑，但视觉目标应调整为更接近“会话应用”。
+当前项目中对应页面是 `src/cloud-frontend/src/features/chat/ChatView.tsx`。它已有左侧范围选择、消息列表、输入框和 RAG 调用逻辑，但视觉目标应调整为更接近“会话应用”。
 
 设计定位：
 
@@ -854,12 +854,12 @@ features/chat/
 
 ## 15. 关键文件
 
-- `cloud-frontend/package.json`：确认前端技术栈。
-- `cloud-frontend/src/styles.css`：主题 token 和全局组件样式。
-- `cloud-frontend/src/App.tsx`：登录后进入主应用壳。
-- `cloud-frontend/src/features/files/DriveApp.tsx`：当前主壳、文件页和导航逻辑。
-- `cloud-frontend/src/features/chat/ChatView.tsx`：知识库问答页，后续应改造成 ChatGPT 式对话工作台。
-- `cloud-frontend/src/features/settings/SettingsPanel.tsx`：系统设置页。
-- `cloud-frontend/src/features/spaces/SpacesView.tsx`：团队空间和 RAG 问答页。
-- `cloud-frontend/src/features/knowledge/KnowledgeOpsView.tsx`：知识库运维页。
-- `cloud-frontend/src/features/knowledge-base/`：建议新增目录，用于承载 Knowledge Base 一级入口下的 Dashboard、Documents、Pipeline、Chat、Analytics。
+- `src/cloud-frontend/package.json`：确认前端技术栈。
+- `src/cloud-frontend/src/styles.css`：主题 token 和全局组件样式。
+- `src/cloud-frontend/src/App.tsx`：登录后进入主应用壳。
+- `src/cloud-frontend/src/features/files/DriveApp.tsx`：当前主壳、文件页和导航逻辑。
+- `src/cloud-frontend/src/features/chat/ChatView.tsx`：知识库问答页，后续应改造成 ChatGPT 式对话工作台。
+- `src/cloud-frontend/src/features/settings/SettingsPanel.tsx`：系统设置页。
+- `src/cloud-frontend/src/features/spaces/SpacesView.tsx`：团队空间和 RAG 问答页。
+- `src/cloud-frontend/src/features/knowledge/KnowledgeOpsView.tsx`：知识库运维页。
+- `src/cloud-frontend/src/features/knowledge-base/`：建议新增目录，用于承载 Knowledge Base 一级入口下的 Dashboard、Documents、Pipeline、Chat、Analytics。

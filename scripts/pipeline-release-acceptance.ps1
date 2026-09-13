@@ -94,7 +94,7 @@ try {
     $env:YLCLOUD_PIPELINE_MYSQL_USER = $dbUser
     $env:YLCLOUD_PIPELINE_MYSQL_PASSWORD = $dbPassword
     try {
-        $mavenOutput = & mvn -pl cloud-server -am "-Dtest=KnowledgeProfileWriteServiceMysqlIT" "-Dsurefire.failIfNoSpecifiedTests=false" test 2>&1
+        $mavenOutput = & mvn -pl :cloud-server -am "-Dtest=KnowledgeProfileWriteServiceMysqlIT" "-Dsurefire.failIfNoSpecifiedTests=false" test 2>&1
         $mavenOutput | Add-Content -Encoding UTF8 $mavenLogPath
         if($LASTEXITCODE -ne 0) { throw "MySQL concurrency/rollback integration tests failed" }
         $report.mysqlIntegration = [ordered]@{ status="PASSED"; tests=4 }

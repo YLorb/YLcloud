@@ -35,8 +35,8 @@ function Read-DotEnv([string]$Path) {
     return $result
 }
 
-$defaultEnv = if ($Mode -eq "Production") { ".env.server" } else { ".env" }
-$defaultCompose = if ($Mode -eq "Production") { "docker-compose.hub.yml" } else { "docker-compose.yml" }
+$defaultEnv = if ($Mode -eq "Production") { "config/.env.server" } else { "config/.env" }
+$defaultCompose = if ($Mode -eq "Production") { "config/docker-compose.hub.yml" } else { "config/docker-compose.yml" }
 $envPath = Resolve-WorkspacePath $EnvFile $defaultEnv
 $composePath = Resolve-WorkspacePath $ComposeFile $defaultCompose
 
@@ -75,18 +75,18 @@ if (-not [string]::IsNullOrWhiteSpace($bucket) -and $bucket -notmatch "^[a-z0-9]
     $errors.Add("YLCLOUD_MINIO_BUCKET must be a valid S3 bucket name")
 }
 
-$secretDirectory = Join-Path $workspace ".secrets"
+$secretDirectory = Join-Path $workspace "config/secrets"
 @("jwt_secret", "llm_api_key", "ark_api_key", "rag_query_api_key", "vlm_api_key") | ForEach-Object {
     $path = Join-Path $secretDirectory $_
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        $errors.Add("Missing secret file: .secrets/$_")
+        $errors.Add("Missing secret file: config/secrets/$_")
     }
 }
 $jwtPath = Join-Path $secretDirectory "jwt_secret"
 if (Test-Path -LiteralPath $jwtPath -PathType Leaf) {
     $jwtSecret = [System.IO.File]::ReadAllText($jwtPath, [System.Text.Encoding]::UTF8).Trim()
     if ($jwtSecret.Length -lt 32 -or $jwtSecret -match "^(replace-|change-me|your-)") {
-        $errors.Add(".secrets/jwt_secret must be a non-template value with at least 32 characters")
+        $errors.Add("config/secrets/jwt_secret must be a non-template value with at least 32 characters")
     }
 }
 

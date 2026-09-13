@@ -31,19 +31,19 @@ jobs:
         include:
           - image: ylcloud-app
             context: .
-            dockerfile: ./cloud-server/Dockerfile
+            dockerfile: ./src/cloud-server/Dockerfile
 
           - image: ylcloud-frontend
-            context: ./cloud-frontend
-            dockerfile: ./cloud-frontend/Dockerfile
+            context: ./src/cloud-frontend
+            dockerfile: ./src/cloud-frontend/Dockerfile
 
           - image: ylcloud-model-service
-            context: ./model-service
-            dockerfile: ./model-service/Dockerfile
+            context: ./src/model-service
+            dockerfile: ./src/model-service/Dockerfile
 
           - image: ylcloud-document-parser-service
-            context: ./document-parser-service
-            dockerfile: ./document-parser-service/Dockerfile
+            context: ./src/document-parser-service
+            dockerfile: ./src/document-parser-service/Dockerfile
 
     steps:
       - name: Checkout source

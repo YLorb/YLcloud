@@ -6,8 +6,8 @@ set -Eeuo pipefail
 # Configuration
 BACKUP_ROOT="${YLCLOUD_BACKUP_ROOT:-/var/lib/ylcloud-backup}"
 ENCRYPTION_KEY_FILE="${YLCLOUD_BACKUP_KEY_FILE:-/var/lib/ylcloud-backup/.encryption-key}"
-COMPOSE_FILE="${YLCLOUD_DEPLOY_COMPOSE_FILE:-docker-compose.hub.yml}"
-ENV_FILE="${YLCLOUD_DEPLOY_ENV_FILE:-.env.server}"
+COMPOSE_FILE="${YLCLOUD_DEPLOY_COMPOSE_FILE:-config/docker-compose.hub.yml}"
+ENV_FILE="${YLCLOUD_DEPLOY_ENV_FILE:-config/.env.server}"
 PROJECT="${YLCLOUD_DEPLOY_PROJECT:-ylcloud}"
 MYSQL_CONTAINER="${YLCLOUD_MYSQL_CONTAINER:-ylcloud-mysql}"
 MINIO_CONTAINER="${YLCLOUD_MINIO_CONTAINER:-ylcloud-minio}"
@@ -266,8 +266,8 @@ restore_config() {
     # Restore secrets
     if [[ -d "$config_dir/secrets" ]]; then
         log "Restoring secrets..."
-        cp -r "$config_dir/secrets/." ".secrets/"
-        chmod 700 ".secrets"
+        cp -r "$config_dir/secrets/." "config/secrets/"
+        chmod 700 "config/secrets"
     fi
 
     log "Config restore completed"

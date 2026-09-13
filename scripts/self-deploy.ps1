@@ -53,7 +53,7 @@ function Merge-LocalEnvironmentTemplate([string]$TargetPath, [string]$TemplatePa
     if($missingLines.Count -gt 0) {
         Add-Content -LiteralPath $TargetPath -Encoding UTF8 -Value ([Environment]::NewLine + "# Added by scripts/self-deploy.ps1")
         Add-Content -LiteralPath $TargetPath -Encoding UTF8 -Value $missingLines
-        Write-Host "Added $($missingLines.Count) missing local settings from .env.example without overwriting existing values."
+        Write-Host "Added $($missingLines.Count) missing local settings from config/.env.example without overwriting existing values."
     }
 }
 
@@ -104,9 +104,9 @@ function Format-NativeOutput([object[]]$Items) {
     }) -join [Environment]::NewLine).Trim()
 }
 
-$defaultEnv = if ($Mode -eq "Server") { ".env.server" } else { ".env" }
-$defaultCompose = if ($Mode -eq "Server") { "docker-compose.hub.yml" } else { "docker-compose.yml" }
-$templateEnv = if ($Mode -eq "Server") { ".env.server.example" } else { ".env.example" }
+$defaultEnv = if ($Mode -eq "Server") { "config/.env.server" } else { "config/.env" }
+$defaultCompose = if ($Mode -eq "Server") { "config/docker-compose.hub.yml" } else { "config/docker-compose.yml" }
+$templateEnv = if ($Mode -eq "Server") { "config/.env.server.example" } else { "config/.env.example" }
 $envPath = Resolve-WorkspacePath $EnvFile $defaultEnv
 $composePath = Resolve-WorkspacePath $ComposeFile $defaultCompose
 $report = [ordered]@{
@@ -136,10 +136,10 @@ try {
         Write-Host "Created local environment file: $envPath"
     }
     if($Mode -eq "Local") {
-        Merge-LocalEnvironmentTemplate $envPath (Join-Path $workspace ".env.example")
+        Merge-LocalEnvironmentTemplate $envPath (Join-Path $workspace "config/.env.example")
     }
 
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "migrate-secrets.ps1") -EnvFile $envPath -SecretsDirectory (Join-Path $workspace ".secrets")
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "migrate-secrets.ps1") -EnvFile $envPath -SecretsDirectory (Join-Path $workspace "config/secrets")
     if ($LASTEXITCODE -ne 0) {
         throw "Secret migration failed"
     }
@@ -174,7 +174,7 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw "Backend tests failed"
         }
-        Push-Location (Join-Path $workspace "cloud-frontend")
+        Push-Location (Join-Path $workspace "src/cloud-frontend")
         try {
             & npm run build
             if ($LASTEXITCODE -ne 0) {

@@ -65,7 +65,7 @@ For retrieval-quality validation, disable offline hash embeddings:
 YLCLOUD_MODEL_SERVICE_OFFLINE_FALLBACK=false
 ```
 
-`BAAI/bge-m3` is kept as an optional stronger profile in `docs/rag-bge-m3.env.example`.
+`BAAI/bge-m3` is kept as an optional stronger profile in `config/rag-bge-m3.env.example`.
 
 ## Database Migration
 

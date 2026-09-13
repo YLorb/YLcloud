@@ -1,9 +1,11 @@
 $ErrorActionPreference = 'Continue'
 $workspace = 'D:\document\javaproj\ylcloud'
-$log = Join-Path $workspace 'sandbox-docker-validation.log'
+$logDirectory = Join-Path $workspace 'log/validation'
+New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+$log = Join-Path $logDirectory 'sandbox-docker-validation.log'
 $resultFile = Join-Path $workspace 'sandbox-docker-validation-result.json'
 $deps = Join-Path $workspace '.sandbox-e2e-deps'
-$catalog = Join-Path $workspace 'sandbox-service\tool-catalog.local.json'
+$catalog = Join-Path $workspace 'src/sandbox-service/tool-catalog.local.json'
 $python = 'C:\Users\Win10\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 $serviceProcess = $null
 $catalogExisted = Test-Path -LiteralPath $catalog -PathType Leaf
@@ -16,7 +18,7 @@ if (Test-Path -LiteralPath $resultFile) { Remove-Item -LiteralPath $resultFile -
 
 try {
     docker version 2>&1 | Add-Content -LiteralPath $log -Encoding UTF8
-    docker build -t ylcloud-sandbox-json-echo:test sandbox-tools\json-echo 2>&1 | Add-Content -LiteralPath $log -Encoding UTF8
+    docker build -t ylcloud-sandbox-json-echo:test src/sandbox-tools/json-echo 2>&1 | Add-Content -LiteralPath $log -Encoding UTF8
     if ($LASTEXITCODE -ne 0) { throw 'json-echo image build failed' }
     $imageId = (docker image inspect ylcloud-sandbox-json-echo:test --format '{{.Id}}' 2>$null).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'json-echo image inspect failed' }
@@ -34,14 +36,14 @@ try {
     ConvertTo-Json -InputObject $catalogValue -Depth 12 | Set-Content -LiteralPath $catalog -Encoding UTF8
 
     if (Test-Path -LiteralPath $deps) { Remove-Item -LiteralPath $deps -Recurse -Force }
-    & $python -m pip install --target $deps $workspace\sandbox-service 2>&1 | Add-Content -LiteralPath $log -Encoding UTF8
+    & $python -m pip install --target $deps (Join-Path $workspace 'src/sandbox-service') 2>&1 | Add-Content -LiteralPath $log -Encoding UTF8
     if ($LASTEXITCODE -ne 0) { throw 'sandbox service dependencies failed' }
 
     $env:PYTHONPATH = $deps
     $env:SANDBOX_ENABLED = 'true'
     $env:SANDBOX_SERVICE_TOKEN = 'win10-sandbox-validation-token-0001'
     $env:SANDBOX_TOOL_CATALOG_FILE = $catalog
-    $serviceProcess = Start-Process -FilePath $python -ArgumentList '-m','uvicorn','sandbox_service.api:app','--host','127.0.0.1','--port','18004' -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $workspace 'sandbox-service-validation.stdout.log') -RedirectStandardError (Join-Path $workspace 'sandbox-service-validation.stderr.log')
+    $serviceProcess = Start-Process -FilePath $python -ArgumentList '-m','uvicorn','sandbox_service.api:app','--host','127.0.0.1','--port','18004' -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logDirectory 'sandbox-service-validation.stdout.log') -RedirectStandardError (Join-Path $logDirectory 'sandbox-service-validation.stderr.log')
 
     $ready = $false
     for ($i = 0; $i -lt 30; $i++) {

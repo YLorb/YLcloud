@@ -4,8 +4,8 @@
 set -Eeuo pipefail
 
 VERSION="${1:-}"
-COMPOSE_FILE="${YLCLOUD_DEPLOY_COMPOSE_FILE:-docker-compose.hub.yml}"
-ENV_FILE="${YLCLOUD_DEPLOY_ENV_FILE:-.env.server}"
+COMPOSE_FILE="${YLCLOUD_DEPLOY_COMPOSE_FILE:-config/docker-compose.hub.yml}"
+ENV_FILE="${YLCLOUD_DEPLOY_ENV_FILE:-config/.env.server}"
 PROJECT="${YLCLOUD_DEPLOY_PROJECT:-ylcloud}"
 APP_SERVICE="${YLCLOUD_DEPLOY_APP_SERVICE:-ylcloud-app}"
 FRONTEND_SERVICE="${YLCLOUD_DEPLOY_FRONTEND_SERVICE:-frontend}"
@@ -302,7 +302,7 @@ preflight() {
   docker compose version >/dev/null
   [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] || die "compose/env file missing"
   [[ -f "$RESTORE_SCRIPT" ]] || die "restore script missing: $RESTORE_SCRIPT"
-  [[ -s .secrets/rabbitmq_password && -s .secrets/jwt_secret && -s .secrets/service_jwt_active_secret ]] || die "required secret file missing or empty"
+  [[ -s config/secrets/rabbitmq_password && -s config/secrets/jwt_secret && -s config/secrets/service_jwt_active_secret ]] || die "required secret file missing or empty"
 
   local free_kb min_kb
   free_kb="$(df -Pk . | awk 'NR==2 {print $4}')"

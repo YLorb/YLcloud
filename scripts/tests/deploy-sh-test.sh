@@ -5,10 +5,10 @@ ROOT="${1:-/workspace}"
 CASE_ROOT="/tmp/ylcloud-deploy-test"
 FAKE_BIN="$CASE_ROOT/bin"
 RUN_ROOT="$CASE_ROOT/run"
-mkdir -p "$FAKE_BIN" "$RUN_ROOT/.secrets" "$RUN_ROOT/log" "$RUN_ROOT/state" "$RUN_ROOT/lock"
-printf 'test\n' > "$RUN_ROOT/.secrets/rabbitmq_password"
-printf 'test-jwt-secret-with-at-least-32-bytes\n' > "$RUN_ROOT/.secrets/jwt_secret"
-printf 'test-service-jwt-secret-with-at-least-32-bytes\n' > "$RUN_ROOT/.secrets/service_jwt_active_secret"
+mkdir -p "$FAKE_BIN" "$RUN_ROOT/config/secrets" "$RUN_ROOT/log" "$RUN_ROOT/state" "$RUN_ROOT/lock"
+printf 'test\n' > "$RUN_ROOT/config/secrets/rabbitmq_password"
+printf 'test-jwt-secret-with-at-least-32-bytes\n' > "$RUN_ROOT/config/secrets/jwt_secret"
+printf 'test-service-jwt-secret-with-at-least-32-bytes\n' > "$RUN_ROOT/config/secrets/service_jwt_active_secret"
 printf 'old-v1\n' > "$RUN_ROOT/state/current-version"
 printf 'test\n' > "$RUN_ROOT/deploy.env"
 printf 'verified backup payload\n' > "$RUN_ROOT/verified-backup.tar.gz.enc"
@@ -119,7 +119,7 @@ run_case() {
   (
     cd "$RUN_ROOT"
     PATH="$FAKE_BIN:$PATH" \
-    YLCLOUD_DEPLOY_COMPOSE_FILE="$ROOT/docker-compose.hub.yml" \
+    YLCLOUD_DEPLOY_COMPOSE_FILE="$ROOT/config/docker-compose.hub.yml" \
     YLCLOUD_DEPLOY_ENV_FILE="$RUN_ROOT/deploy.env" \
     YLCLOUD_DEPLOY_LOG_ROOT="$RUN_ROOT/log" \
     YLCLOUD_DEPLOY_STATE_ROOT="$case_state" \
@@ -174,7 +174,7 @@ set +e
 (
   cd "$RUN_ROOT"
   PATH="$FAKE_BIN:$PATH" \
-  YLCLOUD_DEPLOY_COMPOSE_FILE="$ROOT/docker-compose.hub.yml" \
+  YLCLOUD_DEPLOY_COMPOSE_FILE="$ROOT/config/docker-compose.hub.yml" \
   YLCLOUD_DEPLOY_ENV_FILE="$RUN_ROOT/deploy.env" \
   YLCLOUD_DEPLOY_LOG_ROOT="$RUN_ROOT/log" \
   YLCLOUD_DEPLOY_STATE_ROOT="$gate_state" \
@@ -197,6 +197,7 @@ grep -qx 'false' "$gate_state/maintenance-api-state"
 signal_state="$RUN_ROOT/state-signal"
 signal_output="$RUN_ROOT/signal.out"
 signal_marker="$RUN_ROOT/signal.marker"
+rm -f "$signal_marker"
 mkdir -p "$signal_state"
 printf 'old-v1\n' > "$signal_state/current-version"
 printf 'false\n' > "$signal_state/maintenance-api-state"
@@ -206,7 +207,7 @@ set +e
   PATH="$FAKE_BIN:$PATH" \
   FAKE_DOCKER_SLEEP_SERVICE=ylcloud-app \
   FAKE_DOCKER_MARKER="$signal_marker" \
-  YLCLOUD_DEPLOY_COMPOSE_FILE="$ROOT/docker-compose.hub.yml" \
+  YLCLOUD_DEPLOY_COMPOSE_FILE="$ROOT/config/docker-compose.hub.yml" \
   YLCLOUD_DEPLOY_ENV_FILE="$RUN_ROOT/deploy.env" \
   YLCLOUD_DEPLOY_LOG_ROOT="$RUN_ROOT/log" \
   YLCLOUD_DEPLOY_STATE_ROOT="$signal_state" \
@@ -221,7 +222,7 @@ set +e
   bash "$ROOT/scripts/deploy.sh" mq-v1
 ) > "$signal_output" 2>&1 &
 signal_pid=$!
-for _ in 1 2 3 4 5; do [[ -f "$signal_marker" ]] && break; sleep 1; done
+for _ in $(seq 1 15); do [[ -f "$signal_marker" ]] && break; sleep 1; done
 kill -TERM "$signal_pid"
 wait "$signal_pid"
 signal_code=$?

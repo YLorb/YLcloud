@@ -1,6 +1,6 @@
 param(
-    [string]$EnvFile = ".env",
-    [string]$SecretsDirectory = ".secrets"
+    [string]$EnvFile = "config/.env",
+    [string]$SecretsDirectory = "config/secrets"
 )
 
 $ErrorActionPreference = "Stop"

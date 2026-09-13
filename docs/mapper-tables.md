@@ -1,6 +1,6 @@
 # Mapper 表清单
 
-本文档由 `cloud-server/src/main/java/com/ylcloud/mapper` 下的 Mapper SQL 注解整理，并对照 `cloud-server/src/main/resources/db` 下的建表与迁移 SQL 补充字段信息。
+本文档由 `src/cloud-server/src/main/java/com/ylcloud/mapper` 下的 Mapper SQL 注解整理，并对照 `src/cloud-server/src/main/resources/db` 下的建表与迁移 SQL 补充字段信息。
 
 ## 统计
 
@@ -43,31 +43,31 @@
 
 | 表名 | 表注释 | Mapper | 结构来源 |
 | --- | --- | --- | --- |
-| `file_info` | - | `FileInfoMapper.java` | `cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`（无完整 create table） |
-| `file_rag_chunk` | - | `FileRagChunkMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `file_rag_parse_result` | - | `FileRagParseResultMapper.java` | `cloud-server/src/main/resources/db/migration/V4__rag_structured_parse_result.sql` |
-| `file_share` | - | `FileShareMapper.java` | `cloud-server/src/main/resources/db/permission-share.sql` |
-| `file_version` | - | `FileVersionMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `site_setting` | - | `SiteSettingMapper.java` | `cloud-server/src/main/resources/db/migration/V5__site_settings.sql` |
-| `space_file` | - | `SpaceFileMapper.java`, `SpaceRagDocumentMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `space_knowledge_audit_log` | - | `SpaceKnowledgeAuditLogMapper.java` | `cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql` |
-| `space_knowledge_document_profile` | - | `FileRagChunkMapper.java`, `SpaceKnowledgeDocumentProfileMapper.java` | `cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`, `cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql`, `cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql` |
-| `space_knowledge_pipeline_event` | - | `SpaceKnowledgePipelineEventMapper.java` | `cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql` |
-| `space_knowledge_pipeline_task` | - | `SpaceKnowledgePipelineTaskMapper.java` | `cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql` |
-| `space_knowledge_profile_version` | - | `SpaceKnowledgeProfileVersionMapper.java` | `cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql` |
-| `space_knowledge_question` | - | `FileRagChunkMapper.java`, `SpaceKnowledgeQuestionMapper.java` | `cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql` |
-| `space_member` | - | `SpaceMapper.java`, `SpaceMemberMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `space_rag_chunk_ref` | - | `FileRagChunkMapper.java`, `SpaceRagChunkRefMapper.java`, `SpaceRagDocumentMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `space_rag_config` | - | `SpaceRagMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `space_rag_config_log` | - | `SpaceRagConfigLogMapper.java` | `cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `space_rag_document` | - | `FileRagChunkMapper.java`, `SpaceRagDocumentMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `space_rag_query_log` | - | `SpaceRagQueryLogMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `space_rag_task` | - | `SpaceRagTaskMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/migration/V2__rag_task_progress.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `spaces` | - | `SpaceMapper.java` | `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql` |
-| `upload_chunk` | - | `ChunkUploadMapper.java` | `cloud-server/src/main/resources/db/multipart-upload.sql` |
-| `upload_task` | - | `MultifileMapper.java` | `cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`, `cloud-server/src/main/resources/db/multipart-upload.sql` |
+| `file_info` | - | `FileInfoMapper.java` | `src/cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`（无完整 create table） |
+| `file_rag_chunk` | - | `FileRagChunkMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `file_rag_parse_result` | - | `FileRagParseResultMapper.java` | `src/cloud-server/src/main/resources/db/migration/V4__rag_structured_parse_result.sql` |
+| `file_share` | - | `FileShareMapper.java` | `src/cloud-server/src/main/resources/db/permission-share.sql` |
+| `file_version` | - | `FileVersionMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `site_setting` | - | `SiteSettingMapper.java` | `src/cloud-server/src/main/resources/db/migration/V5__site_settings.sql` |
+| `space_file` | - | `SpaceFileMapper.java`, `SpaceRagDocumentMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `space_knowledge_audit_log` | - | `SpaceKnowledgeAuditLogMapper.java` | `src/cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql` |
+| `space_knowledge_document_profile` | - | `FileRagChunkMapper.java`, `SpaceKnowledgeDocumentProfileMapper.java` | `src/cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `src/cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`, `src/cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql`, `src/cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql` |
+| `space_knowledge_pipeline_event` | - | `SpaceKnowledgePipelineEventMapper.java` | `src/cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql` |
+| `space_knowledge_pipeline_task` | - | `SpaceKnowledgePipelineTaskMapper.java` | `src/cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `src/cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql` |
+| `space_knowledge_profile_version` | - | `SpaceKnowledgeProfileVersionMapper.java` | `src/cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql` |
+| `space_knowledge_question` | - | `FileRagChunkMapper.java`, `SpaceKnowledgeQuestionMapper.java` | `src/cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql` |
+| `space_member` | - | `SpaceMapper.java`, `SpaceMemberMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `space_rag_chunk_ref` | - | `FileRagChunkMapper.java`, `SpaceRagChunkRefMapper.java`, `SpaceRagDocumentMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `space_rag_config` | - | `SpaceRagMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `space_rag_config_log` | - | `SpaceRagConfigLogMapper.java` | `src/cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `space_rag_document` | - | `FileRagChunkMapper.java`, `SpaceRagDocumentMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `space_rag_query_log` | - | `SpaceRagQueryLogMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `space_rag_task` | - | `SpaceRagTaskMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/migration/V2__rag_task_progress.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `spaces` | - | `SpaceMapper.java` | `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql` |
+| `upload_chunk` | - | `ChunkUploadMapper.java` | `src/cloud-server/src/main/resources/db/multipart-upload.sql` |
+| `upload_task` | - | `MultifileMapper.java` | `src/cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`, `src/cloud-server/src/main/resources/db/multipart-upload.sql` |
 | `user_file` | - | `FileInfoMapper.java` | `cloud database.md`（无完整 create table） |
-| `users` | - | `LoginMapper.java`, `SignMapper.java` | `cloud-server/src/main/resources/db/permission-share.sql`（无完整 create table） |
+| `users` | - | `LoginMapper.java`, `SignMapper.java` | `src/cloud-server/src/main/resources/db/permission-share.sql`（无完整 create table） |
 
 ## 表结构
 
@@ -75,7 +75,7 @@
 
 - Mapper: `FileInfoMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`
 - 完整性：未找到完整 `create table`，以下字段来自迁移语句或旧设计文档。
 
 | 字段 | 类型/约束 | 注释 |
@@ -89,7 +89,7 @@
 
 - Mapper: `FileRagChunkMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -100,7 +100,7 @@
 
 - Mapper: `FileRagParseResultMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V4__rag_structured_parse_result.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V4__rag_structured_parse_result.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -111,7 +111,7 @@
 
 - Mapper: `FileShareMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/permission-share.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/permission-share.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -122,7 +122,7 @@
 
 - Mapper: `FileVersionMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -133,7 +133,7 @@
 
 - Mapper: `SiteSettingMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V5__site_settings.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V5__site_settings.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -144,7 +144,7 @@
 
 - Mapper: `SpaceFileMapper.java`, `SpaceRagDocumentMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -156,7 +156,7 @@
 
 - Mapper: `SpaceKnowledgeAuditLogMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -169,7 +169,7 @@
 
 - Mapper: `FileRagChunkMapper.java`, `SpaceKnowledgeDocumentProfileMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`, `cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql`, `cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `src/cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`, `src/cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql`, `src/cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -191,7 +191,7 @@
 
 - Mapper: `SpaceKnowledgePipelineEventMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V8__space_knowledge_pipeline_observability.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -205,7 +205,7 @@
 
 - Mapper: `SpaceKnowledgePipelineTaskMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V10__space_knowledge_pipeline_incremental.sql`, `src/cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -222,7 +222,7 @@
 
 - Mapper: `SpaceKnowledgeProfileVersionMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V9__space_knowledge_profile_asset_management.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -238,7 +238,7 @@
 
 - Mapper: `FileRagChunkMapper.java`, `SpaceKnowledgeQuestionMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V7__space_knowledge_pipeline.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -251,7 +251,7 @@
 
 - Mapper: `SpaceMapper.java`, `SpaceMemberMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -264,7 +264,7 @@
 
 - Mapper: `FileRagChunkMapper.java`, `SpaceRagChunkRefMapper.java`, `SpaceRagDocumentMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -284,7 +284,7 @@
 
 - Mapper: `SpaceRagMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -300,7 +300,7 @@
 
 - Mapper: `SpaceRagConfigLogMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -313,7 +313,7 @@
 
 - Mapper: `FileRagChunkMapper.java`, `SpaceRagDocumentMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -326,7 +326,7 @@
 
 - Mapper: `SpaceRagQueryLogMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/migration/V6__rag_config_temperature_and_logs.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -347,7 +347,7 @@
 
 - Mapper: `SpaceRagTaskMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/migration/V2__rag_task_progress.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/migration/V2__rag_task_progress.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -369,7 +369,7 @@
 
 - Mapper: `SpaceMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `cloud-server/src/main/resources/db/space.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V1__space_and_rag.sql`, `src/cloud-server/src/main/resources/db/space.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -380,7 +380,7 @@
 
 - Mapper: `ChunkUploadMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/multipart-upload.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/multipart-upload.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -391,7 +391,7 @@
 
 - Mapper: `MultifileMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`, `cloud-server/src/main/resources/db/multipart-upload.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/migration/V3__multipart_sha1_upload_id.sql`, `src/cloud-server/src/main/resources/db/multipart-upload.sql`
 
 | 字段 | 类型/约束 | 注释 |
 | --- | --- | --- |
@@ -426,7 +426,7 @@
 
 - Mapper: `LoginMapper.java`, `SignMapper.java`
 - 表注释: -
-- 结构来源: `cloud-server/src/main/resources/db/permission-share.sql`
+- 结构来源: `src/cloud-server/src/main/resources/db/permission-share.sql`
 - 完整性：未找到完整 `create table`，以下字段来自迁移语句或旧设计文档。
 
 | 字段 | 类型/约束 | 注释 |

@@ -87,8 +87,8 @@ Covered behavior:
 Command:
 
 ```bash
-python3 -m py_compile model-service/bge_service.py document-parser-service/parser_service.py
-rm -rf model-service/__pycache__ document-parser-service/__pycache__
+python3 -m py_compile src/model-service/bge_service.py src/document-parser-service/parser_service.py
+rm -rf src/model-service/__pycache__ src/document-parser-service/__pycache__
 ```
 
 Expected result:
@@ -111,8 +111,8 @@ Expected result:
 
 - `application.yml` uses `YLCLOUD_RAG_EMBEDDING_MODEL:BAAI/bge-small-zh-v1.5`.
 - `application.yml` uses `YLCLOUD_RAG_EMBEDDING_DIMENSION:512`.
-- `application.yml`, `application-dev.yml`, `docker-compose.yml`, `model-service/README.md`, and `docs/rag-deployment.md` all use `BAAI/bge-reranker-v2-m3`.
-- `docs/rag-bge-m3.env.example` exists for optional `BAAI/bge-m3`.
+- `application.yml`, `application-dev.yml`, `config/docker-compose.yml`, `src/model-service/README.md`, and `docs/rag-deployment.md` all use `BAAI/bge-reranker-v2-m3`.
+- `config/rag-bge-m3.env.example` exists for optional `BAAI/bge-m3`.
 
 ### 2. No Obsolete Rerank or Fusion Configuration
 

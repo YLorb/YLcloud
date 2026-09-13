@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 $imageName = "ylcloud-file-preflight:local"
-docker build --tag $imageName "$PSScriptRoot/../sandbox-tools/file-preflight"
+docker build --tag $imageName "$PSScriptRoot/../src/sandbox-tools/file-preflight"
 if ($LASTEXITCODE -ne 0) { throw "file.preflight image build failed" }
 $imageId = (docker image inspect $imageName --format '{{.Id}}').Trim()
 if (-not $imageId.StartsWith("sha256:")) { throw "Docker did not return an immutable image id" }
@@ -34,7 +34,7 @@ $catalog = @(
         limits = @{ cpus = 1.0; memory_bytes = 536870912; pids = 32; tmpfs_bytes = 1073741824; timeout_seconds = 120; max_result_bytes = 65536 }
     }
 )
-$catalogPath = Join-Path $PSScriptRoot "../sandbox-service/tool-catalog.local.json"
+$catalogPath = Join-Path $PSScriptRoot "../src/sandbox-service/tool-catalog.local.json"
 $catalogJson = ConvertTo-Json -InputObject $catalog -Depth 12
 [System.IO.File]::WriteAllText($catalogPath, $catalogJson, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Pinned file.preflight catalog written to $catalogPath ($imageId)"

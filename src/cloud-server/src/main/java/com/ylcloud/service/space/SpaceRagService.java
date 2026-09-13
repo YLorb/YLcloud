@@ -1,0 +1,1904 @@
+package com.ylcloud.service.space;
+
+import com.ylcloud.service.KnowledgePipelineExecutorService;
+import com.ylcloud.service.KnowledgePipelineService;
+import com.ylcloud.service.RagIndexConsistencyService;
+import com.ylcloud.service.RagIndexTransactionService;
+import com.ylcloud.service.SiteSettingService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ylcloud.DTO.SpaceDocumentSearchDTO;
+import com.ylcloud.DTO.SpaceRagConfigUpdateDTO;
+import com.ylcloud.DTO.SpaceRagQueryDTO;
+import com.ylcloud.Exception.BaseException;
+import com.ylcloud.Exception.ConflictException;
+import com.ylcloud.VO.SpaceDocumentChunkHitVO;
+import com.ylcloud.VO.SpaceDocumentSearchVO;
+import com.ylcloud.VO.SpaceKnowledgePipelineTaskVO;
+import com.ylcloud.VO.SpaceRagConfigVO;
+import com.ylcloud.VO.SpaceRagCitationVO;
+import com.ylcloud.VO.SpaceRagDocumentVO;
+import com.ylcloud.VO.SpaceRagQueryVO;
+import com.ylcloud.VO.SpaceRagTaskVO;
+import com.ylcloud.config.RagProperties;
+import com.ylcloud.async.mq.AsyncMqProperties;
+import com.ylcloud.async.task.DomainTaskPayload;
+import com.ylcloud.async.task.FatalTaskException;
+import com.ylcloud.async.task.RetryableTaskException;
+import com.ylcloud.async.task.StaleTaskException;
+import com.ylcloud.async.task.TaskCreateCommand;
+import com.ylcloud.async.task.UnifiedTaskCenterService;
+import com.ylcloud.async.worker.StaleWorkerException;
+import com.ylcloud.async.worker.TaskCanceledException;
+import com.ylcloud.async.worker.TaskExecutionContext;
+import com.ylcloud.constant.SpaceConstant;
+import com.ylcloud.constant.StatusConstant;
+import com.ylcloud.entity.File;
+import com.ylcloud.entity.FileRagChunk;
+import com.ylcloud.entity.SpaceFile;
+import com.ylcloud.entity.SpaceRagConfig;
+import com.ylcloud.entity.SpaceRagConfigLog;
+import com.ylcloud.entity.SpaceRagDocument;
+import com.ylcloud.entity.SpaceRagQueryLog;
+import com.ylcloud.entity.SpaceRagTask;
+import com.ylcloud.mapper.FileInfoMapper;
+import com.ylcloud.mapper.FileRagChunkMapper;
+import com.ylcloud.mapper.SpaceFileMapper;
+import com.ylcloud.mapper.SpaceRagChunkRefMapper;
+import com.ylcloud.mapper.SpaceRagConfigLogMapper;
+import com.ylcloud.mapper.SpaceRagDocumentMapper;
+import com.ylcloud.mapper.SpaceRagMapper;
+import com.ylcloud.mapper.SpaceRagQueryLogMapper;
+import com.ylcloud.mapper.SpaceRagTaskMapper;
+import com.ylcloud.service.rag.QdrantVectorStoreService;
+import com.ylcloud.service.rag.RagChatResult;
+import com.ylcloud.service.rag.RagChatService;
+import com.ylcloud.service.rag.RagRerankService;
+import com.ylcloud.service.rag.RagTaskExecutorService;
+import com.ylcloud.service.rag.parser.DocumentParser;
+import com.ylcloud.service.rag.parser.ParsedDocument;
+import com.ylcloud.service.rag.parser.StructuredChunk;
+import com.ylcloud.service.rag.parser.StructuredChunker;
+import com.ylcloud.service.rag.query.QueryPlan;
+import com.ylcloud.service.rag.query.QueryRewriteService;
+import com.ylcloud.service.rag.retriever.RagMultiRouteRetriever;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.StringJoiner;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * 空间 RAG 业务服务。
+ */
+@Service
+public class SpaceRagService {
+    private static final Logger log = LoggerFactory.getLogger(SpaceRagService.class);
+    private static final int DEFAULT_CHUNK_SIZE = 1000;
+    private static final int DEFAULT_CHUNK_OVERLAP = 100;
+    private static final int DEFAULT_TOP_K = 5;
+    private static final int MAX_TOP_K = 20;
+    private static final ObjectMapper METADATA_MAPPER = new ObjectMapper();
+
+    private final SpaceRagMapper spaceRagMapper;
+    private final SpaceRagDocumentMapper spaceRagDocumentMapper;
+    private final FileRagChunkMapper fileRagChunkMapper;
+    private final SpaceRagChunkRefMapper spaceRagChunkRefMapper;
+    private final SpaceRagTaskMapper spaceRagTaskMapper;
+    private final SpaceRagQueryLogMapper spaceRagQueryLogMapper;
+    private final SpaceRagConfigLogMapper spaceRagConfigLogMapper;
+    private final SpaceFileMapper spaceFileMapper;
+    private final FileInfoMapper fileInfoMapper;
+    private final SpacePermissionService spacePermissionService;
+    private final QdrantVectorStoreService qdrantVectorStoreService;
+    private final RagChatService ragChatService;
+    private final RagRerankService ragRerankService;
+    private final RagMultiRouteRetriever ragMultiRouteRetriever;
+    private final RagProperties ragProperties;
+    private final DocumentParser documentParser;
+    private final StructuredChunker structuredChunker;
+    private final QueryRewriteService queryRewriteService;
+    private final RagTaskExecutorService ragTaskExecutorService;
+    private final KnowledgePipelineService knowledgePipelineService;
+    private final KnowledgePipelineExecutorService knowledgePipelineExecutorService;
+    private final SiteSettingService siteSettingService;
+    private final RagIndexTransactionService ragIndexTransactionService;
+    private final RagIndexConsistencyService ragIndexConsistencyService;
+    private final SpaceFileLifecycleService fileLifecycleService;
+    private UnifiedTaskCenterService taskCenter;
+    private AsyncMqProperties mqProperties;
+    private TransactionTemplate transactionTemplate;
+
+    private static final int RAG_FANOUT_BATCH_SIZE=100;
+    private static final int RAG_PARENT_MAX_ATTEMPTS=100;
+
+    /**
+     * 初始化 SpaceRagService 对象。
+     *
+     * @param spaceRagMapper 方法入参
+     * @param spaceRagDocumentMapper 方法入参
+     * @param fileRagChunkMapper 方法入参
+     * @param spaceRagChunkRefMapper 方法入参
+     * @param spaceRagTaskMapper 方法入参
+     * @param spaceRagQueryLogMapper 方法入参
+     * @param spaceFileMapper 方法入参
+     * @param fileInfoMapper 方法入参
+     * @param spacePermissionService 方法入参
+     * @param qdrantVectorStoreService 方法入参
+     * @param ragChatService 方法入参
+     * @param ragRerankService 方法入参
+     * @param ragMultiRouteRetriever 方法入参
+     * @param ragProperties RAG 配置属性
+     * @param documentParser 方法入参
+     * @param structuredChunker 方法入参
+     * @param ragTaskExecutorService 方法入参
+     */
+    public SpaceRagService(SpaceRagMapper spaceRagMapper,
+                           SpaceRagDocumentMapper spaceRagDocumentMapper,
+                           FileRagChunkMapper fileRagChunkMapper,
+                           SpaceRagChunkRefMapper spaceRagChunkRefMapper,
+                           SpaceRagTaskMapper spaceRagTaskMapper,
+                           SpaceRagQueryLogMapper spaceRagQueryLogMapper,
+                           SpaceRagConfigLogMapper spaceRagConfigLogMapper,
+                           SpaceFileMapper spaceFileMapper,
+                           FileInfoMapper fileInfoMapper,
+                           SpacePermissionService spacePermissionService,
+                           QdrantVectorStoreService qdrantVectorStoreService,
+                           RagChatService ragChatService,
+                           RagRerankService ragRerankService,
+                           RagMultiRouteRetriever ragMultiRouteRetriever,
+                           RagProperties ragProperties,
+                           DocumentParser documentParser,
+                           StructuredChunker structuredChunker,
+                           QueryRewriteService queryRewriteService,
+                           RagTaskExecutorService ragTaskExecutorService,
+                           KnowledgePipelineService knowledgePipelineService,
+                           KnowledgePipelineExecutorService knowledgePipelineExecutorService,
+                           SiteSettingService siteSettingService,
+                           RagIndexTransactionService ragIndexTransactionService,
+                           RagIndexConsistencyService ragIndexConsistencyService,
+                           SpaceFileLifecycleService fileLifecycleService) {
+        this.spaceRagMapper = spaceRagMapper;
+        this.spaceRagDocumentMapper = spaceRagDocumentMapper;
+        this.fileRagChunkMapper = fileRagChunkMapper;
+        this.spaceRagChunkRefMapper = spaceRagChunkRefMapper;
+        this.spaceRagTaskMapper = spaceRagTaskMapper;
+        this.spaceRagQueryLogMapper = spaceRagQueryLogMapper;
+        this.spaceRagConfigLogMapper = spaceRagConfigLogMapper;
+        this.spaceFileMapper = spaceFileMapper;
+        this.fileInfoMapper = fileInfoMapper;
+        this.spacePermissionService = spacePermissionService;
+        this.qdrantVectorStoreService = qdrantVectorStoreService;
+        this.ragChatService = ragChatService;
+        this.ragRerankService = ragRerankService;
+        this.ragMultiRouteRetriever = ragMultiRouteRetriever;
+        this.ragProperties = ragProperties;
+        this.documentParser = documentParser;
+        this.structuredChunker = structuredChunker;
+        this.queryRewriteService = queryRewriteService;
+        this.ragTaskExecutorService = ragTaskExecutorService;
+        this.knowledgePipelineService = knowledgePipelineService;
+        this.knowledgePipelineExecutorService = knowledgePipelineExecutorService;
+        this.siteSettingService = siteSettingService;
+        this.ragIndexTransactionService = ragIndexTransactionService;
+        this.ragIndexConsistencyService = ragIndexConsistencyService;
+        this.fileLifecycleService = fileLifecycleService;
+    }
+
+    @Autowired(required = false)
+    public void setAsyncTaskInfrastructure(UnifiedTaskCenterService taskCenter,AsyncMqProperties mqProperties) {
+        this.taskCenter=taskCenter;
+        this.mqProperties=mqProperties;
+    }
+
+    @Autowired(required = false)
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.transactionTemplate=new TransactionTemplate(transactionManager);
+    }
+
+    /**
+     * 查询 getConfig 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    public SpaceRagConfigVO getConfig(Long spaceId, Long userId) {
+        spacePermissionService.requireMember(spaceId,userId);
+        return toConfigVO(requireConfig(spaceId));
+    }
+
+    /**
+     * 更新 updateConfig 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public SpaceRagConfigVO updateConfig(Long spaceId, SpaceRagConfigUpdateDTO dto, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        SpaceRagConfig current = requireConfig(spaceId);
+        Integer chunkSize = dto.getChunkSize() == null ? current.getChunkSize() : dto.getChunkSize();
+        Integer chunkOverlap = dto.getChunkOverlap() == null ? current.getChunkOverlap() : dto.getChunkOverlap();
+        if(chunkOverlap >= chunkSize) {
+            throw new BaseException("文本分块重叠长度必须小于文本分块大小");
+        }
+        Integer topK = safeConfiguredTopK(dto.getTopK() == null ? current.getTopK() : dto.getTopK());
+        BigDecimal temperature = safeTemperature(dto.getTemperature() == null ? current.getTemperature() : dto.getTemperature());
+        int rows = spaceRagMapper.updateConfig(
+                spaceId,
+                blankToCurrent(dto.getEmbeddingModel(),current.getEmbeddingModel()),
+                blankToCurrent(dto.getChatModel(),current.getChatModel()),
+                chunkSize,
+                chunkOverlap,
+                topK,
+                temperature,
+                dto.getScoreThreshold() == null ? current.getScoreThreshold() : dto.getScoreThreshold(),
+                dto.getEnabled() == null ? current.getEnabled() : dto.getEnabled(),
+                dto.getKnowledgeProfileEnabled() == null ? current.getKnowledgeProfileEnabled() : dto.getKnowledgeProfileEnabled(),
+                LocalDateTime.now()
+        );
+        if(rows == 0) {
+            throw new BaseException("空间 RAG 配置更新失败");
+        }
+        SpaceRagConfig updated = requireConfig(spaceId);
+        saveConfigChangeLog(spaceId,userId,current,updated);
+        return toConfigVO(updated);
+    }
+
+    /**
+     * 执行 query 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public SpaceRagQueryVO query(Long spaceId, SpaceRagQueryDTO dto, Long userId) {
+        long startedAt = System.nanoTime();
+        spacePermissionService.requireMember(spaceId,userId);
+        if(!Boolean.TRUE.equals(siteSettingService.getBoolean(SiteSettingService.LLM_ENABLED,true))) {
+            throw new BaseException("管理员已停用 AI 问答");
+        }
+        SpaceRagConfig config = requireConfig(spaceId);
+        if(!StatusConstant.ENABLE.equals(config.getEnabled())) {
+            throw new BaseException("当前空间未启用 RAG");
+        }
+        int limit = resolveQueryTopK(config,dto.getRetrievalMode());
+        QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),dto.getHistory());
+        long rewriteFinishedAt = System.nanoTime();
+        List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
+        long retrievalFinishedAt = System.nanoTime();
+        RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config,dto.getHistory());
+        long generationFinishedAt = System.nanoTime();
+        String answer = chatResult.getAnswer();
+        boolean noAnswer = chatResult.isNoAnswer() || answer == null || answer.isBlank();
+        List<Long> hitChunkIds = new ArrayList<>();
+        List<String> contexts = new ArrayList<>();
+        StringJoiner idJoiner = new StringJoiner(",");
+        if(!noAnswer) {
+            for(FileRagChunk chunk : chunks) {
+                hitChunkIds.add(chunk.getId());
+                contexts.add(chunk.getContent());
+                idJoiner.add(String.valueOf(chunk.getId()));
+            }
+        }
+        saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),
+                blankToCurrent(chatResult.getModelName(),config.getChatModel()),limit,safeTemperature(config.getTemperature()),
+                chatResult.isSuccess(),chatResult.getErrorMessage());
+
+        SpaceRagQueryVO vo = new SpaceRagQueryVO();
+        vo.setSpaceId(spaceId);
+        vo.setQuestion(dto.getQuestion());
+        vo.setAnswer(answer);
+        vo.setHitChunkIds(hitChunkIds);
+        vo.setContexts(contexts);
+        vo.setCitations(noAnswer ? new ArrayList<>() : buildCitations(spaceId,chunks));
+        vo.setRetrievedChunkIds(chunks.stream().map(FileRagChunk::getId).toList());
+        vo.setRewriteDurationMs(elapsedMillis(startedAt,rewriteFinishedAt));
+        vo.setRetrievalDurationMs(elapsedMillis(rewriteFinishedAt,retrievalFinishedAt));
+        vo.setGenerationDurationMs(elapsedMillis(retrievalFinishedAt,generationFinishedAt));
+        vo.setTotalDurationMs(elapsedMillis(startedAt,generationFinishedAt));
+        log.info("RAG query stages: spaceId={}, retrievedChunks={}, noAnswer={}, rewriteMs={}, retrievalMs={}, generationMs={}, totalMs={}",
+                spaceId,chunks.size(),noAnswer,vo.getRewriteDurationMs(),vo.getRetrievalDurationMs(),
+                vo.getGenerationDurationMs(),vo.getTotalDurationMs());
+        return vo;
+    }
+
+    private long elapsedMillis(long start, long end) {
+        return Math.max(0L,(end - start) / 1_000_000L);
+    }
+
+    /**
+     * 查询 listDocuments 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
+    public List<SpaceRagDocumentVO> listDocuments(Long spaceId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        expireStaleIndexTasks(spaceId);
+        List<SpaceRagDocumentVO> result = new ArrayList<>();
+        for(SpaceRagDocument document : spaceRagDocumentMapper.listBySpaceId(spaceId)) {
+            result.add(toDocumentVO(document));
+        }
+        return result;
+    }
+
+    /**
+     * 查询 listTasks 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
+    public List<SpaceRagTaskVO> listTasks(Long spaceId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        expireStaleIndexTasks(spaceId);
+        List<SpaceRagTaskVO> result = new ArrayList<>();
+        for(SpaceRagTask task : spaceRagTaskMapper.listBySpaceId(spaceId)) {
+            result.add(toTaskVO(task));
+        }
+        return result;
+    }
+
+    /**
+     * 重试 retryTask 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param taskId 任务 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public Boolean retryTask(Long spaceId, Long taskId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        SpaceRagTask failedTask = spaceRagTaskMapper.getById(taskId);
+        if(failedTask == null || !spaceId.equals(failedTask.getSpaceId())) {
+            throw new BaseException("RAG 任务不存在");
+        }
+        if(!SpaceConstant.RAG_TASK_FAILED.equals(failedTask.getTaskStatus())) {
+            throw new BaseException("只有失败的 RAG 任务可以重试");
+        }
+        if(mqRagEnabled() && failedTask.getAsyncTaskId()!=null) {
+            long version=resourceVersion(failedTask);
+            if(spaceRagTaskMapper.prepareAsyncRetry(failedTask.getId(),version,failedTask.getAsyncTaskId(),LocalDateTime.now())!=1) {
+                throw new StaleTaskException("RAG task retry was rejected by the resource fence");
+            }
+            taskCenter.retry(failedTask.getAsyncTaskId(),userId,"Retry RAG task");
+            return true;
+        }
+        if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(failedTask.getTaskType())) {
+            return rebuildSpace(spaceId,userId);
+        }
+        if(SpaceConstant.RAG_TASK_DELETE_FILE.equals(failedTask.getTaskType()) && failedTask.getSpaceFileId() != null) {
+            SpaceRagTask retry = createTask(spaceId,failedTask.getSpaceFileId(),failedTask.getDocumentId(),
+                    SpaceConstant.RAG_TASK_DELETE_FILE,userId);
+            dispatchAfterCommit(() -> ragTaskExecutorService.runDeleteFileTask(
+                    retry.getId(),spaceId,failedTask.getSpaceFileId()));
+            return true;
+        }
+        if(failedTask.getSpaceFileId() != null) {
+            return rebuildFile(spaceId,failedTask.getSpaceFileId(),userId);
+        }
+        throw new BaseException("当前 RAG 任务缺少可重试的文件范围");
+    }
+
+    /**
+     * 重试 retryFailedTasks 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public Boolean retryFailedTasks(Long spaceId, Long userId) {
+        return repairSpaceVectors(spaceId,userId);
+    }
+
+    /**
+     * 修复 repairSpaceVectors 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public Boolean repairSpaceVectors(Long spaceId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        expireStaleIndexTasks(spaceId);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningSpaceTask(spaceId,SpaceConstant.RAG_TASK_REBUILD_SPACE);
+        if(runningTask != null) {
+            return true;
+        }
+        SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId,null,true);
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceRepairTask(task.getId(),spaceId,userId));
+        return true;
+    }
+
+    /**
+     * 修复 repairFileVectors 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public Boolean repairFileVectors(Long spaceId, Long spaceFileId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        return rebuildFile(spaceId,spaceFileId,userId);
+    }
+
+    /**
+     * 搜索 searchDocuments 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param dto 请求参数
+     * @param userId 用户 ID
+     * @return 列表结果
+     */
+    public List<SpaceDocumentSearchVO> searchDocuments(Long spaceId, SpaceDocumentSearchDTO dto, Long userId) {
+        spacePermissionService.requireMember(spaceId,userId);
+        String keyword = dto.getKeyword() == null ? "" : dto.getKeyword().trim();
+        int page = dto.getPage() == null || dto.getPage() < 1 ? 1 : dto.getPage();
+        int pageSize = dto.getPageSize() == null || dto.getPageSize() < 1 ? 20 : Math.min(dto.getPageSize(),100);
+        int offset = (page - 1) * pageSize;
+
+        List<SpaceDocumentSearchVO> metadataHits = spaceRagDocumentMapper.searchDocuments(
+                spaceId,
+                keyword,
+                dto.getFileType(),
+                dto.getIndexStatus(),
+                pageSize,
+                offset
+        );
+        Map<Long, SpaceDocumentSearchVO> resultMap = new LinkedHashMap<>();
+        for(SpaceDocumentSearchVO vo : metadataHits) {
+            fillDocumentLinks(spaceId,vo);
+            vo.setHitContents(new ArrayList<>());
+            vo.setHitChunkIds(new ArrayList<>());
+            resultMap.put(vo.getDocumentId(),vo);
+        }
+
+        boolean searchContent = (dto.getSearchContent() == null || dto.getSearchContent() == 1) && !keyword.isBlank();
+        if(searchContent) {
+            List<SpaceDocumentChunkHitVO> chunkHits = fileRagChunkMapper.searchDocumentChunkHits(spaceId,keyword,pageSize * 5);
+            List<Long> missingDocumentIds = new ArrayList<>();
+            for(SpaceDocumentChunkHitVO hit : chunkHits) {
+                if(!resultMap.containsKey(hit.getDocumentId()) && !missingDocumentIds.contains(hit.getDocumentId())) {
+                    missingDocumentIds.add(hit.getDocumentId());
+                }
+            }
+            if(!missingDocumentIds.isEmpty()) {
+                for(SpaceDocumentSearchVO vo : spaceRagDocumentMapper.listSearchDocumentsByIds(spaceId,missingDocumentIds)) {
+                    fillDocumentLinks(spaceId,vo);
+                    vo.setHitContents(new ArrayList<>());
+                    vo.setHitChunkIds(new ArrayList<>());
+                    resultMap.put(vo.getDocumentId(),vo);
+                }
+            }
+            for(SpaceDocumentChunkHitVO hit : chunkHits) {
+                SpaceDocumentSearchVO vo = resultMap.get(hit.getDocumentId());
+                if(vo == null) continue;
+                vo.getHitChunkIds().add(hit.getChunkId());
+                vo.getHitContents().add(truncate(hit.getContent(),200));
+            }
+        }
+        return new ArrayList<>(resultMap.values());
+    }
+
+    /**
+     * 重建 rebuildSpace 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public Boolean rebuildSpace(Long spaceId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        expireStaleIndexTasks(spaceId);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningSpaceTask(spaceId,SpaceConstant.RAG_TASK_REBUILD_SPACE);
+        if(runningTask != null) {
+            return true;
+        }
+        SpaceRagTask task = createTask(spaceId,null,null,SpaceConstant.RAG_TASK_REBUILD_SPACE,userId);
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runSpaceTask(task.getId(),spaceId,userId));
+        return true;
+    }
+
+    /**
+     * 重建 rebuildFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    @Transactional
+    public Boolean rebuildFile(Long spaceId, Long spaceFileId, Long userId) {
+        spacePermissionService.requireAdmin(spaceId,userId);
+        expireStaleIndexTasks(spaceId);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningFileTask(spaceId,spaceFileId);
+        if(runningTask != null) {
+            return true;
+        }
+        SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceFileId(spaceId,spaceFileId);
+        if(document == null) {
+            document = createDocument(requireFile(spaceId,spaceFileId),userId);
+        }
+        if(mqRagEnabled()) document=refreshDocumentMetadata(document);
+        SpaceRagTask task = createTask(spaceId,spaceFileId,document.getId(),SpaceConstant.RAG_TASK_REBUILD_FILE,userId);
+        Long documentId = document.getId();
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),documentId,userId));
+        return true;
+    }
+
+    /**
+     * 执行 handleFileImported 函数的业务处理。
+     *
+     * @param spaceFile 空间文件对象
+     * @param userId 用户 ID
+     */
+    @Transactional
+    public void handleFileImported(SpaceFile spaceFile, Long userId) {
+        if(spaceFile == null || spaceFile.getDir() == 1) {
+            return;
+        }
+        expireStaleIndexTasks(spaceFile.getSpaceId());
+        SpaceRagDocument document = createDocument(spaceFile,userId);
+        SpaceRagTask runningTask = spaceRagTaskMapper.findRunningFileTask(spaceFile.getSpaceId(),spaceFile.getId());
+        if(runningTask != null) {
+            return;
+        }
+        SpaceRagTask task = createTask(spaceFile.getSpaceId(),spaceFile.getId(),document.getId(),SpaceConstant.RAG_TASK_INDEX_FILE,userId);
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),document.getId(),userId));
+    }
+
+    /**
+     * 执行 executeFileRagTask 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param documentId 文档 ID
+     * @param userId 用户 ID
+     */
+    public void executeFileRagTask(Long taskId, Long documentId, Long userId) {
+        LocalDateTime started = LocalDateTime.now();
+        if(!markTaskRunning(taskId,started)) {
+            return;
+        }
+        try {
+            updateTaskProgress(taskId,1,0,0);
+            SpaceRagDocument document = spaceRagDocumentMapper.getById(documentId);
+            if(document == null) {
+                throw new BaseException("RAG document not found");
+            }
+            rebuildDocument(document,userId,true);
+            updateTaskProgress(taskId,1,1,0);
+            finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+        } catch (Throwable ex) {
+            String errorMessage = truncate(ex.getMessage(),1000);
+            updateTaskProgress(taskId,1,0,1);
+            finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,errorMessage,started);
+        }
+    }
+
+    /**
+     * 执行 executeSpaceRagTask 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     */
+    public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId) {
+        executeSpaceRagTask(taskId,spaceId,userId,false);
+    }
+
+    /**
+     * 执行 executeSpaceRagTask 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @param clearSpaceVectors 是否清理空间向量
+     */
+    public void executeSpaceRagTask(Long taskId, Long spaceId, Long userId, boolean clearSpaceVectors) {
+        LocalDateTime started = LocalDateTime.now();
+        if(!markTaskRunning(taskId,started)) {
+            return;
+        }
+        try {
+            if(clearSpaceVectors) {
+                qdrantVectorStoreService.deleteBySpaceStrict(spaceId);
+            }
+            List<SpaceRagDocument> documents = spaceRagDocumentMapper.listBySpaceId(spaceId);
+            updateTaskProgress(taskId,documents.size(),0,0);
+            AtomicInteger failed = new AtomicInteger();
+            AtomicInteger success = new AtomicInteger();
+            ExecutorService executor = Executors.newFixedThreadPool(indexConcurrency());
+            try {
+                List<CompletableFuture<Void>> futures = new ArrayList<>();
+                for(SpaceRagDocument document : documents) {
+                    futures.add(CompletableFuture.runAsync(() -> {
+                        try {
+                            rebuildDocument(document,userId,false);
+                            success.incrementAndGet();
+                        } catch (Throwable ex) {
+                            failed.incrementAndGet();
+                        } finally {
+                            updateTaskProgress(taskId,documents.size(),success.get(),failed.get());
+                        }
+                    },executor));
+                }
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            } finally {
+                executor.shutdown();
+            }
+            submitKnowledgeProfileSpaceTask(spaceId,userId);
+            if(failed.get() > 0) {
+                finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,"Partial document indexing failed: " + failed.get() + "/" + documents.size(),started);
+                return;
+            }
+            finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+        } catch (Throwable ex) {
+            finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
+        }
+    }
+
+    /**
+     * 执行 handleFileRemoved 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param userId 用户 ID
+     */
+    @Transactional
+    public void handleFileRemoved(Long spaceId, Long spaceFileId, Long userId) {
+        SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceFileId(spaceId,spaceFileId);
+        spaceRagChunkRefMapper.disableBySpaceFileId(spaceId,spaceFileId,LocalDateTime.now());
+        spaceRagDocumentMapper.disableBySpaceFileId(spaceId,spaceFileId,SpaceConstant.RAG_INDEX_FAILED,"空间文件已删除",LocalDateTime.now());
+        spaceRagTaskMapper.skipActiveFileIndexTasks(spaceId,spaceFileId,"Superseded by logical file deletion",LocalDateTime.now());
+        SpaceRagTask task = createTask(spaceId,spaceFileId,document == null ? null : document.getId(),SpaceConstant.RAG_TASK_DELETE_FILE,userId);
+        if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runDeleteFileTask(task.getId(),spaceId,spaceFileId));
+    }
+
+    public void executeDeleteFileRagTask(Long taskId, Long spaceId, Long spaceFileId) {
+        LocalDateTime started = LocalDateTime.now();
+        if(!markTaskRunning(taskId,started)) {
+            return;
+        }
+        try {
+            updateTaskProgress(taskId,1,0,0);
+            qdrantVectorStoreService.deleteBySpaceFileStrict(spaceId,spaceFileId);
+            fileLifecycleService.removalSucceeded(spaceId,spaceFileId);
+            updateTaskProgress(taskId,1,1,0);
+            finishTask(taskId,SpaceConstant.RAG_TASK_SUCCESS,null,started);
+        } catch (Throwable ex) {
+            fileLifecycleService.removalFailed(spaceId,spaceFileId,ex.getMessage());
+            updateTaskProgress(taskId,1,0,1);
+            finishTask(taskId,SpaceConstant.RAG_TASK_FAILED,truncate(ex.getMessage(),1000),started);
+        }
+    }
+
+    /** Executes one file index/rebuild through the unified leased worker. */
+    public RagFileAsyncResult executeFileAsync(Long ragTaskId,Long asyncTaskId,long expectedVersion,
+                                               int attemptVersion,boolean finalAttempt,
+                                               TaskExecutionContext executionContext,String expectedType) {
+        SpaceRagTask task=requireAsyncTask(ragTaskId,asyncTaskId,expectedVersion,expectedType);
+        if(spaceRagTaskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG file task cannot be claimed");
+        }
+        boolean committed=false;
+        try {
+            SpaceRagDocument document=spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+            if(document==null || document.getStatus()==null || document.getStatus()!=StatusConstant.ENABLE
+                    || !task.getSpaceId().equals(document.getSpaceId())
+                    || !task.getSpaceFileId().equals(document.getSpaceFileId())) {
+                finishAsync(task,asyncTaskId,"SKIPPED",1,0,0,null);
+                throw new StaleTaskException("RAG logical file was removed or replaced");
+            }
+            long current=document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+            committed=current==expectedVersion+1 && SpaceConstant.RAG_INDEX_SUCCESS.equals(document.getIndexStatus())
+                    && "ACTIVE".equals(document.getVectorState());
+            if(!committed && current!=expectedVersion) {
+                finishAsync(task,asyncTaskId,"SKIPPED",1,0,0,null);
+                throw new StaleTaskException("RAG document version is stale");
+            }
+            SpaceFile spaceFile=requireFile(task.getSpaceId(),task.getSpaceFileId());
+            SpaceRagConfig config=requireConfig(task.getSpaceId());
+            executionContext.checkpoint();
+            List<FileRagChunk> chunks=ensureFileChunks(spaceFile,config);
+            if(!committed) {
+                fileLifecycleService.indexing(task.getSpaceId(),task.getSpaceFileId());
+                ragIndexTransactionService.beginIndexFenced(document.getId(),expectedVersion,asyncTaskId);
+                executionContext.checkpoint();
+                int staged=qdrantVectorStoreService.stageSpaceChunks(
+                        task.getSpaceId(),task.getSpaceFileId(),document.getId(),chunks);
+                if(staged!=chunks.size()) throw new RetryableTaskException("RAG staged vector count mismatch");
+                executionContext.checkpoint();
+                ragIndexTransactionService.commitIndexFenced(task.getSpaceId(),task.getSpaceFileId(),document.getId(),chunks,
+                        task.getId(),asyncTaskId,expectedVersion,attemptVersion);
+                committed=true;
+                fileLifecycleService.indexSucceeded(task.getSpaceId(),task.getSpaceFileId());
+            }
+            executionContext.checkpoint();
+            qdrantVectorStoreService.cleanupObsoleteSpaceFilePoints(chunks);
+            executionContext.checkpoint();
+            if(spaceRagTaskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,
+                    SpaceConstant.RAG_TASK_SUCCESS,1,1,0,null,LocalDateTime.now())!=1) {
+                throw new StaleWorkerException();
+            }
+            submitKnowledgeProfileTask(task.getSpaceId(),document.getId(),task.getCreatedBy());
+            return new RagFileAsyncResult(task.getId(),document.getId(),chunks.size());
+        } catch(TaskCanceledException canceled) {
+            spaceRagTaskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,"RAG task canceled");
+            throw canceled;
+        } catch(StaleTaskException stale) {
+            spaceRagTaskMapper.skipAsync(task.getId(),expectedVersion,asyncTaskId,safeError(stale),LocalDateTime.now());
+            SpaceRagDocument latest=spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+            if(latest==null || latest.getStatus()==null || latest.getStatus()==StatusConstant.DISABLE) {
+                try {
+                    qdrantVectorStoreService.deleteBySpaceFileStrict(task.getSpaceId(),task.getSpaceFileId());
+                } catch(RuntimeException cleanupFailure) {
+                    stale.addSuppressed(cleanupFailure);
+                }
+            }
+            throw stale;
+        } catch(StaleWorkerException stale) {
+            throw stale;
+        } catch(FatalTaskException fatal) {
+            if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,safeError(fatal));
+            finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(fatal));
+            throw fatal;
+        } catch(BaseException deterministic) {
+            if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,safeError(deterministic));
+            finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(deterministic));
+            throw new FatalTaskException(safeError(deterministic));
+        } catch(Exception temporary) {
+            if(finalAttempt) {
+                if(!committed) restoreOrFailIndex(task,asyncTaskId,expectedVersion,safeError(temporary));
+                finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(temporary));
+            }
+            throw new RetryableTaskException(safeError(temporary),temporary);
+        }
+    }
+
+    /** Executes logical-file vector removal through the unified leased worker. */
+    public RagDeleteAsyncResult executeDeleteAsync(Long ragTaskId,Long asyncTaskId,long expectedVersion,
+                                                   boolean finalAttempt,TaskExecutionContext executionContext) {
+        SpaceRagTask task=requireAsyncTask(ragTaskId,asyncTaskId,expectedVersion,"RAG_DELETE_FILE");
+        if(spaceRagTaskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG delete task cannot be claimed");
+        }
+        try {
+            SpaceRagDocument document=task.getDocumentId()==null ? null : spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+            if(document!=null) {
+                long current=document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+                if(current!=expectedVersion || document.getStatus()==null || document.getStatus()!=StatusConstant.DISABLE) {
+                    finishAsync(task,asyncTaskId,"SKIPPED",1,0,0,null);
+                    throw new StaleTaskException("RAG delete version is stale");
+                }
+            }
+            executionContext.checkpoint();
+            qdrantVectorStoreService.deleteBySpaceFileStrict(task.getSpaceId(),task.getSpaceFileId());
+            executionContext.checkpoint();
+            fileLifecycleService.removalSucceeded(task.getSpaceId(),task.getSpaceFileId());
+            if(spaceRagTaskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,
+                    SpaceConstant.RAG_TASK_SUCCESS,1,1,0,null,LocalDateTime.now())!=1) throw new StaleWorkerException();
+            return new RagDeleteAsyncResult(task.getId(),task.getSpaceFileId());
+        } catch(TaskCanceledException canceled) {
+            spaceRagTaskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            throw canceled;
+        } catch(StaleTaskException stale) {
+            spaceRagTaskMapper.skipAsync(task.getId(),expectedVersion,asyncTaskId,safeError(stale),LocalDateTime.now());
+            throw stale;
+        } catch(StaleWorkerException stale) {
+            throw stale;
+        } catch(Exception temporary) {
+            if(finalAttempt) {
+                fileLifecycleService.removalFailed(task.getSpaceId(),task.getSpaceFileId(),safeError(temporary));
+                finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,1,0,1,safeError(temporary));
+            }
+            throw new RetryableTaskException(safeError(temporary));
+        }
+    }
+
+    /** Bounded fan-out plus terminal child aggregation; no heavy indexing runs on the parent message. */
+    public RagSpaceAsyncResult executeSpaceAsync(Long ragTaskId,Long asyncTaskId,long expectedVersion,
+                                                 boolean finalAttempt,TaskExecutionContext executionContext) {
+        SpaceRagTask task=requireAsyncTask(ragTaskId,asyncTaskId,expectedVersion,"RAG_SPACE_FANOUT");
+        if(spaceRagTaskMapper.claimAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG space fanout task cannot be claimed");
+        }
+        try {
+            executionContext.checkpoint();
+            long cursor=task.getFanoutCursor()==null ? 0L : task.getFanoutCursor();
+            List<SpaceRagDocument> batch=spaceRagDocumentMapper.listBySpaceIdAfterId(
+                    task.getSpaceId(),cursor,RAG_FANOUT_BATCH_SIZE);
+            int created=0;
+            long nextCursor=cursor;
+            for(SpaceRagDocument document:batch) {
+                executionContext.checkpoint();
+                SpaceRagTask child=createFanoutChild(task,document);
+                if(child!=null && child.getAsyncTaskId()!=null) created++;
+                nextCursor=Math.max(nextCursor,document.getId());
+            }
+            int knownChildren=spaceRagTaskMapper.listByParent(task.getId()).size();
+            if(nextCursor!=cursor && spaceRagTaskMapper.advanceFanout(task.getId(),expectedVersion,asyncTaskId,
+                    nextCursor,knownChildren,LocalDateTime.now())!=1) throw new StaleWorkerException();
+            if(batch.size()==RAG_FANOUT_BATCH_SIZE) {
+                throw new RetryableTaskException("RAG fanout continuation required after "+nextCursor);
+            }
+            List<SpaceRagTask> children=spaceRagTaskMapper.listByParent(task.getId());
+            long active=children.stream().filter(child -> List.of("PENDING","RUNNING").contains(child.getTaskStatus())).count();
+            if(active>0) throw new RetryableTaskException("Waiting for "+active+" RAG child tasks");
+            int success=(int)children.stream().filter(child -> SpaceConstant.RAG_TASK_SUCCESS.equals(child.getTaskStatus())).count();
+            int canceled=(int)children.stream().filter(child -> "CANCELED".equals(child.getTaskStatus())).count();
+            int failed=children.size()-success;
+            String status=failed==0 ? SpaceConstant.RAG_TASK_SUCCESS
+                    : success==0 ? SpaceConstant.RAG_TASK_FAILED : "PARTIAL_SUCCESS";
+            String error=failed==0 ? null : "RAG children failed or canceled: failed="+failed+", canceled="+canceled;
+            if(spaceRagTaskMapper.finishAsync(task.getId(),expectedVersion,asyncTaskId,status,
+                    children.size(),success,failed,error,LocalDateTime.now())!=1) throw new StaleWorkerException();
+            if(success>0) submitKnowledgeProfileSpaceTask(task.getSpaceId(),task.getCreatedBy());
+            return new RagSpaceAsyncResult(task.getId(),children.size(),success,failed,canceled,created);
+        } catch(TaskCanceledException canceled) {
+            cancelFanoutChildren(task);
+            spaceRagTaskMapper.cancelAsync(task.getId(),expectedVersion,asyncTaskId,LocalDateTime.now());
+            throw canceled;
+        } catch(StaleTaskException stale) {
+            spaceRagTaskMapper.skipAsync(task.getId(),expectedVersion,asyncTaskId,safeError(stale),LocalDateTime.now());
+            throw stale;
+        } catch(StaleWorkerException stale) {
+            throw stale;
+        } catch(RetryableTaskException retryable) {
+            if(finalAttempt) finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,
+                    task.getTotalCount()==null?0:task.getTotalCount(),0,1,safeError(retryable));
+            throw retryable;
+        } catch(Exception temporary) {
+            if(finalAttempt) finishAsync(task,asyncTaskId,SpaceConstant.RAG_TASK_FAILED,0,0,1,safeError(temporary));
+            throw new RetryableTaskException(safeError(temporary));
+        }
+    }
+
+    private SpaceRagTask createFanoutChild(SpaceRagTask parent,SpaceRagDocument document) {
+        java.util.function.Supplier<SpaceRagTask> work=() -> {
+            SpaceRagTask existing=spaceRagTaskMapper.getByParentFileType(parent.getId(),document.getSpaceFileId(),
+                    SpaceConstant.RAG_TASK_REBUILD_FILE);
+            if(existing!=null) return existing;
+            SpaceRagDocument refreshed=refreshDocumentMetadata(document);
+            return createTask(parent.getSpaceId(),refreshed.getSpaceFileId(),refreshed.getId(),
+                    SpaceConstant.RAG_TASK_REBUILD_FILE,parent.getCreatedBy(),parent.getId(),false);
+        };
+        return transactionTemplate==null ? work.get() : transactionTemplate.execute(status -> work.get());
+    }
+
+    private void cancelFanoutChildren(SpaceRagTask parent) {
+        for(SpaceRagTask child:spaceRagTaskMapper.listByParent(parent.getId())) {
+            if(child.getAsyncTaskId()==null || !List.of("PENDING","RUNNING").contains(child.getTaskStatus())) continue;
+            try {
+                taskCenter.cancel(child.getAsyncTaskId(),parent.getCreatedBy(),"Parent RAG task canceled");
+            } catch(RuntimeException ignored) {
+                log.warn("Unable to cancel RAG child task: childId={}",child.getId());
+            }
+        }
+    }
+
+    private SpaceRagTask requireAsyncTask(Long id,Long asyncTaskId,long version,String centralType) {
+        SpaceRagTask task=spaceRagTaskMapper.getById(id);
+        if(task==null || !centralType.equals(unifiedTaskType(task.getTaskType()))
+                || !asyncTaskId.equals(task.getAsyncTaskId()) || resourceVersion(task)!=version) {
+            throw new StaleTaskException("RAG task association is stale");
+        }
+        return task;
+    }
+
+    private void restoreOrFailIndex(SpaceRagTask task,Long asyncTaskId,long version,String error) {
+        ragIndexTransactionService.failIndexFenced(task.getDocumentId(),version,asyncTaskId,truncate(error,1000));
+        SpaceRagDocument restored=spaceRagDocumentMapper.getAnyById(task.getDocumentId());
+        if(restored!=null && SpaceConstant.RAG_INDEX_SUCCESS.equals(restored.getIndexStatus())
+                && "ACTIVE".equals(restored.getVectorState())) {
+            fileLifecycleService.indexSucceeded(task.getSpaceId(),task.getSpaceFileId());
+        } else {
+            fileLifecycleService.indexFailed(task.getSpaceId(),task.getSpaceFileId(),error);
+        }
+    }
+
+    private void finishAsync(SpaceRagTask task,Long asyncTaskId,String status,int total,int success,int failed,String error) {
+        spaceRagTaskMapper.finishAsync(task.getId(),resourceVersion(task),asyncTaskId,status,total,success,failed,
+                truncate(error,1000),LocalDateTime.now());
+    }
+
+    private String safeError(Throwable error) {
+        if(error==null) return "Unknown RAG failure";
+        String message=error.getMessage();
+        return truncate(message==null || message.isBlank() ? error.getClass().getSimpleName() : message,1000);
+    }
+
+    public record RagFileAsyncResult(Long ragTaskId,Long documentId,int chunkCount) {}
+    public record RagDeleteAsyncResult(Long ragTaskId,Long spaceFileId) {}
+    public record RagSpaceAsyncResult(Long ragTaskId,int total,int success,int failed,int canceled,int dispatchedThisAttempt) {}
+
+    /**
+     * 重建 rebuildDocument 相关逻辑。
+     *
+     * @param document 文档对象
+     * @param userId 用户 ID
+     */
+    private void rebuildDocument(SpaceRagDocument document, Long userId, boolean submitDocumentProfile) {
+        SpaceFile spaceFile = requireFile(document.getSpaceId(),document.getSpaceFileId());
+        fileLifecycleService.indexing(document.getSpaceId(),document.getSpaceFileId());
+        SpaceRagConfig config = requireConfig(document.getSpaceId());
+        LocalDateTime now = LocalDateTime.now();
+        File currentFile = fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
+        if(currentFile != null) {
+            spaceRagDocumentMapper.updateFileMeta(document.getId(),spaceFile.getFileName(),currentFile.getHash(),currentFile.getType(),now);
+        }
+        SpaceRagDocument latest = spaceRagDocumentMapper.getAnyById(document.getId());
+        if(latest == null || !StatusConstant.ENABLE.equals(latest.getStatus())) {
+            throw new BaseException("RAG 文档不存在或已经删除");
+        }
+        if("CLEANUP_PENDING".equals(latest.getVectorState()) && !ragIndexConsistencyService.cleanupDocumentIfPending(latest)) {
+            throw new ConflictException("RAG 文档仍在清理上一次不完整索引");
+        }
+        ragIndexTransactionService.beginIndex(document.getId());
+
+        try {
+            List<FileRagChunk> fileChunks = ensureFileChunks(spaceFile,config);
+            int vectorCount = qdrantVectorStoreService.upsertSpaceChunks(
+                    document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
+            if(vectorCount != fileChunks.size()) {
+                throw new BaseException("RAG 向量写入数量与有效切片数量不一致");
+            }
+            if(vectorCount == 0) {
+                throw new BaseException("RAG 索引完整性校验失败");
+            }
+            ragIndexTransactionService.commitIndex(
+                    document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
+            fileLifecycleService.indexSucceeded(document.getSpaceId(),document.getSpaceFileId());
+        } catch (Throwable ex) {
+            fileLifecycleService.indexFailed(document.getSpaceId(),document.getSpaceFileId(),ex.getMessage());
+            try {
+                ragIndexTransactionService.failBuildingIndex(document.getId(),truncate(ex.getMessage(),1000));
+            } catch (Throwable databaseCleanupError) {
+                ex.addSuppressed(databaseCleanupError);
+                log.error("Failed to isolate incomplete RAG database state: documentId={}",
+                        document.getId(),databaseCleanupError);
+            }
+            SpaceRagDocument failed = spaceRagDocumentMapper.getAnyById(document.getId());
+            try {
+                qdrantVectorStoreService.deleteBySpaceFileStrict(document.getSpaceId(),document.getSpaceFileId());
+            } catch (Throwable vectorCleanupError) {
+                ex.addSuppressed(vectorCleanupError);
+                log.error("Failed to clean incomplete RAG vectors: spaceId={}, spaceFileId={}",
+                        document.getSpaceId(),document.getSpaceFileId(),vectorCleanupError);
+            }
+            if(failed != null && "CLEANUP_PENDING".equals(failed.getVectorState())) {
+                ragIndexConsistencyService.cleanupDocumentIfPending(failed);
+            }
+            if(ex instanceof RuntimeException) {
+                throw (RuntimeException) ex;
+            }
+            if(ex instanceof Error) {
+                throw (Error) ex;
+            }
+            throw new BaseException(ex.getMessage() == null ? "RAG 索引构建失败" : ex.getMessage());
+        }
+        if(submitDocumentProfile) {
+            submitKnowledgeProfileTask(document.getSpaceId(),document.getId(),userId);
+        }
+    }
+
+    private void submitKnowledgeProfileTask(Long spaceId, Long documentId, Long userId) {
+        try {
+            SpaceRagConfig latestConfig = requireConfig(spaceId);
+            if(StatusConstant.DISABLE.equals(latestConfig.getKnowledgeProfileEnabled())) {
+                knowledgePipelineService.recordDocumentProfileSkipped(
+                        spaceId,documentId,userId,SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+                log.info("Knowledge profile skipped because the feature is disabled: spaceId={}, documentId={}",spaceId,documentId);
+                return;
+            }
+            SpaceKnowledgePipelineTaskVO task = knowledgePipelineService.submitDocumentProfileTaskIfAbsent(spaceId,documentId,userId);
+            if(task == null) {
+                log.info("Knowledge pipeline task skipped because an active task exists: spaceId={}, documentId={}",spaceId,documentId);
+                return;
+            }
+            knowledgePipelineExecutorService.runDocumentTask(task.getId());
+            log.info("Knowledge pipeline task submitted: spaceId={}, documentId={}, taskId={}",spaceId,documentId,task.getId());
+        } catch (Exception ex) {
+            log.warn("Knowledge pipeline task submit failed: spaceId={}, documentId={}",spaceId,documentId,ex);
+        }
+    }
+
+    /**
+     * 确保 ensureFileChunks 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param config 配置对象
+     * @return 列表结果
+     */
+    private List<FileRagChunk> ensureFileChunks(SpaceFile spaceFile, SpaceRagConfig config) {
+        File file = fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
+        if(file == null || file.getHash() == null || file.getHash().isBlank()) {
+            throw new BaseException("文件哈希不存在，无法建立 RAG 切片");
+        }
+        List<FileRagChunk> exists = fileRagChunkMapper.listByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
+        if(!exists.isEmpty() && areReusableChunks(exists,spaceFile)) {
+            validateIndexableChunks(exists);
+            return exists;
+        }
+        if(!exists.isEmpty()) {
+            fileRagChunkMapper.disableByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
+        }
+        ParsedDocument parsed = documentParser.parse(spaceFile,file);
+        if(parsed == null || !parsed.isSuccess()) {
+            String message = parsed == null ? "文档解析失败" : parsed.getErrorMessage();
+            throw new BaseException(message == null ? "文档解析失败" : message);
+        }
+        if(parsed.isFallback()) {
+            throw new BaseException("文档未解析出正文，拒绝使用元数据回退结果建立 RAG 索引");
+        }
+        if(parsed.getFullText() == null || parsed.getFullText().isBlank()) {
+            throw new BaseException("文档解析正文为空，无法建立 RAG 索引");
+        }
+        int chunkSize = safeChunkSize(config.getChunkSize());
+        int chunkOverlap = safeChunkOverlap(config.getChunkOverlap(),config.getChunkSize());
+        List<StructuredChunk> chunks = structuredChunker.chunk(parsed,chunkSize,chunkOverlap);
+        if(chunks == null || chunks.isEmpty()) {
+            throw new BaseException("文档未产生有效切片，无法建立 RAG 索引");
+        }
+        List<FileRagChunk> result = new ArrayList<>();
+        for(StructuredChunk structuredChunk : chunks) {
+            if(structuredChunk == null || structuredChunk.getContent() == null || structuredChunk.getContent().isBlank()) {
+                throw new BaseException("文档切片内容为空，无法建立 RAG 索引");
+            }
+            FileRagChunk chunk = new FileRagChunk();
+            chunk.setFileUuid(spaceFile.getFileUuid());
+            chunk.setFileHash(file.getHash());
+            chunk.setChunkIndex(structuredChunk.getChunkIndex());
+            chunk.setContent(structuredChunk.getContent());
+            chunk.setContentHash(structuredChunk.getContentHash());
+            chunk.setTokenCount(structuredChunk.getTokenCount());
+            chunk.setMetadata(structuredChunk.getMetadataJson());
+            chunk.setVectorId(null);
+            chunk.setEmbeddingModel(config.getEmbeddingModel());
+            chunk.setChunkSize(chunkSize);
+            chunk.setChunkOverlap(chunkOverlap);
+            chunk.setStatus(StatusConstant.ENABLE);
+            chunk.setCreatetime(LocalDateTime.now());
+            chunk.setUpdatetime(LocalDateTime.now());
+            fileRagChunkMapper.insert(chunk);
+            result.add(chunk);
+        }
+        validateIndexableChunks(result);
+        return result;
+    }
+
+    static void validateIndexableChunks(List<FileRagChunk> chunks) {
+        if(chunks == null || chunks.isEmpty()) {
+            throw new BaseException("文档未产生有效切片，无法建立 RAG 索引");
+        }
+        for(FileRagChunk chunk : chunks) {
+            if(chunk == null || chunk.getId() == null || chunk.getContent() == null || chunk.getContent().isBlank()) {
+                throw new BaseException("RAG 切片数据不完整，无法建立索引");
+            }
+        }
+    }
+
+    private void submitKnowledgeProfileSpaceTask(Long spaceId, Long userId) {
+        try {
+            SpaceRagConfig latestConfig = requireConfig(spaceId);
+            if(StatusConstant.DISABLE.equals(latestConfig.getKnowledgeProfileEnabled())) {
+                knowledgePipelineService.recordSpaceProfileSkipped(
+                        spaceId,userId,SpaceConstant.KNOWLEDGE_TERMINAL_PROFILE_DISABLED);
+                log.info("Knowledge profile batch skipped because the feature is disabled: spaceId={}",spaceId);
+                return;
+            }
+            SpaceKnowledgePipelineTaskVO task = knowledgePipelineService.submitSpaceProfileTaskIfAbsent(spaceId,userId);
+            if(task == null) {
+                log.info("Knowledge profile batch skipped because an active batch exists: spaceId={}",spaceId);
+                return;
+            }
+            knowledgePipelineExecutorService.runSpaceTask(task.getId());
+            log.info("Knowledge profile batch submitted: spaceId={}, taskId={}",spaceId,task.getId());
+        } catch (Exception ex) {
+            log.warn("Knowledge profile batch submit failed: spaceId={}",spaceId,ex);
+        }
+    }
+
+    /**
+     * 创建 createDocument 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    private SpaceRagDocument createDocument(SpaceFile spaceFile, Long userId) {
+        SpaceRagDocument exists = spaceRagDocumentMapper.getBySpaceFileId(spaceFile.getSpaceId(),spaceFile.getId());
+        if(exists != null) {
+            return exists;
+        }
+        File file = fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
+        LocalDateTime now = LocalDateTime.now();
+        SpaceRagDocument document = new SpaceRagDocument();
+        document.setSpaceId(spaceFile.getSpaceId());
+        document.setSpaceFileId(spaceFile.getId());
+        document.setFileUuid(spaceFile.getFileUuid());
+        document.setFileName(spaceFile.getFileName());
+        document.setFileHash(file == null ? null : file.getHash());
+        document.setFileType(file == null ? null : file.getType());
+        document.setIndexStatus(SpaceConstant.RAG_INDEX_PENDING);
+        document.setVectorState("CLEAN");
+        document.setChunkCount(0);
+        document.setCreatedBy(userId);
+        document.setStatus(StatusConstant.ENABLE);
+        document.setCreatetime(now);
+        document.setUpdatetime(now);
+        spaceRagDocumentMapper.insert(document);
+        return document;
+    }
+
+    private SpaceRagDocument refreshDocumentMetadata(SpaceRagDocument document) {
+        if(document==null) return null;
+        SpaceFile spaceFile=requireFile(document.getSpaceId(),document.getSpaceFileId());
+        File current=fileInfoMapper.getFileByFileUuid(spaceFile.getFileUuid(),spaceFile.getCreatedBy());
+        if(current==null || current.getHash()==null || current.getHash().isBlank()) {
+            throw new BaseException("文件哈希不存在，无法建立 RAG 索引");
+        }
+        if(!Objects.equals(document.getFileName(),spaceFile.getFileName())
+                || !Objects.equals(document.getFileHash(),current.getHash())
+                || !Objects.equals(document.getFileType(),current.getType())) {
+            spaceRagDocumentMapper.updateFileMeta(document.getId(),spaceFile.getFileName(),current.getHash(),current.getType(),LocalDateTime.now());
+            return spaceRagDocumentMapper.getById(document.getId());
+        }
+        return document;
+    }
+
+    /**
+     * 校验 requireConfig 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @return 处理结果
+     */
+    private SpaceRagConfig requireConfig(Long spaceId) {
+        SpaceRagConfig config = spaceRagMapper.getBySpaceId(spaceId);
+        if(config == null) {
+            throw new BaseException("空间 RAG 配置不存在");
+        }
+        return config;
+    }
+
+    /**
+     * 校验 requireFile 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @return 处理结果
+     */
+    private SpaceFile requireFile(Long spaceId, Long spaceFileId) {
+        SpaceFile spaceFile = spaceFileMapper.getById(spaceId,spaceFileId);
+        if(spaceFile == null || spaceFile.getDir() == 1) {
+            throw new BaseException("空间文件不存在或不是普通文件");
+        }
+        return spaceFile;
+    }
+
+    /**
+     * 构建 buildDocumentText 相关逻辑。
+     *
+     * @param spaceFile 空间文件对象
+     * @param file 文件对象
+     * @return 处理结果
+     */
+    private boolean isMetadataFallbackChunks(List<FileRagChunk> chunks) {
+        if(chunks == null || chunks.isEmpty()) {
+            return false;
+        }
+        for(FileRagChunk chunk : chunks) {
+            String metadata = chunk.getMetadata();
+            if(!"metadata".equals(metadataString(metadata,"parser")) || !"true".equalsIgnoreCase(metadataString(metadata,"fallback"))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean areReusableChunks(List<FileRagChunk> chunks, SpaceFile spaceFile) {
+        if(isMetadataFallbackChunks(chunks)) {
+            return false;
+        }
+        String currentVersion = ragProperties.getExtraction() == null ||
+                ragProperties.getExtraction().getParserVersion() == null
+                  ? "structured-v3"
+                : ragProperties.getExtraction().getParserVersion();
+        boolean docx = spaceFile != null && spaceFile.getFileName() != null &&
+                spaceFile.getFileName().toLowerCase().endsWith(".docx");
+        for(FileRagChunk chunk : chunks) {
+            String parserVersion = metadataString(chunk.getMetadata(),"parserVersion");
+            String parser = metadataString(chunk.getMetadata(),"parser");
+            if(!currentVersion.equals(parserVersion)) {
+                return false;
+            }
+            if(docx && !"docx-structured".equals(parser) && !"tika-structured".equals(parser)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 搜索 searchChunks 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param question 问题内容
+     * @param limit 限制数量
+     * @param config 配置对象
+     * @return 列表结果
+     */
+    private List<FileRagChunk> searchChunks(Long spaceId, QueryPlan queryPlan, int limit, SpaceRagConfig config) {
+        List<FileRagChunk> spaceChunks = fileRagChunkMapper.listActiveBySpace(spaceId);
+        List<FileRagChunk> candidates = ragMultiRouteRetriever.retrieve(
+                spaceId,
+                queryPlan,
+                spaceChunks,
+                limit,
+                config.getScoreThreshold() == null ? null : config.getScoreThreshold().doubleValue()
+        );
+        if(!candidates.isEmpty()) {
+            int candidateTopK = rerankCandidateTopK();
+            List<FileRagChunk> expandedCandidates = expandContextChunks(candidates,spaceChunks,queryPlan,candidateTopK);
+            List<FileRagChunk> rerankCandidates = limitChunks(expandedCandidates,candidateTopK);
+            return ragRerankService.rerank(queryPlan.getOriginal(),rerankCandidates,Math.min(limit,candidateTopK));
+        }
+        return List.of();
+    }
+
+    private List<FileRagChunk> expandContextChunks(List<FileRagChunk> candidates,
+                                                   List<FileRagChunk> spaceChunks,
+                                                   QueryPlan queryPlan,
+                                                   int limit) {
+        if(candidates == null || candidates.isEmpty() || spaceChunks == null || spaceChunks.isEmpty()) {
+            return candidates == null ? List.of() : candidates;
+        }
+        int max = Math.max(limit * 3,limit + 8);
+        Map<Long, FileRagChunk> selected = new LinkedHashMap<>();
+        Map<String, FileRagChunk> byPosition = new LinkedHashMap<>();
+        for(FileRagChunk chunk : spaceChunks) {
+            if(chunk.getId() != null && chunk.getFileUuid() != null && chunk.getFileHash() != null && chunk.getChunkIndex() != null) {
+                byPosition.put(positionKey(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex()),chunk);
+            }
+        }
+        boolean codeIntent = queryPlan != null && ("code".equals(queryPlan.getIntent()) || looksLikeCodeQuestion(queryPlan.getOriginal()));
+        for(FileRagChunk chunk : candidates) {
+            addChunk(selected,chunk,max);
+            Integer parentIndex = metadataInt(chunk.getMetadata(),"parentChunkIndex");
+            if(parentIndex != null) {
+                FileRagChunk parent = byPosition.get(positionKey(chunk.getFileUuid(),chunk.getFileHash(),parentIndex));
+                addChunk(selected,parent,max);
+                if(codeIntent) {
+                    addNeighborChunks(selected,byPosition,parent == null ? chunk : parent,1,max);
+                }
+            } else if(codeIntent && "parent".equals(metadataString(chunk.getMetadata(),"chunkType"))) {
+                addNeighborChunks(selected,byPosition,chunk,1,max);
+            }
+            if(codeIntent) {
+                addNeighborChunks(selected,byPosition,chunk,1,max);
+            }
+            if(selected.size() >= max) {
+                break;
+            }
+        }
+        // LinkedHashMap preserves the fused relevance order. Sorting by physical document position here
+        // used to discard relevant late-document chunks before rerank when candidateTopK was small.
+        return new ArrayList<>(selected.values());
+    }
+
+    private void addNeighborChunks(Map<Long, FileRagChunk> selected,
+                                   Map<String, FileRagChunk> byPosition,
+                                   FileRagChunk chunk,
+                                   int radius,
+                                   int max) {
+        if(chunk == null || chunk.getFileUuid() == null || chunk.getFileHash() == null || chunk.getChunkIndex() == null) {
+            return;
+        }
+        for(int offset = -radius; offset <= radius; offset++) {
+            if(offset == 0 || selected.size() >= max) {
+                continue;
+            }
+            FileRagChunk neighbor = byPosition.get(positionKey(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex() + offset));
+            addChunk(selected,neighbor,max);
+        }
+    }
+
+    private void addChunk(Map<Long, FileRagChunk> selected, FileRagChunk chunk, int max) {
+        if(chunk == null || chunk.getId() == null || selected.size() >= max) {
+            return;
+        }
+        selected.putIfAbsent(chunk.getId(),chunk);
+    }
+
+    private String positionKey(String fileUuid, String fileHash, Integer chunkIndex) {
+        return fileUuid + "|" + fileHash + "|" + chunkIndex;
+    }
+
+    private boolean looksLikeCodeQuestion(String question) {
+        if(question == null) {
+            return false;
+        }
+        return question.contains("代码") || question.contains("怎么写") || question.toLowerCase().contains("code");
+    }
+
+    private Integer metadataInt(String metadata, String key) {
+        String value = metadataString(metadata,key);
+        if(value == null || value.isBlank() || "null".equals(value)) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String metadataString(String metadata, String key) {
+        if(metadata == null || metadata.isBlank() || key == null || key.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode value = METADATA_MAPPER.readTree(metadata).get(key);
+            if(value == null || value.isNull()) {
+                return null;
+            }
+            return value.isTextual() ? value.textValue() : value.asText();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private int rerankCandidateTopK() {
+        if(ragProperties.getRerank() == null || ragProperties.getRerank().getCandidateTopK() == null
+                || ragProperties.getRerank().getCandidateTopK() <= 0) {
+            return DEFAULT_TOP_K;
+        }
+        return ragProperties.getRerank().getCandidateTopK();
+    }
+
+    private List<FileRagChunk> limitChunks(List<FileRagChunk> chunks, int limit) {
+        if(chunks == null || chunks.isEmpty()) {
+            return List.of();
+        }
+        return new ArrayList<>(chunks.subList(0,Math.min(limit,chunks.size())));
+    }
+
+    /**
+     * 构建 buildCitations 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param chunks 文件分片列表
+     * @return 列表结果
+     */
+    private List<SpaceRagCitationVO> buildCitations(Long spaceId, List<FileRagChunk> chunks) {
+        List<SpaceRagCitationVO> citations = new ArrayList<>();
+        if(chunks == null || chunks.isEmpty()) {
+            return citations;
+        }
+        for(int i = 0; i < chunks.size(); i++) {
+            FileRagChunk chunk = chunks.get(i);
+            SpaceRagDocument document = spaceRagDocumentMapper.getBySpaceAndChunkId(spaceId,chunk.getId());
+            SpaceRagCitationVO citation = new SpaceRagCitationVO();
+            citation.setIndex(i + 1);
+            citation.setSpaceId(spaceId);
+            citation.setChunkId(chunk.getId());
+            citation.setContentSummary(truncate(chunk.getContent(),240));
+            if(document != null) {
+                citation.setDocumentId(document.getId());
+                citation.setSpaceFileId(document.getSpaceFileId());
+                citation.setFileName(document.getFileName());
+                String base = "/api/space/" + spaceId + "/files/" + document.getSpaceFileId();
+                citation.setPreviewUrl(base + "/preview");
+                citation.setDownloadUrl(base + "/download");
+            }
+            citations.add(citation);
+        }
+        return citations;
+    }
+
+    /**
+     * 启动时清理上次进程遗留的超时索引任务。
+     */
+    @PostConstruct
+    public void expireStaleIndexTasksOnStartup() {
+        expireStaleIndexTasks(null);
+    }
+
+    /**
+     * 将超过时限仍占用索引资源的任务标记为失败。
+     *
+     * @param spaceId 空间 ID，为 null 时处理所有空间
+     */
+    private void expireStaleIndexTasks(Long spaceId) {
+        int timeoutMinutes = indexTimeoutMinutes();
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(timeoutMinutes);
+        String errorMessage = "RAG indexing task timeout after " + timeoutMinutes + " minutes";
+        for(SpaceRagTask task : spaceRagTaskMapper.listStaleIndexTasks(spaceId,cutoff)) {
+            if(mqRagEnabled() && task.getAsyncTaskId()!=null) continue;
+            LocalDateTime now = LocalDateTime.now();
+            int updated = spaceRagTaskMapper.failActiveTask(task.getId(),errorMessage,now,now);
+            if(updated == 0) {
+                continue;
+            }
+            if(task.getDocumentId() != null) {
+                ragIndexTransactionService.failBuildingIndex(task.getDocumentId(),errorMessage);
+                continue;
+            }
+            if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(task.getTaskType())) {
+                spaceRagDocumentMapper.failStaleIndexingDocuments(task.getSpaceId(),cutoff,errorMessage,now);
+            }
+        }
+    }
+
+    /**
+     * 查询 RAG 索引并发数。
+     *
+     * @return 并发数
+     */
+    private int indexConcurrency() {
+        Integer concurrency = ragProperties.getIndex() == null ? null : ragProperties.getIndex().getConcurrency();
+        return Math.max(1,concurrency == null ? 5 : concurrency);
+    }
+
+    /**
+     * 查询 RAG 索引任务超时时间。
+     *
+     * @return 分钟数
+     */
+    private int indexTimeoutMinutes() {
+        Integer minutes = ragProperties.getIndex() == null ? null : ragProperties.getIndex().getTaskTimeoutMinutes();
+        return Math.max(1,minutes == null ? 10 : minutes);
+    }
+
+    /**
+     * 创建 createTask 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param spaceFileId 空间文件 ID
+     * @param documentId 文档 ID
+     * @param taskType 任务类型
+     * @param userId 用户 ID
+     * @return 处理结果
+     */
+    private SpaceRagTask createTask(Long spaceId, Long spaceFileId, Long documentId, String taskType, Long userId) {
+        return createTask(spaceId,spaceFileId,documentId,taskType,userId,null,false);
+    }
+
+    private SpaceRagTask createTask(Long spaceId,Long spaceFileId,Long documentId,String taskType,Long userId,
+                                    Long parentTaskId,boolean clearVectors) {
+        LocalDateTime now = LocalDateTime.now();
+        SpaceRagTask task = new SpaceRagTask();
+        task.setSpaceId(spaceId);
+        task.setSpaceFileId(spaceFileId);
+        task.setDocumentId(documentId);
+        task.setParentTaskId(parentTaskId);
+        task.setTaskType(taskType);
+        task.setTaskStatus(SpaceConstant.RAG_TASK_PENDING);
+        task.setTotalCount(0);
+        task.setSuccessCount(0);
+        task.setFailedCount(0);
+        task.setClearVectors(clearVectors);
+        task.setFanoutCursor(0L);
+        long version=1L;
+        if(documentId!=null) {
+            SpaceRagDocument document=spaceRagDocumentMapper.getAnyById(documentId);
+            version=document==null || document.getConsistencyVersion()==null ? 1L : document.getConsistencyVersion();
+        }
+        task.setResourceVersion(version);
+        task.setCreatedBy(userId);
+        task.setCreatetime(now);
+        task.setUpdatetime(now);
+        if(spaceRagTaskMapper.insert(task) > 0) {
+            if(mqRagEnabled()) registerUnified(task);
+            return task;
+        }
+        SpaceRagTask existing = parentTaskId==null
+                ? spaceRagTaskMapper.findActiveTask(spaceId,spaceFileId,taskType)
+                : spaceRagTaskMapper.getByParentFileType(parentTaskId,spaceFileId,taskType);
+        if(existing != null) {
+            return existing;
+        }
+        throw new ConflictException("相同范围的 RAG 任务正在执行");
+    }
+
+    private void registerUnified(SpaceRagTask task) {
+        long version=resourceVersion(task);
+        String type=unifiedTaskType(task.getTaskType());
+        boolean file=task.getSpaceFileId()!=null;
+        String resource=file ? "rag-file:"+task.getSpaceId()+":"+task.getSpaceFileId()
+                : "rag-space:"+task.getSpaceId()+":"+task.getId();
+        Long centralParent=null;
+        if(task.getParentTaskId()!=null) {
+            SpaceRagTask parent=spaceRagTaskMapper.getById(task.getParentTaskId());
+            centralParent=parent==null ? null : parent.getAsyncTaskId();
+        }
+        Integer maxAttempts=SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(task.getTaskType())
+                ? RAG_PARENT_MAX_ATTEMPTS : null;
+        com.ylcloud.entity.UnifiedAsyncTask central=taskCenter.createTask(new TaskCreateCommand(
+                "rag:"+task.getId()+":"+type+":"+version,
+                "rag",type,new DomainTaskPayload(task.getId()),task.getCreatedBy(),task.getSpaceId(),resource,version,
+                centralParent,maxAttempts));
+        if(spaceRagTaskMapper.bindAsyncTask(task.getId(),version,central.getId(),LocalDateTime.now())!=1) {
+            throw new StaleTaskException("RAG task binding was rejected");
+        }
+        task.setAsyncTaskId(central.getId());
+    }
+
+    private String unifiedTaskType(String taskType) {
+        if(SpaceConstant.RAG_TASK_INDEX_FILE.equals(taskType)) return "RAG_INDEX_FILE";
+        if(SpaceConstant.RAG_TASK_REBUILD_FILE.equals(taskType)) return "RAG_REBUILD_FILE";
+        if(SpaceConstant.RAG_TASK_DELETE_FILE.equals(taskType)) return "RAG_DELETE_FILE";
+        if(SpaceConstant.RAG_TASK_REBUILD_SPACE.equals(taskType)) return "RAG_SPACE_FANOUT";
+        throw new BaseException("Unsupported RAG task type: "+taskType);
+    }
+
+    private boolean mqRagEnabled() {
+        return mqProperties!=null && mqProperties.isEnabled() && mqProperties.isRag() && taskCenter!=null;
+    }
+
+    private long resourceVersion(SpaceRagTask task) {
+        return task.getResourceVersion()==null ? 1L : task.getResourceVersion();
+    }
+
+    /**
+     * 执行 finishTask 函数的业务处理。
+     *
+     * @param task 任务对象
+     * @param status 状态
+     * @param errorMessage 错误信息
+     * @param startedTime 开始时间
+     */
+    private void finishTask(SpaceRagTask task, String status, String errorMessage, LocalDateTime startedTime) {
+        spaceRagTaskMapper.updateResult(task.getId(),status,errorMessage,startedTime,LocalDateTime.now(),LocalDateTime.now());
+    }
+
+    /**
+     * 执行 finishTask 函数的业务处理。
+     *
+     * @param taskId 任务 ID
+     * @param status 状态
+     * @param errorMessage 错误信息
+     * @param startedTime 开始时间
+     */
+    private void finishTask(Long taskId, String status, String errorMessage, LocalDateTime startedTime) {
+        spaceRagTaskMapper.finishIfRunning(taskId,status,errorMessage,LocalDateTime.now());
+    }
+
+    /**
+     * 标记 markTaskRunning 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param startedTime 开始时间
+     */
+    private boolean markTaskRunning(Long taskId, LocalDateTime startedTime) {
+        return spaceRagTaskMapper.markRunningIfPending(taskId,startedTime) > 0;
+    }
+
+    /**
+     * 更新 updateTaskProgress 相关逻辑。
+     *
+     * @param taskId 任务 ID
+     * @param totalCount 方法入参
+     * @param successCount 方法入参
+     * @param failedCount 方法入参
+     */
+    private void updateTaskProgress(Long taskId, int totalCount, int successCount, int failedCount) {
+        spaceRagTaskMapper.updateProgress(taskId,totalCount,successCount,failedCount,LocalDateTime.now());
+    }
+
+    /**
+     * 派发 dispatchAfterCommit 相关逻辑。
+     *
+     * @param runnable 待执行任务
+     */
+    private void dispatchAfterCommit(Runnable runnable) {
+        if(TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    runnable.run();
+                }
+            });
+            return;
+        }
+        runnable.run();
+    }
+
+    /**
+     * 保存 saveQueryLog 相关逻辑。
+     *
+     * @param spaceId 空间 ID
+     * @param userId 用户 ID
+     * @param question 问题内容
+     * @param answer 方法入参
+     * @param hitChunkIds 方法入参
+     * @param modelName 方法入参
+     * @param success 方法入参
+     * @param errorMessage 错误信息
+     */
+    private void saveQueryLog(Long spaceId, Long userId, String question, String answer, String hitChunkIds, String modelName, Integer topK, BigDecimal temperature, boolean success, String errorMessage) {
+        SpaceRagQueryLog log = new SpaceRagQueryLog();
+        log.setSpaceId(spaceId);
+        log.setUserId(userId);
+        log.setQuestion(question);
+        log.setAnswer(answer);
+        log.setHitChunkIds(hitChunkIds);
+        log.setModelName(modelName);
+        log.setTopK(topK);
+        log.setTemperature(temperature);
+        log.setPromptTokens(question == null ? 0 : question.length());
+        log.setCompletionTokens(answer == null ? 0 : answer.length());
+        log.setTotalTokens(log.getPromptTokens() + log.getCompletionTokens());
+        log.setSuccess(success ? StatusConstant.ENABLE : StatusConstant.DISABLE);
+        log.setErrorMessage(errorMessage);
+        log.setCreatetime(LocalDateTime.now());
+        spaceRagQueryLogMapper.insert(log);
+    }
+
+    /**
+     * 转换 toConfigVO 相关逻辑。
+     *
+     * @param config 配置对象
+     * @return 处理结果
+     */
+    private SpaceRagConfigVO toConfigVO(SpaceRagConfig config) {
+        SpaceRagConfigVO vo = new SpaceRagConfigVO();
+        vo.setId(config.getId());
+        vo.setSpaceId(config.getSpaceId());
+        vo.setEmbeddingModel(config.getEmbeddingModel());
+        vo.setChatModel(config.getChatModel());
+        vo.setVectorCollection(config.getVectorCollection());
+        vo.setChunkSize(config.getChunkSize());
+        vo.setChunkOverlap(config.getChunkOverlap());
+        vo.setTopK(config.getTopK());
+        vo.setTemperature(safeTemperature(config.getTemperature()));
+        vo.setScoreThreshold(config.getScoreThreshold());
+        vo.setEnabled(config.getEnabled());
+        vo.setKnowledgeProfileEnabled(config.getKnowledgeProfileEnabled());
+        vo.setStatus(config.getStatus());
+        vo.setCreatetime(config.getCreatetime());
+        vo.setUpdatetime(config.getUpdatetime());
+        return vo;
+    }
+
+    /**
+     * 转换 toDocumentVO 相关逻辑。
+     *
+     * @param document 文档对象
+     * @return 处理结果
+     */
+    private SpaceRagDocumentVO toDocumentVO(SpaceRagDocument document) {
+        SpaceRagDocumentVO vo = new SpaceRagDocumentVO();
+        vo.setId(document.getId());
+        vo.setSpaceId(document.getSpaceId());
+        vo.setSpaceFileId(document.getSpaceFileId());
+        vo.setFileUuid(document.getFileUuid());
+        vo.setFileName(document.getFileName());
+        vo.setFileHash(document.getFileHash());
+        vo.setFileType(document.getFileType());
+        vo.setIndexStatus(document.getIndexStatus());
+        vo.setChunkCount(document.getChunkCount());
+        vo.setErrorMessage(document.getErrorMessage());
+        vo.setCreatetime(document.getCreatetime());
+        vo.setUpdatetime(document.getUpdatetime());
+        return vo;
+    }
+
+    /**
+     * 转换 toTaskVO 相关逻辑。
+     *
+     * @param task 任务对象
+     * @return 处理结果
+     */
+    private SpaceRagTaskVO toTaskVO(SpaceRagTask task) {
+        SpaceRagTaskVO vo = new SpaceRagTaskVO();
+        vo.setId(task.getId());
+        vo.setSpaceId(task.getSpaceId());
+        vo.setSpaceFileId(task.getSpaceFileId());
+        vo.setDocumentId(task.getDocumentId());
+        vo.setParentTaskId(task.getParentTaskId());
+        vo.setTaskType(task.getTaskType());
+        vo.setTaskStatus(task.getTaskStatus());
+        vo.setTotalCount(task.getTotalCount());
+        vo.setSuccessCount(task.getSuccessCount());
+        vo.setFailedCount(task.getFailedCount());
+        vo.setErrorMessage(task.getErrorMessage());
+        vo.setAsyncTaskId(task.getAsyncTaskId());
+        vo.setCreatedBy(task.getCreatedBy());
+        vo.setStartedTime(task.getStartedTime());
+        vo.setFinishedTime(task.getFinishedTime());
+        vo.setCreatetime(task.getCreatetime());
+        vo.setUpdatetime(task.getUpdatetime());
+        return vo;
+    }
+
+    /**
+     * 执行 fillDocumentLinks 函数的业务处理。
+     *
+     * @param spaceId 空间 ID
+     * @param vo 方法入参
+     */
+    private void fillDocumentLinks(Long spaceId, SpaceDocumentSearchVO vo) {
+        String base = "/api/space/" + spaceId + "/files/" + vo.getSpaceFileId();
+        vo.setPreviewUrl(base + "/preview");
+        vo.setStreamUrl(base + "/preview/stream");
+        vo.setDownloadUrl(base + "/download");
+    }
+
+    /**
+     * 执行 safeChunkSize 函数的业务处理。
+     *
+     * @param chunkSize 方法入参
+     * @return 影响行数
+     */
+    private int safeChunkSize(Integer chunkSize) {
+        return chunkSize == null || chunkSize <= 0 ? DEFAULT_CHUNK_SIZE : chunkSize;
+    }
+
+    /**
+     * 执行 safeChunkOverlap 函数的业务处理。
+     *
+     * @param chunkOverlap 方法入参
+     * @param chunkSize 方法入参
+     * @return 影响行数
+     */
+    private int safeChunkOverlap(Integer chunkOverlap, Integer chunkSize) {
+        int realChunkSize = safeChunkSize(chunkSize);
+        if(chunkOverlap == null || chunkOverlap < 0) {
+            return DEFAULT_CHUNK_OVERLAP;
+        }
+        return Math.min(chunkOverlap,realChunkSize - 1);
+    }
+
+    private int resolveQueryTopK(SpaceRagConfig config, String retrievalMode) {
+        int configured = safeConfiguredTopK(config == null ? null : config.getTopK());
+        String mode = retrievalMode == null ? "balanced" : retrievalMode.trim().toLowerCase();
+        if("precise".equals(mode)) {
+            return Math.max(1,Math.min(configured,Math.max(1,(int) Math.ceil(configured * 0.4))));
+        }
+        if("broad".equals(mode)) {
+            return configured;
+        }
+        return Math.max(1,Math.min(configured,Math.max(1,(int) Math.ceil(configured * 0.7))));
+    }
+
+    private Integer safeConfiguredTopK(Integer topK) {
+        if(topK == null || topK <= 0) {
+            return DEFAULT_TOP_K;
+        }
+        return Math.min(topK,MAX_TOP_K);
+    }
+
+    private BigDecimal safeTemperature(BigDecimal temperature) {
+        BigDecimal value = temperature == null ? BigDecimal.valueOf(ragProperties.getChat().getTemperature() == null ? 0.2 : ragProperties.getChat().getTemperature()) : temperature;
+        if(value.compareTo(BigDecimal.ZERO) < 0) {
+            value = BigDecimal.ZERO;
+        }
+        if(value.compareTo(BigDecimal.ONE) > 0) {
+            value = BigDecimal.ONE;
+        }
+        return value.setScale(2,RoundingMode.HALF_UP);
+    }
+
+    private void saveConfigChangeLog(Long spaceId, Long operatorId, SpaceRagConfig before, SpaceRagConfig after) {
+        String changedFields = changedFields(before,after);
+        if(changedFields.isBlank()) {
+            return;
+        }
+        SpaceRagConfigLog changeLog = new SpaceRagConfigLog();
+        changeLog.setSpaceId(spaceId);
+        changeLog.setOperatorId(operatorId);
+        changeLog.setChangedFields(changedFields);
+        changeLog.setBeforeJson(configSnapshot(before));
+        changeLog.setAfterJson(configSnapshot(after));
+        changeLog.setCreatetime(LocalDateTime.now());
+        spaceRagConfigLogMapper.insert(changeLog);
+        log.info("RAG config updated: spaceId={}, operatorId={}, changedFields={}, before={}, after={}",
+                spaceId,operatorId,changedFields,changeLog.getBeforeJson(),changeLog.getAfterJson());
+    }
+
+    private String changedFields(SpaceRagConfig before, SpaceRagConfig after) {
+        List<String> fields = new ArrayList<>();
+        addChanged(fields,"embeddingModel",before.getEmbeddingModel(),after.getEmbeddingModel());
+        addChanged(fields,"chatModel",before.getChatModel(),after.getChatModel());
+        addChanged(fields,"chunkSize",before.getChunkSize(),after.getChunkSize());
+        addChanged(fields,"chunkOverlap",before.getChunkOverlap(),after.getChunkOverlap());
+        addChanged(fields,"topK",before.getTopK(),after.getTopK());
+        addChanged(fields,"temperature",safeTemperature(before.getTemperature()),safeTemperature(after.getTemperature()));
+        addChanged(fields,"scoreThreshold",before.getScoreThreshold(),after.getScoreThreshold());
+        addChanged(fields,"enabled",before.getEnabled(),after.getEnabled());
+        addChanged(fields,"knowledgeProfileEnabled",before.getKnowledgeProfileEnabled(),after.getKnowledgeProfileEnabled());
+        return String.join(",",fields);
+    }
+
+    private void addChanged(List<String> fields, String field, Object before, Object after) {
+        if(before == null ? after != null : !before.equals(after)) {
+            fields.add(field);
+        }
+    }
+
+    private String configSnapshot(SpaceRagConfig config) {
+        if(config == null) {
+            return "{}";
+        }
+        return "{\"embeddingModel\":\"" + escapeJson(config.getEmbeddingModel()) + "\","
+                + "\"chatModel\":\"" + escapeJson(config.getChatModel()) + "\","
+                + "\"chunkSize\":" + config.getChunkSize() + ","
+                + "\"chunkOverlap\":" + config.getChunkOverlap() + ","
+                + "\"topK\":" + config.getTopK() + ","
+                + "\"temperature\":" + safeTemperature(config.getTemperature()) + ","
+                + "\"scoreThreshold\":" + config.getScoreThreshold() + ","
+                + "\"enabled\":" + config.getEnabled() + ","
+                + "\"knowledgeProfileEnabled\":" + config.getKnowledgeProfileEnabled() + "}";
+    }
+
+    /**
+     * 执行 blankToCurrent 函数的业务处理。
+     *
+     * @param value 方法入参
+     * @param current 方法入参
+     * @return 处理结果
+     */
+    private String blankToCurrent(String value, String current) {
+        return value == null || value.isBlank() ? current : value;
+    }
+
+    /**
+     * 执行 truncate 函数的业务处理。
+     *
+     * @param value 方法入参
+     * @param maxLength 方法入参
+     * @return 处理结果
+     */
+    private String truncate(String value, int maxLength) {
+        if(value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0,maxLength);
+    }
+
+    /**
+     * 执行 escapeJson 函数的业务处理。
+     *
+     * @param value 方法入参
+     * @return 处理结果
+     */
+    private String escapeJson(String value) {
+        if(value == null) {
+            return "";
+        }
+        return value.replace("\\","\\\\").replace("\"","\\\"");
+    }
+}
