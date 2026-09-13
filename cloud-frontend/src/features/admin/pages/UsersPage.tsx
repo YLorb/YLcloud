@@ -1,6 +1,8 @@
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { AdminCollectionPage, type AdminCollectionConfig } from "../components/AdminCollectionPage";
 import type { AdminRecord } from "../core/AdminDataSource";
+import { useAdminDataSource } from "../core/AdminDataSource";
+import { LiveUsersPage } from "./LiveUsersPage";
 
 type UserRow = AdminRecord & { username: string; nickname: string; email: string; role: string; group: string; status: string; storage: string };
 const config: AdminCollectionConfig<UserRow> = {
@@ -36,4 +38,4 @@ const config: AdminCollectionConfig<UserRow> = {
   build: (values) => ({ username: values.username, nickname: values.nickname, email: values.email, role: values.role, group: values.group, status: values.status, storage: "0 B" }),
   stats: [{ label: "用户", value: (items) => items.length, detail: "演示账号" }, { label: "已启用", value: (items) => items.filter((item) => item.status === "启用").length, detail: "当前可用", tone: "success" }, { label: "管理员", value: (items) => items.filter((item) => item.role === "ADMIN").length, detail: "高权限角色", tone: "warning" }]
 };
-export function UsersPage() { return <AdminCollectionPage config={config} />; }
+export function UsersPage() { return useAdminDataSource().mode === "live" ? <LiveUsersPage /> : <AdminCollectionPage config={config} />; }

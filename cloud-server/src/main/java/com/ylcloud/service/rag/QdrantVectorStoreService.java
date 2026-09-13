@@ -67,6 +67,11 @@ public class QdrantVectorStoreService {
         this.restClient = restBuilder.build();
     }
 
+    /** Reuses the configured store; callers must enforce the administrator boundary. */
+    public EmbeddingSearchResult<TextSegment> searchForAdmin(EmbeddingSearchRequest request) {
+        return embeddingStore.search(request);
+    }
+
     public int upsertSpaceChunks(Long spaceId, Long spaceFileId, Long documentId, List<FileRagChunk> chunks) {
         int indexed=stageSpaceChunks(spaceId,spaceFileId,documentId,chunks);
         cleanupObsoleteSpaceFilePoints(chunks);

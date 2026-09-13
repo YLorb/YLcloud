@@ -139,7 +139,7 @@ public interface UnifiedAsyncTaskMapper {
                             @Param("leaseToken") String leaseToken,@Param("expireAt") LocalDateTime expireAt,
                             @Param("now") LocalDateTime now);
 
-    @Update("update async_task set status='RETRY_WAIT',next_retry_at=#{now},next_trigger_type='MANUAL_RETRY',last_error_type=null,last_error_code=null,last_error_message=null,finished_at=null,expire_at=null,updated_at=#{now},row_version=row_version+1 where id=#{taskId} and status='FAILED'")
+    @Update("update async_task set status='RETRY_WAIT',next_retry_at=#{now},next_trigger_type='MANUAL_RETRY',last_error_type=null,last_error_code=null,last_error_message=null,finished_at=null,expire_at=null,updated_at=#{now},row_version=row_version+1 where id=#{taskId} and status='FAILED' and archived_at is null")
     int manualRetry(@Param("taskId") Long taskId,@Param("now") LocalDateTime now);
 
     @Select("select * from async_task_attempt where task_id=#{taskId} order by attempt_version")
@@ -148,15 +148,15 @@ public interface UnifiedAsyncTaskMapper {
     @Select("select id from async_task where status='RUNNING' and lease_until < #{now} order by lease_until limit #{limit}")
     List<Long> listExpiredTaskIds(@Param("now") LocalDateTime now,@Param("limit") int limit);
 
-    @Delete("delete from mq_inbox where task_id in (select id from async_task where expire_at < #{now}) limit #{limit}")
+    @Delete("delete from mq_inbox where task_id in (select id from async_task where expire_at < #{now} and archived_at is null) limit #{limit}")
     int deleteExpiredInbox(@Param("now") LocalDateTime now,@Param("limit") int limit);
 
-    @Delete("delete from mq_outbox where status='SENT' and task_id in (select id from async_task where expire_at < #{now}) limit #{limit}")
+    @Delete("delete from mq_outbox where status='SENT' and task_id in (select id from async_task where expire_at < #{now} and archived_at is null) limit #{limit}")
     int deleteExpiredOutbox(@Param("now") LocalDateTime now,@Param("limit") int limit);
 
-    @Delete("delete from async_task_attempt where task_id in (select id from async_task where expire_at < #{now}) limit #{limit}")
+    @Delete("delete from async_task_attempt where task_id in (select id from async_task where expire_at < #{now} and archived_at is null) limit #{limit}")
     int deleteExpiredAttempts(@Param("now") LocalDateTime now,@Param("limit") int limit);
 
-    @Delete("delete from async_task where expire_at < #{now} limit #{limit}")
+    @Delete("delete from async_task where expire_at < #{now} and archived_at is null limit #{limit}")
     int deleteExpiredTasks(@Param("now") LocalDateTime now,@Param("limit") int limit);
 }

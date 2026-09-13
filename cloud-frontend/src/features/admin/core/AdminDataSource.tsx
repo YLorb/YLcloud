@@ -28,14 +28,16 @@ export type AdminResource =
 export type AdminRecordId = string | number;
 export type AdminRecord = { id: AdminRecordId };
 
+export type AdminDataMode = "mock" | "live";
+
 export type AdminPageResult<T> = {
   items: T[];
   total: number;
-  mode: "mock";
+  mode: AdminDataMode;
 };
 
 export interface AdminDataSource {
-  readonly mode: "mock";
+  readonly mode: AdminDataMode;
   list<T extends AdminRecord>(resource: AdminResource): Promise<AdminPageResult<T>>;
   create<T extends AdminRecord>(resource: AdminResource, item: Omit<T, "id"> & Partial<Pick<T, "id">>): Promise<T>;
   update<T extends AdminRecord>(resource: AdminResource, id: AdminRecordId, patch: Partial<T>): Promise<T>;
@@ -142,4 +144,3 @@ export function useAdminCollection<T extends AdminRecord>(resource: AdminResourc
 
   return { items, loading, error, refresh, ...commands, mode: source.mode };
 }
-

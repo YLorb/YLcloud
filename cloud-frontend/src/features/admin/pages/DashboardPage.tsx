@@ -2,6 +2,8 @@ import { Activity, ArrowUpRight, FileText, HardDrive, RefreshCw, Server, ShieldC
 import { toast } from "sonner";
 import { Button } from "../../../components/ui/Button";
 import { AdminPage, AdminSection, AdminStat, AdminStats, AdminUnavailableHint } from "../components/AdminPage";
+import { useAdminDataSource } from "../core/AdminDataSource";
+import { LiveDashboardPage } from "./LiveDashboardPage";
 
 const metrics = [
   { key: "files", label: "新增文件数", icon: FileText, color: "primary" },
@@ -11,6 +13,10 @@ const metrics = [
 ];
 
 export function DashboardPage() {
+  return useAdminDataSource().mode === "live" ? <LiveDashboardPage /> : <MockDashboardPage />;
+}
+
+function MockDashboardPage() {
   return (
     <AdminPage eyebrow="管理后台" title="面板首页" description="集中查看平台活动、容量和运行状态。" actions={<><label className="admin-compact-select"><span className="sr-only">统计时间范围</span><select defaultValue="7d"><option value="24h">最近 24 小时</option><option value="7d">最近 7 天</option><option value="30d">最近 30 天</option></select></label><Button variant="ghost" onClick={() => toast.message("当前为前端演示模式，暂无可刷新的服务器统计")}><RefreshCw size={16} />刷新</Button></>}>
       <AdminStats>{metrics.map(({ key, label, icon: Icon, color }) => <AdminStat key={key} label={label} value="0" detail="暂无服务器统计" tone={color as "info" | "success" | "warning"} icon={<Icon size={17} />} />)}</AdminStats>

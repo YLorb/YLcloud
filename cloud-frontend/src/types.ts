@@ -4,6 +4,12 @@ export type ApiResult<T> = {
   data: T;
 };
 
+export type AdminTaskRow = {
+  id: number; task_type: string; task_domain: string; status: string;
+  created_by?: number; space_id?: number; attempt_version: number;
+  created_at: string; updated_at: string; finished_at?: string; archived_at?: string; archived_by?: number;
+};
+
 export type User = {
   id: number;
   username: string;

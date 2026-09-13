@@ -65,4 +65,15 @@ JOIN permission_group new_g ON new_g.group_name = 'User'
 SET upg.group_id = new_g.group_id, upg.update_time = NOW()
 WHERE old_g.group_name = '默认用户组';
 
-DELETE FROM permission_group WHERE group_name = '默认用户组';
+-- 9. 保留原有配额数值，将其引用迁移到 User 组。
+-- 若目标组已配置独立配额，不覆盖任一配置：保留旧组供管理员后续处理。
+UPDATE quota_policy old_q
+JOIN permission_group old_g ON old_g.group_id = old_q.group_id AND old_g.group_name = '默认用户组'
+JOIN permission_group new_g ON new_g.group_name = 'User'
+LEFT JOIN quota_policy new_q ON new_q.group_id = new_g.group_id
+SET old_q.group_id = new_g.group_id
+WHERE new_q.group_id IS NULL;
+
+DELETE FROM permission_group
+WHERE group_name = '默认用户组'
+  AND NOT EXISTS (SELECT 1 FROM quota_policy q WHERE q.group_id = permission_group.group_id);

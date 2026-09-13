@@ -24,7 +24,7 @@ export function AdminTable<T>({ columns, items, getKey, loading, error, emptyTit
       <table className="data-table">
         <thead><tr>{columns.map((column) => <th key={column.key} className={column.className}>{column.label}</th>)}</tr></thead>
         <tbody>
-          {loading && <tr><td colSpan={columns.length}><div className="admin-table-state" aria-busy="true">正在加载演示数据…</div></td></tr>}
+          {loading && <tr><td colSpan={columns.length}><div className="admin-table-state" aria-busy="true">正在加载数据…</div></td></tr>}
           {!loading && error && <tr><td colSpan={columns.length}><div className="admin-table-state admin-table-state--error" role="alert"><strong>无法加载数据</strong><span>{error}</span>{onRetry && <Button size="sm" variant="danger" onClick={onRetry}><RefreshCw size={14} />重试</Button>}</div></td></tr>}
           {!loading && !error && items.length === 0 && <tr><td colSpan={columns.length}><div className="admin-table-state" role="status"><Inbox size={24} aria-hidden="true" /><strong>{emptyTitle}</strong><span>{emptyMessage}</span></div></td></tr>}
           {!loading && !error && items.map((item) => <tr key={getKey(item)}>{columns.map((column) => <td key={column.key} className={column.className}>{column.render(item)}</td>)}</tr>)}
@@ -48,4 +48,3 @@ export function AdminPagination({ page = 1, pageSize = 20, total = 0, onPageChan
     </nav>
   );
 }
-

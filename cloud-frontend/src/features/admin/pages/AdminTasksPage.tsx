@@ -1,6 +1,8 @@
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { AdminCollectionPage, type AdminCollectionConfig } from "../components/AdminCollectionPage";
 import type { AdminRecord } from "../core/AdminDataSource";
+import { useAdminDataSource } from "../core/AdminDataSource";
+import { LiveTasksPage } from "./LiveTasksPage";
 
 type TaskRow = AdminRecord & { taskId: string; type: string; content: string; status: string; creator: string; node: string; createdAt?: string; updatedAt: string };
 const config: AdminCollectionConfig<TaskRow> = {
@@ -19,4 +21,4 @@ const config: AdminCollectionConfig<TaskRow> = {
   renderDetail: (item) => <section className="admin-detail-timeline"><h3>演示时间线</h3><ol><li><strong>进入队列</strong><span>{item.createdAt || "未记录"}</span></li><li><strong>最近状态：{item.status}</strong><span>{item.updatedAt || "未记录"}</span></li></ol><small>此时间线仅反映当前页面的演示记录，不是服务端任务日志。</small></section>,
   stats: [{ label: "任务", value: (items) => items.length, detail: "演示队列" }, { label: "运行中", value: (items) => items.filter((item) => item.status === "运行中").length, detail: "处理中", tone: "info" }, { label: "失败", value: (items) => items.filter((item) => item.status === "失败").length, detail: "需要关注", tone: "danger" }]
 };
-export function AdminTasksPage() { return <AdminCollectionPage config={config} />; }
+export function AdminTasksPage() { return useAdminDataSource().mode === "live" ? <LiveTasksPage /> : <AdminCollectionPage config={config} />; }

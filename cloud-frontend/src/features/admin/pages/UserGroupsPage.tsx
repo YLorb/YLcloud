@@ -1,6 +1,8 @@
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { AdminCollectionPage, type AdminCollectionConfig } from "../components/AdminCollectionPage";
 import type { AdminRecord } from "../core/AdminDataSource";
+import { useAdminDataSource } from "../core/AdminDataSource";
+import { LiveGroupsPage } from "./LiveGroupsPage";
 
 type GroupRow = AdminRecord & { name: string; description: string; policy: string; quota: string; users: number; system: string };
 
@@ -28,4 +30,4 @@ const config: AdminCollectionConfig<GroupRow> = {
   stats: [{ label: "用户组", value: (items) => items.length, detail: "当前演示会话" }, { label: "系统组", value: (items) => items.filter((item) => item.system === "系统组").length, detail: "受保护组", tone: "info" }, { label: "成员总数", value: (items) => items.reduce((sum, item) => sum + item.users, 0), detail: "演示统计" }]
 };
 
-export function UserGroupsPage() { return <AdminCollectionPage config={config} />; }
+export function UserGroupsPage() { return useAdminDataSource().mode === "live" ? <LiveGroupsPage /> : <AdminCollectionPage config={config} />; }

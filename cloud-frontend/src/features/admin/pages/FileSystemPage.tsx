@@ -6,10 +6,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui
 import { AdminField, AdminFormDialog } from "../components/AdminDialogs";
 import { AdminFilterBar, AdminPage, AdminSearch, AdminSection, AdminSelect, AdminStat, AdminStats } from "../components/AdminPage";
 import { AdminPagination, AdminTable } from "../components/AdminTable";
+import { useAdminDataSource } from "../core/AdminDataSource";
+import { LiveFileSystemPage } from "./LiveFileSystemPage";
 
 type Mapping = { id: string; extension: string; label: string; application: string; status: string };
 
 export function FileSystemPage() {
+  return useAdminDataSource().mode === "live" ? <LiveFileSystemPage /> : <MockFileSystemPage />;
+}
+
+function MockFileSystemPage() {
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [mode, setMode] = useState("all");

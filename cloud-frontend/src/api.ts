@@ -226,6 +226,13 @@ export const api = {
       body: JSON.stringify({ settings })
     }),
   adminUsers: () => request<AdminUser[]>("/api/admin/users"),
+  adminDailyMetrics: (days: number) => request<{ timezone: string; tokenStatisticsAvailable: boolean; days: Array<{ date: string; newFiles: number; newBlobs: number; newUsers: number; newSpaces: number }> }>(`/api/admin/metrics/daily?days=${days}`),
+  adminTasks: (filters: { archived: boolean; status?: string; type?: string; creator?: number; page: number; pageSize: number }) => {
+    const query = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") query.set(key, String(value)); });
+    return request<{ items: import("./types").AdminTaskRow[]; total: number; page: number; pageSize: number }>(`/api/admin/tasks?${query}`);
+  },
+  archiveAdminTask: (id: number) => request<boolean>(`/api/admin/tasks/${id}/archive`, { method: "POST" }),
   createAdminUser: (payload: { username: string; password: string; nickname: string; email?: string; role: "ADMIN" | "USER"; groupId?: number }) =>
     request<AdminUser>("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }),
   updateAdminUser: (userId: number, payload: { role?: "ADMIN" | "USER"; status?: number }) =>

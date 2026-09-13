@@ -2,6 +2,7 @@ import { AlertTriangle, Beaker, Search, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "../../../components/ui/Button";
 import { cn } from "../../../lib/cn";
+import { useAdminDataSource } from "../core/AdminDataSource";
 
 export function AdminPage({ eyebrow, title, description, actions, children }: {
   eyebrow: string;
@@ -23,6 +24,8 @@ export function AdminPage({ eyebrow, title, description, actions, children }: {
 }
 
 export function AdminPrototypeNotice() {
+  const { mode } = useAdminDataSource();
+  if (mode === "live") return <div className="admin-prototype-notice" role="status"><div><strong>真实 API</strong><span>数据来自服务器，确认后的操作会持久保存；未接入能力不提供模拟成功。</span></div></div>;
   return (
     <div className="admin-prototype-notice" role="status">
       <Beaker size={17} aria-hidden="true" />

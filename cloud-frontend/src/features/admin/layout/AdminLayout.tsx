@@ -12,6 +12,9 @@ import {
 } from "../../../components/ui/Sidebar";
 import { useSession } from "../../../app/session";
 import { AdminDataSourceProvider } from "../core/AdminDataSource";
+import { LiveAdminDataSource } from "../core/LiveAdminDataSource";
+
+const liveDataSource = new LiveAdminDataSource();
 
 const sidebarItems = [
   { to: "/admin/dashboard", label: "面板首页", icon: BarChart3 },
@@ -73,7 +76,7 @@ export function AdminLayout() {
   }
 
   return (
-    <AdminDataSourceProvider>
+    <AdminDataSourceProvider dataSource={["/admin/user-list", "/admin/user-groups", "/admin/settings", "/admin/tasks", "/admin/fs", "/admin/dashboard"].includes(location.pathname.replace(/\/$/, "")) ? liveDataSource : undefined}>
     <div className={collapsed ? "app-shell app-shell--collapsed" : "app-shell"}>
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       {mobileOpen && <button className="mobile-scrim" aria-label="关闭导航" onClick={() => setMobileOpen(false)} />}

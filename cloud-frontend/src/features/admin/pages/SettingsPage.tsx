@@ -5,6 +5,8 @@ import { Button } from "../../../components/ui/Button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui/Tabs";
 import { AdminConfirmDialog, AdminField } from "../components/AdminDialogs";
 import { AdminPage, AdminSection } from "../components/AdminPage";
+import { useAdminDataSource } from "../core/AdminDataSource";
+import { LiveSettingsPage } from "./LiveSettingsPage";
 
 type SettingValues = Record<string, string>;
 const initialValues: SettingValues = {
@@ -20,6 +22,10 @@ const tabs = [
 ] as const;
 
 export function SettingsPage() {
+  return useAdminDataSource().mode === "live" ? <LiveSettingsPage /> : <MockSettingsPage />;
+}
+
+function MockSettingsPage() {
   const [values, setValues] = useState<SettingValues>(initialValues);
   const [saved, setSaved] = useState<SettingValues>(initialValues);
   const [showSecret, setShowSecret] = useState(false);

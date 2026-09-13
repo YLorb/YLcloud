@@ -14,7 +14,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
-import dev.langchain4j.store.embedding.EmbeddingStore;
+import com.ylcloud.service.rag.QdrantVectorStoreService;
 import dev.langchain4j.store.embedding.filter.Filter;
 import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
 import org.slf4j.Logger;
@@ -51,20 +51,20 @@ public class AdminFullTextSearchService {
     private final SpaceFileService spaceFileService;
     private final RagProperties ragProperties;
     private final EmbeddingModel embeddingModel;
-    private final EmbeddingStore<TextSegment> embeddingStore;
+    private final QdrantVectorStoreService vectorStore;
 
     public AdminFullTextSearchService(FileRagChunkMapper fileRagChunkMapper,
                                        SpaceMapper spaceMapper,
                                        SpaceFileService spaceFileService,
                                        RagProperties ragProperties,
                                        EmbeddingModel embeddingModel,
-                                       EmbeddingStore<TextSegment> embeddingStore) {
+                                       QdrantVectorStoreService vectorStore) {
         this.fileRagChunkMapper = fileRagChunkMapper;
         this.spaceMapper = spaceMapper;
         this.spaceFileService = spaceFileService;
         this.ragProperties = ragProperties;
         this.embeddingModel = embeddingModel;
-        this.embeddingStore = embeddingStore;
+        this.vectorStore = vectorStore;
     }
 
     /**
@@ -180,7 +180,7 @@ public class AdminFullTextSearchService {
                     .filter(filter)
                     .build();
 
-            EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(request);
+            EmbeddingSearchResult<TextSegment> searchResult = vectorStore.searchForAdmin(request);
 
             // 提取 chunk IDs
             List<Long> chunkIds = new ArrayList<>();
