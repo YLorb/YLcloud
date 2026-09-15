@@ -3,6 +3,7 @@ package com.ylcloud.controller;
 import com.ylcloud.DTO.SiteSettingUpdateDTO;
 import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.SiteSettingService;
+import com.ylcloud.service.DeploymentSecretService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -15,7 +16,7 @@ class AdminSettingControllerWebhookPolicyTest {
     void privateWebhookPolicyRequiresDeploymentOwnerInAdditionToAdmin() {
         SiteSettingService settings = mock(SiteSettingService.class);
         AdminPermissionService permissions = mock(AdminPermissionService.class);
-        AdminSettingController controller = new AdminSettingController(settings,permissions);
+        AdminSettingController controller = new AdminSettingController(settings,permissions,mock(DeploymentSecretService.class));
         SiteSettingUpdateDTO.Item item = new SiteSettingUpdateDTO.Item();
         item.setKey("webhook.allowPrivateTargets");
         item.setValue("true");

@@ -33,6 +33,16 @@ export type SiteSetting = {
   updateTime?: string;
 };
 
+export type DeploymentSecret = {
+  key: string;
+  label: string;
+  description: string;
+  configured: boolean;
+  editable: boolean;
+  activation: string;
+  updateTime?: string;
+};
+
 export type AdminUser = {
   id: number;
   username: string;

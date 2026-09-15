@@ -52,17 +52,13 @@ CHAT_MODEL_NAME = os.getenv("CHAT_MODEL_NAME", "deepseek-chat")
 GENERATE_MODEL_NAME = os.getenv("GENERATE_MODEL_NAME", "doubao-seed-2-0-pro-260215")
 USE_FP16 = os.getenv("USE_FP16", "true").lower() == "true"
 OPENAI_COMPATIBLE_BASE_URL = os.getenv("OPENAI_COMPATIBLE_BASE_URL")
-OPENAI_COMPATIBLE_API_KEY = read_secret("OPENAI_COMPATIBLE_API_KEY")
 LLM_API_STYLE = os.getenv("LLM_API_STYLE", "responses").lower()
 CHAT_BASE_URL = os.getenv("CHAT_BASE_URL") or os.getenv("LLM_BASE_URL") or OPENAI_COMPATIBLE_BASE_URL
-CHAT_API_KEY = read_secret("CHAT_API_KEY", "LLM_API_KEY") or OPENAI_COMPATIBLE_API_KEY
 CHAT_API_STYLE = os.getenv("CHAT_API_STYLE") or os.getenv("LLM_CHAT_API_STYLE") or os.getenv("LLM_API_STYLE", "chat_completions")
 GENERATE_BASE_URL = os.getenv("GENERATE_BASE_URL") or os.getenv("QUERY_REWRITE_BASE_URL") or OPENAI_COMPATIBLE_BASE_URL
-GENERATE_API_KEY = read_secret("GENERATE_API_KEY", "QUERY_REWRITE_API_KEY") or OPENAI_COMPATIBLE_API_KEY
 GENERATE_API_STYLE = os.getenv("GENERATE_API_STYLE") or os.getenv("QUERY_REWRITE_API_STYLE") or os.getenv("LLM_API_STYLE", "responses")
 PLAN_MODEL_NAME = os.getenv("PLAN_MODEL_NAME", GENERATE_MODEL_NAME)
 PLAN_BASE_URL = os.getenv("PLAN_BASE_URL") or GENERATE_BASE_URL
-PLAN_API_KEY = read_secret("PLAN_API_KEY") or GENERATE_API_KEY
 PLAN_API_STYLE = os.getenv("PLAN_API_STYLE") or GENERATE_API_STYLE
 PLAN_MOCK_ENABLED = os.getenv("PLAN_MOCK_ENABLED", "false").lower() == "true"
 OFFLINE_FALLBACK = os.getenv("OFFLINE_FALLBACK", "false").lower() == "true"
@@ -247,6 +243,18 @@ class GenerateResponse(BaseModel):
 INTENT_PLAN_PROMPT_VERSION = "intent-plan-prompt/1.0"
 
 
+def chat_api_key() -> str | None:
+    return read_secret("CHAT_API_KEY", "LLM_API_KEY") or read_secret("OPENAI_COMPATIBLE_API_KEY")
+
+
+def generate_api_key() -> str | None:
+    return read_secret("GENERATE_API_KEY", "QUERY_REWRITE_API_KEY") or read_secret("OPENAI_COMPATIBLE_API_KEY")
+
+
+def plan_api_key() -> str | None:
+    return read_secret("PLAN_API_KEY") or generate_api_key()
+
+
 @app.get("/health")
 def health():
     return {
@@ -254,13 +262,13 @@ def health():
         "embeddingModel": EMBEDDING_MODEL_NAME,
         "rerankModel": RERANK_MODEL_NAME,
         "chatModel": CHAT_MODEL_NAME,
-        "chatEnabled": bool(CHAT_BASE_URL and CHAT_API_KEY),
+        "chatEnabled": bool(CHAT_BASE_URL and chat_api_key()),
         "chatApiStyle": CHAT_API_STYLE.lower(),
         "generateModel": GENERATE_MODEL_NAME,
-        "generateEnabled": bool(GENERATE_BASE_URL and GENERATE_API_KEY),
+        "generateEnabled": bool(GENERATE_BASE_URL and generate_api_key()),
         "generateApiStyle": GENERATE_API_STYLE.lower(),
         "planModel": PLAN_MODEL_NAME,
-        "planEnabled": PLAN_MOCK_ENABLED or bool(PLAN_BASE_URL and PLAN_API_KEY),
+        "planEnabled": PLAN_MOCK_ENABLED or bool(PLAN_BASE_URL and plan_api_key()),
         "planApiStyle": PLAN_API_STYLE.lower(),
         "llmApiStyle": LLM_API_STYLE,
         "embeddingLoaded": embedding_model is not None,
@@ -480,9 +488,10 @@ def call_text_model(base_url: str, api_key: str, api_style: str, model: str, sys
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest, _identity=Depends(require_model_scope("model.chat"))):
-    ensure_llm_config("chat", CHAT_BASE_URL, CHAT_API_KEY)
+    api_key = chat_api_key()
+    ensure_llm_config("chat", CHAT_BASE_URL, api_key)
     model = request.model or CHAT_MODEL_NAME
-    answer, data = call_text_model(CHAT_BASE_URL, CHAT_API_KEY, CHAT_API_STYLE, model, request.systemPrompt, build_chat_prompt(request), request.maxTokens, request.temperature)
+    answer, data = call_text_model(CHAT_BASE_URL, api_key, CHAT_API_STYLE, model, request.systemPrompt, build_chat_prompt(request), request.maxTokens, request.temperature)
     prompt_tokens, completion_tokens, total_tokens = usage_tokens(data)
     return ChatResponse(
         model=model,
@@ -495,9 +504,10 @@ def chat(request: ChatRequest, _identity=Depends(require_model_scope("model.chat
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate(request: GenerateRequest, _identity=Depends(require_model_scope("model.generate"))):
-    ensure_llm_config("generation", GENERATE_BASE_URL, GENERATE_API_KEY)
+    api_key = generate_api_key()
+    ensure_llm_config("generation", GENERATE_BASE_URL, api_key)
     model = request.model or GENERATE_MODEL_NAME
-    text, data = call_text_model(GENERATE_BASE_URL, GENERATE_API_KEY, GENERATE_API_STYLE, model, request.systemPrompt, request.prompt, request.maxTokens, request.temperature)
+    text, data = call_text_model(GENERATE_BASE_URL, api_key, GENERATE_API_STYLE, model, request.systemPrompt, request.prompt, request.maxTokens, request.temperature)
     prompt_tokens, completion_tokens, total_tokens = usage_tokens(data)
     return GenerateResponse(
         model=model,
@@ -515,12 +525,13 @@ def plan(request: IntentPlanRequest, _identity=Depends(require_model_scope("mode
         structured = mock_intent_plan(request)
         model = "mock-plan-v1"
     else:
-        ensure_llm_config("intent planning", PLAN_BASE_URL, PLAN_API_KEY)
+        api_key = plan_api_key()
+        ensure_llm_config("intent planning", PLAN_BASE_URL, api_key)
         prompt_text = build_intent_plan_prompt(request)
         try:
             raw, _usage = call_text_model(
                 PLAN_BASE_URL,
-                PLAN_API_KEY,
+                api_key,
                 PLAN_API_STYLE,
                 PLAN_MODEL_NAME,
                 "你是受约束的意图规划器，只输出符合给定 Schema 的 JSON。",

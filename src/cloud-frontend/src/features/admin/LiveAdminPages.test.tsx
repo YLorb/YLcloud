@@ -14,7 +14,7 @@ import { FileSystemPage } from "./pages/FileSystemPage";
 
 vi.mock("../../api", () => ({ api: Object.fromEntries([
   "permissionGroups", "permissionDefinitions", "createPermissionGroup", "updatePermissionGroup", "deletePermissionGroup", "groupQuota", "updateGroupQuota",
-  "adminSettings", "updateAdminSettings", "maintenanceStatus", "enableMaintenance", "disableMaintenance", "adminTasks", "archiveAdminTask", "retryUnifiedTask", "cancelUnifiedTask", "adminDailyMetrics", "adminFullTextSearch"
+  "adminSettings", "updateAdminSettings", "deploymentSecrets", "updateDeploymentSecret", "maintenanceStatus", "enableMaintenance", "disableMaintenance", "adminTasks", "archiveAdminTask", "retryUnifiedTask", "cancelUnifiedTask", "adminDailyMetrics", "adminFullTextSearch"
 ].map((key) => [key, vi.fn()])) }));
 const clients: QueryClient[] = [];
 function mount(page: ReactNode) {
@@ -25,6 +25,7 @@ beforeEach(() => {
   vi.mocked(api.permissionGroups).mockResolvedValue([{ id: 2, name: "课程组", systemGroup: false, userCount: 1, permissions: { upload: true } }]);
   vi.mocked(api.permissionDefinitions).mockResolvedValue([{ key: "upload", label: "上传文件", description: "上传权限" }]);
   vi.mocked(api.maintenanceStatus).mockResolvedValue({ active: false });
+  vi.mocked(api.deploymentSecrets).mockResolvedValue([]);
 });
 afterEach(() => { cleanup(); clients.splice(0).forEach((client) => client.clear()); vi.resetAllMocks(); });
 
@@ -72,11 +73,32 @@ describe("管理页真实接口", () => {
     ]);
     vi.mocked(api.updateAdminSettings).mockResolvedValue(undefined);
     const user = userEvent.setup(); mount(<SettingsPage />);
-    expect(await screen.findByLabelText(/密钥/)).toHaveValue("");
+    expect(await screen.findByLabelText("密钥", { selector: "input" })).toHaveValue("");
     const name = screen.getByLabelText(/站点名/); await user.clear(name); await user.type(name, "New Cloud");
     await user.click(screen.getByRole("button", { name: "保存配置" }));
     await user.click(screen.getByRole("button", { name: "确认保存到服务器" }));
     await waitFor(() => expect(api.updateAdminSettings).toHaveBeenCalledWith([{ key: "site.name", value: "New Cloud" }]));
+  });
+  it("部署密钥不回显，确认后写入独立 Secret 接口并清空输入", async () => {
+    vi.mocked(api.adminSettings).mockResolvedValue([]);
+    vi.mocked(api.deploymentSecrets).mockResolvedValue([{
+      key: "llmApiKey", label: "LLM API Key", description: "模型密钥", configured: false,
+      editable: true, activation: "下一次模型请求自动生效"
+    }]);
+    vi.mocked(api.updateDeploymentSecret).mockResolvedValue({
+      key: "llmApiKey", label: "LLM API Key", description: "模型密钥", configured: true,
+      editable: true, activation: "下一次模型请求自动生效"
+    });
+    const user = userEvent.setup(); mount(<SettingsPage />);
+    await user.click(screen.getByRole("tab", { name: "密钥与凭据" }));
+    const input = await screen.findByLabelText("LLM API Key");
+    expect(input).toHaveAttribute("type", "password");
+    await user.type(input, "sk-browser-only");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(api.updateDeploymentSecret).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "确认保存" }));
+    await waitFor(() => expect(api.updateDeploymentSecret).toHaveBeenCalledWith("llmApiKey", "sk-browser-only"));
+    await waitFor(() => expect(input).toHaveValue(""));
   });
   it("维护操作必须确认，传递输入原因", async () => {
     vi.mocked(api.adminSettings).mockResolvedValue([]);

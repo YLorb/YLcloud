@@ -37,6 +37,7 @@ import type {
   SpaceMember,
   PublicSiteSettings,
   SiteSetting,
+  DeploymentSecret,
   StorageQuota,
   User,
   UserApiKey,
@@ -224,6 +225,12 @@ export const api = {
     request<void>("/api/admin/settings", {
       method: "PUT",
       body: JSON.stringify({ settings })
+    }),
+  deploymentSecrets: () => request<DeploymentSecret[]>("/api/admin/settings/secrets"),
+  updateDeploymentSecret: (key: string, value: string) =>
+    request<DeploymentSecret>(`/api/admin/settings/secrets/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ value })
     }),
   adminUsers: () => request<AdminUser[]>("/api/admin/users"),
   adminDailyMetrics: (days: number) => request<{ timezone: string; tokenStatisticsAvailable: boolean; days: Array<{ date: string; newFiles: number; newBlobs: number; newUsers: number; newSpaces: number }> }>(`/api/admin/metrics/daily?days=${days}`),

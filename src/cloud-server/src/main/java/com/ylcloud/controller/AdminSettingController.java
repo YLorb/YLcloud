@@ -1,13 +1,17 @@
 package com.ylcloud.controller;
 
 import com.ylcloud.DTO.SiteSettingUpdateDTO;
+import com.ylcloud.DTO.DeploymentSecretUpdateDTO;
 import com.ylcloud.Result;
 import com.ylcloud.VO.SiteSettingVO;
+import com.ylcloud.VO.DeploymentSecretVO;
 import com.ylcloud.service.AdminPermissionService;
 import com.ylcloud.service.SiteSettingService;
+import com.ylcloud.service.DeploymentSecretService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +25,7 @@ import java.util.List;
 public class AdminSettingController {
     private final SiteSettingService siteSettingService;
     private final AdminPermissionService adminPermissionService;
+    private final DeploymentSecretService deploymentSecretService;
 
     @GetMapping
     public Result<List<SiteSettingVO>> list() {
@@ -36,5 +41,18 @@ public class AdminSettingController {
         }
         siteSettingService.updateBatch(dto);
         return Result.success();
+    }
+
+    @GetMapping("/secrets")
+    public Result<List<DeploymentSecretVO>> listSecrets() {
+        adminPermissionService.requireDeploymentOwner();
+        return Result.success(deploymentSecretService.list());
+    }
+
+    @PutMapping("/secrets/{key}")
+    public Result<DeploymentSecretVO> updateSecret(@PathVariable String key,
+                                                    @RequestBody @Valid DeploymentSecretUpdateDTO dto) {
+        adminPermissionService.requireDeploymentOwner();
+        return Result.success(deploymentSecretService.update(key, dto.value()));
     }
 }
