@@ -1,7 +1,7 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bot, Check, ChevronRight, Copy, Database, Download, FolderInput, FolderPlus, Grid2X2, Link2, List, MoreHorizontal,
+  Bot, Check, ChevronRight, Copy, Database, Download, FolderInput, Grid2X2, Link2, List, MoreHorizontal,
   Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, Upload, X
 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -12,10 +12,12 @@ import type { Category } from "../../appTypes";
 import { Button } from "../../components/ui/Button";
 import { Dialog } from "../../components/ui/Dialog";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/PageState";
-import { categoryMeta, fileIcon, fileTypeLabel, formatSize, formatTime, matchesCategory } from "../../fileUtils";
+import { categoryMeta, fileTypeLabel, formatSize, formatTime, matchesCategory } from "../../fileUtils";
 import type { FileItem, FilePreview } from "../../types";
 import { uploadFileWithResume, type UploadProgress } from "./multipartUpload";
 import { FileExplorerBreadcrumbs, FileExplorerSearch } from "./FileExplorerChrome";
+import { FilePreviewPanel } from "./FilePreviewPanel";
+import { FileTypeIcon } from "./FileTypeIcon";
 
 type Crumb = { id: number; name: string };
 
@@ -26,7 +28,12 @@ export function FilesPage() {
   const [params, setParams] = useSearchParams();
   const parentId = Number(params.get("parent") || 0);
   const category = (params.get("category") || "all") as Category;
-  const [query, setQuery] = useState("");
+  const query = params.get("q") || "";
+  function setQuery(value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set("q", value); else next.delete("q");
+    setParams(next, { replace: true });
+  }
   const deferredQuery = useDeferredValue(query);
   const [view, setView] = useState<"list" | "grid">(() => localStorage.getItem("ylcloud_files_view") === "grid" ? "grid" : "list");
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: 0, name: "我的文件" }]);
@@ -44,6 +51,10 @@ export function FilesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [transferFolderId, setTransferFolderId] = useState("0");
   const [preview, setPreview] = useState<FilePreview | null>(null);
+  const [previewItem, setPreviewItem] = useState<FileItem | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewRequestId = useRef(0);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
 
   const isRecycle = category === "recycle";
@@ -59,6 +70,17 @@ export function FilesPage() {
   const visibleFiles = useMemo(() => (files.data || [])
     .filter((item) => matchesCategory(item, category))
     .filter((item) => isAggregate || item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())), [category, files.data, isAggregate, query]);
+  const folderTiles = visibleFiles.filter((item) => item.isDir);
+  const showFolderTiles = category === "all" && parentId === 0 && !query && view === "list" && folderTiles.length > 0;
+  const tableFiles = showFolderTiles ? visibleFiles.filter((item) => !item.isDir) : visibleFiles;
+
+  useEffect(() => {
+    previewRequestId.current += 1;
+    setPreviewItem(null);
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+  }, [category, parentId]);
 
   const selectedItems = useMemo(() => visibleFiles.filter((item) => selectedIds.has(item.fileId)), [selectedIds, visibleFiles]);
   const selectedDocuments = useMemo(() => selectedItems.filter((item) => !item.isDir), [selectedItems]);
@@ -169,8 +191,27 @@ export function FilesPage() {
 
   async function previewFile(item: FileItem) {
     if (item.isDir) return openFolder(item);
-    try { setPreview(await api.previewFile(item.fileUuid, item.parentId)); }
-    catch (error) { toast.error(error instanceof Error ? error.message : "预览失败"); }
+    setPreviewItem(item);
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
+    const requestId = ++previewRequestId.current;
+    try {
+      const result = await api.previewFile(item.fileUuid, item.parentId);
+      if (requestId === previewRequestId.current) setPreview(result);
+    } catch (error) {
+      if (requestId === previewRequestId.current) setPreviewError(error instanceof Error ? error.message : "预览失败");
+    } finally {
+      if (requestId === previewRequestId.current) setPreviewLoading(false);
+    }
+  }
+
+  function closePreview() {
+    previewRequestId.current += 1;
+    setPreviewItem(null);
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
   }
 
   function toggleSelection(item: FileItem) {
@@ -202,12 +243,12 @@ export function FilesPage() {
   }
 
   return (
-    <div className="files-page">
+    <div className={previewItem ? "files-page files-page--preview-open" : "files-page"}>
       <section className="feature-main">
         <div className="content-toolbar">
           <FileExplorerBreadcrumbs crumbs={crumbs} label="文件路径" onOpen={openCrumb} />
           <div className="toolbar-actions">
-            {!isRecycle && !isAggregate && <><input ref={fileInput} hidden type="file" multiple onChange={(event) => upload(event.target.files)} /><Button variant="primary" onClick={() => fileInput.current?.click()}><Upload size={16} />上传文件</Button><Button onClick={() => setFolderOpen(true)}><FolderPlus size={16} />新建文件夹</Button></>}
+            {!isRecycle && !isAggregate && <><input ref={fileInput} hidden type="file" multiple onChange={(event) => upload(event.target.files)} /><Button variant="primary" onClick={() => fileInput.current?.click()}><Upload size={16} />上传</Button><Button onClick={() => setFolderOpen(true)}><Plus size={16} />新建</Button></>}
             <Button variant="ghost" size="icon" aria-label="刷新" onClick={() => refresh()}><RefreshCw size={17} /></Button>
           </div>
         </div>
@@ -217,17 +258,18 @@ export function FilesPage() {
         </div>
         {selectedItems.length > 0 && !isRecycle && <div className="bulk-action-bar" role="region" aria-label="批量文件操作"><strong>已选择 {selectedItems.length} 项</strong><span>文件夹不会下载或添加到知识库。</span><div><Button disabled={!selectedDocuments.length} onClick={downloadSelected}><Download size={16} />下载</Button><Button onClick={() => { setBatchTransfer("move"); setTransferFolderId("0"); }}><FolderInput size={16} />移动</Button><Button onClick={() => { setBatchTransfer("copy"); setTransferFolderId("0"); }}><Copy size={16} />复制</Button><Button disabled={!selectedDocuments.length} onClick={() => { setKnowledgeSpaceId(""); setBatchKnowledgeOpen(true); }}><Database size={16} />添加到知识库</Button><Button variant="danger" onClick={() => setBatchDeleteOpen(true)}><Trash2 size={16} />删除</Button><Button variant="ghost" onClick={() => setSelectedIds(new Set())}>取消选择</Button></div></div>}
         {uploadProgress && <div className="upload-strip" role="status"><span><Upload size={16} />正在{uploadProgress.stage === "hashing" ? "校验" : uploadProgress.stage === "merging" ? "合并" : "上传"} {uploadProgress.fileName}</span><progress max={100} value={uploadProgress.percent} /><strong>{uploadProgress.percent}%</strong></div>}
+        {!files.isLoading && !files.isError && showFolderTiles && <section className="file-folder-section" aria-label="文件夹"><h2>文件夹</h2><div className="file-folder-tiles">{folderTiles.map((item) => <div className={selectedIds.has(item.fileId) ? "file-folder-tile is-selected" : "file-folder-tile"} key={item.fileId}><label className="file-folder-tile__select"><input type="checkbox" checked={selectedIds.has(item.fileId)} onChange={() => toggleSelection(item)} aria-label={`选择 ${item.name}`} /></label><button className="file-folder-tile__open" onClick={() => openFolder(item)} onDoubleClick={() => openFolder(item)}><FileTypeIcon item={item} large /><strong title={item.name}>{item.name}</strong></button><FileMenu item={item} recycle={false} onPreview={() => openFolder(item)} onDownload={() => {}} onShare={() => share(item)} onRestore={() => {}} onRename={() => { setRenameTarget(item); setRenameName(item.name); }} onKnowledge={() => {}} onTransfer={(mode) => { setTransfer({ item, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(item)} /></div>)}</div></section>}
         {files.isLoading ? <LoadingState label="正在加载文件" /> : files.isError ? <ErrorState message={files.error instanceof Error ? files.error.message : "无法加载文件"} onRetry={() => files.refetch()} /> : visibleFiles.length === 0 ? (!query && !isRecycle && !isAggregate && parentId === 0
           ? <FileOnboarding onUpload={() => fileInput.current?.click()} onAsk={() => navigate("/assistant")} />
           : <EmptyState title={query ? "没有匹配的文件" : isRecycle ? "回收站为空" : "这里还没有文件"} message={query ? "请尝试其他关键词。" : isRecycle ? "删除的文件会暂时保留在这里。" : "上传文件或创建文件夹开始整理资料。"} action={!isRecycle && !query ? <Button variant="primary" onClick={() => fileInput.current?.click()}><Plus size={16} />上传文件</Button> : undefined} />) : (
-          <div className={view === "grid" ? "file-grid" : "data-table-wrap"}>
-            {view === "list" ? <table className="data-table"><thead><tr><th className="selection-cell"><input type="checkbox" checked={allSelected} aria-checked={allSelected ? true : selectedItems.length ? "mixed" : false} onChange={toggleAll} aria-label="选择当前结果中的全部文件" /></th><th>名称</th><th>类型</th><th>大小</th><th>更新时间</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{visibleFiles.map((item) => <tr className={selectedIds.has(item.fileId) ? "is-selected" : ""} key={item.fileId} onDoubleClick={() => previewFile(item)}><td className="selection-cell"><input type="checkbox" checked={selectedIds.has(item.fileId)} onChange={() => toggleSelection(item)} aria-label={`选择 ${item.name}`} /></td><td><button className="file-name" onClick={() => previewFile(item)}>{fileIcon(item, 19)}<span>{item.name}</span></button></td><td>{fileTypeLabel(item)}</td><td>{item.isDir ? "—" : formatSize(item.size)}</td><td>{formatTime(item.updateTime || item.createTime)}</td><td><FileMenu item={item} recycle={isRecycle} onPreview={() => previewFile(item)} onDownload={() => api.downloadFile(item.fileUuid, item.parentId, item.name).catch((error) => toast.error(error.message))} onShare={() => share(item)} onRestore={() => restoreFile.mutate(item)} onRename={() => { setRenameTarget(item); setRenameName(item.name); }} onKnowledge={() => { setKnowledgeTarget(item); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(item)} /></td></tr>)}</tbody></table> : visibleFiles.map((item) => <article className={selectedIds.has(item.fileId) ? "file-card file-card--selected" : "file-card"} key={item.fileId} onDoubleClick={() => previewFile(item)}><label className="file-card__select"><input type="checkbox" checked={selectedIds.has(item.fileId)} onChange={() => toggleSelection(item)} /><span className="sr-only">选择 {item.name}</span></label><div className="file-card__icon">{fileIcon(item, 36)}</div><button className="file-card__name" onClick={() => previewFile(item)}>{item.name}</button><span>{item.isDir ? "文件夹" : formatSize(item.size)}</span><FileMenu item={item} recycle={isRecycle} onPreview={() => previewFile(item)} onDownload={() => api.downloadFile(item.fileUuid, item.parentId, item.name).catch((error) => toast.error(error.message))} onShare={() => share(item)} onRestore={() => restoreFile.mutate(item)} onRename={() => { setRenameTarget(item); setRenameName(item.name); }} onKnowledge={() => { setKnowledgeTarget(item); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(item)} /></article>)}
-          </div>
+          (showFolderTiles && tableFiles.length === 0 ? null : <div className={view === "grid" ? "file-grid" : "data-table-wrap"}>
+            {view === "list" ? <table className="data-table"><thead><tr><th className="selection-cell"><input type="checkbox" checked={allSelected} aria-checked={allSelected ? true : selectedItems.length ? "mixed" : false} onChange={toggleAll} aria-label="选择当前结果中的全部文件" /></th><th>名称</th><th>修改时间</th><th>大小</th><th>类型</th><th><span className="sr-only">操作</span></th></tr></thead><tbody>{tableFiles.map((item) => <tr className={selectedIds.has(item.fileId) || previewItem?.fileId === item.fileId ? "is-selected" : ""} key={item.fileId} onDoubleClick={() => previewFile(item)}><td className="selection-cell"><input type="checkbox" checked={selectedIds.has(item.fileId)} onChange={() => toggleSelection(item)} aria-label={`选择 ${item.name}`} /></td><td><button className="file-name" onClick={() => previewFile(item)}><FileTypeIcon item={item} /><span>{item.name}</span></button></td><td>{formatTime(item.updateTime || item.createTime)}</td><td>{item.isDir ? "—" : formatSize(item.size)}</td><td>{fileTypeLabel(item)}</td><td><FileMenu item={item} recycle={isRecycle} onPreview={() => previewFile(item)} onDownload={() => api.downloadFile(item.fileUuid, item.parentId, item.name).catch((error) => toast.error(error.message))} onShare={() => share(item)} onRestore={() => restoreFile.mutate(item)} onRename={() => { setRenameTarget(item); setRenameName(item.name); }} onKnowledge={() => { setKnowledgeTarget(item); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(item)} /></td></tr>)}</tbody></table> : visibleFiles.map((item) => <article className={selectedIds.has(item.fileId) || previewItem?.fileId === item.fileId ? "file-card file-card--selected" : "file-card"} key={item.fileId} onDoubleClick={() => previewFile(item)}><label className="file-card__select"><input type="checkbox" checked={selectedIds.has(item.fileId)} onChange={() => toggleSelection(item)} /><span className="sr-only">选择 {item.name}</span></label><div className="file-card__icon"><FileTypeIcon item={item} large /></div><button className="file-card__name" onClick={() => previewFile(item)}>{item.name}</button><span>{item.isDir ? "文件夹" : formatSize(item.size)}</span><FileMenu item={item} recycle={isRecycle} onPreview={() => previewFile(item)} onDownload={() => api.downloadFile(item.fileUuid, item.parentId, item.name).catch((error) => toast.error(error.message))} onShare={() => share(item)} onRestore={() => restoreFile.mutate(item)} onRename={() => { setRenameTarget(item); setRenameName(item.name); }} onKnowledge={() => { setKnowledgeTarget(item); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(item)} /></article>)}
+          </div>)
         )}
       </section>
+      {previewItem && <FilePreviewPanel key={previewItem.fileId} item={previewItem} preview={preview} loading={previewLoading} error={previewError} onClose={closePreview} onRetry={() => previewFile(previewItem)} onDownload={() => api.downloadFile(previewItem.fileUuid, previewItem.parentId, previewItem.name).catch((error) => toast.error(error instanceof Error ? error.message : "下载失败"))} onShare={() => share(previewItem)} onKnowledge={() => { setKnowledgeTarget(previewItem); setKnowledgeSpaceId(""); }} moreActions={<FileMenu item={previewItem} recycle={isRecycle} onPreview={() => previewFile(previewItem)} onDownload={() => api.downloadFile(previewItem.fileUuid, previewItem.parentId, previewItem.name).catch((error) => toast.error(error instanceof Error ? error.message : "下载失败"))} onShare={() => share(previewItem)} onRestore={() => restoreFile.mutate(previewItem)} onRename={() => { setRenameTarget(previewItem); setRenameName(previewItem.name); }} onKnowledge={() => { setKnowledgeTarget(previewItem); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item: previewItem, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(previewItem)} />} />}
       <Dialog open={folderOpen} onOpenChange={setFolderOpen} title="新建文件夹" description="文件夹将创建在当前路径。" footer={<><Button onClick={() => setFolderOpen(false)}>取消</Button><Button variant="confirm" loading={createFolder.isPending} disabled={!folderName.trim()} onClick={() => createFolder.mutate()}>确认创建</Button></>}><label className="field"><span>文件夹名称</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} maxLength={128} placeholder="例如：项目资料" /></label></Dialog>
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)} title={isRecycle ? "永久删除文件？" : "移入回收站？"} description={isRecycle ? "此操作不可撤销，文件数据将被永久删除。" : "文件可在回收站中恢复。"} footer={<><Button onClick={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" loading={deleteFile.isPending || purgeFile.isPending} onClick={() => deleteTarget && (isRecycle ? purgeFile.mutate(deleteTarget) : deleteFile.mutate(deleteTarget))}><Trash2 size={16} />{isRecycle ? "永久删除" : "移入回收站"}</Button></>}><div className="danger-callout">将处理：<strong>{deleteTarget?.name}</strong></div></Dialog>
-      <Dialog open={Boolean(preview)} onOpenChange={(open) => !open && setPreview(null)} title={preview?.name || "文件预览"} footer={<Button onClick={() => setPreview(null)}>关闭</Button>}><PreviewContent preview={preview} /></Dialog>
       <Dialog open={Boolean(renameTarget)} onOpenChange={(open) => !open && setRenameTarget(null)} title="重命名" footer={<><Button onClick={() => setRenameTarget(null)}>取消</Button><Button variant="confirm" loading={renameFile.isPending} disabled={!renameName.trim() || renameName.trim() === renameTarget?.name} onClick={() => renameFile.mutate()}><Pencil size={16} />确认修改</Button></>}><label className="field"><span>新名称</span><input autoFocus value={renameName} onChange={(event) => setRenameName(event.target.value)} /></label></Dialog>
       <Dialog open={Boolean(knowledgeTarget)} onOpenChange={(open) => !open && setKnowledgeTarget(null)} title="添加到知识库" description="文档将加入所选空间，并依次执行解析、切分、Embedding 和索引。" footer={<><Button onClick={() => setKnowledgeTarget(null)}>取消</Button><Button variant="confirm" loading={addToKnowledge.isPending} disabled={!knowledgeSpaceId} onClick={() => addToKnowledge.mutate()}><Database size={16} />确认添加</Button></>}><div className="form-stack"><div className="info-callout">目标文档：<strong>{knowledgeTarget?.name}</strong></div><label className="field"><span>目标知识库</span><select value={knowledgeSpaceId} onChange={(event) => setKnowledgeSpaceId(event.target.value)}><option value="">请选择团队空间</option>{(spaces.data || []).map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label></div></Dialog>
       <Dialog open={batchKnowledgeOpen} onOpenChange={setBatchKnowledgeOpen} title="批量添加到知识库" description="所选文档将依次执行解析、切分、Embedding 和索引。" footer={<><Button onClick={() => setBatchKnowledgeOpen(false)}>取消</Button><Button variant="confirm" loading={batchAddToKnowledge.isPending} disabled={!knowledgeSpaceId || !selectedDocuments.length} onClick={() => batchAddToKnowledge.mutate()}><Database size={16} />确认添加</Button></>}><div className="form-stack"><div className="info-callout">将添加 <strong>{selectedDocuments.length}</strong> 个文档{selectedItems.length !== selectedDocuments.length && `，已忽略 ${selectedItems.length - selectedDocuments.length} 个文件夹`}。</div><label className="field"><span>目标知识库</span><select value={knowledgeSpaceId} onChange={(event) => setKnowledgeSpaceId(event.target.value)}><option value="">请选择团队空间</option>{(spaces.data || []).map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label></div></Dialog>
@@ -256,12 +298,4 @@ function FileOnboarding({ onUpload, onAsk }: { onUpload: () => void; onAsk: () =
 
 function FileMenu({ item, recycle, onPreview, onDownload, onShare, onRestore, onRename, onKnowledge, onTransfer, onDelete }: { item: FileItem; recycle: boolean; onPreview: () => void; onDownload: () => void; onShare: () => void; onRestore: () => void; onRename: () => void; onKnowledge: () => void; onTransfer: (mode: "move" | "copy") => void; onDelete: () => void }) {
   return <DropdownMenu.Root><DropdownMenu.Trigger asChild><Button variant="ghost" size="icon" aria-label={`打开 ${item.name} 的操作菜单`}><MoreHorizontal size={17} /></Button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="dropdown-menu" align="end">{recycle ? <DropdownMenu.Item onSelect={onRestore}><RotateCcw size={15} />恢复</DropdownMenu.Item> : <><DropdownMenu.Item onSelect={onPreview}>{item.isDir ? <ChevronRight size={15} /> : <Search size={15} />}{item.isDir ? "打开" : "预览"}</DropdownMenu.Item>{!item.isDir && <><DropdownMenu.Item onSelect={onDownload}><Download size={15} />下载</DropdownMenu.Item><DropdownMenu.Item onSelect={onKnowledge}><Database size={15} />添加到知识库</DropdownMenu.Item></>}<DropdownMenu.Item onSelect={onShare}><Link2 size={15} />复制分享链接</DropdownMenu.Item><DropdownMenu.Item onSelect={onRename}><Pencil size={15} />重命名</DropdownMenu.Item><DropdownMenu.Item onSelect={() => onTransfer("move")}><FolderInput size={15} />移动</DropdownMenu.Item><DropdownMenu.Item onSelect={() => onTransfer("copy")}><Copy size={15} />复制</DropdownMenu.Item></>}<DropdownMenu.Separator /><DropdownMenu.Item className="dropdown-danger" onSelect={onDelete}><Trash2 size={15} />{recycle ? "永久删除" : "移入回收站"}</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
-}
-
-function PreviewContent({ preview }: { preview: FilePreview | null }) {
-  if (!preview) return null;
-  if (preview.textContent) return <pre className="text-preview">{preview.textContent}</pre>;
-  if (preview.previewUrl && preview.contentType?.startsWith("image/")) return <img className="media-preview" src={preview.previewUrl} alt={preview.name} />;
-  if (preview.previewUrl) return <iframe className="document-preview" src={preview.previewUrl} title={preview.name} />;
-  return <EmptyState title="暂不支持在线预览" message="你仍可下载该文件后查看。" />;
 }

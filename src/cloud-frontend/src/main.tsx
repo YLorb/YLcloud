@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { AppProviders } from "./app/AppProviders";
 import "./styles/app.css";
+import "./styles/file-workspace.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode><AppProviders><App /></AppProviders></React.StrictMode>
