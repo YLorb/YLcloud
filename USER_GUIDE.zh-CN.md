@@ -72,36 +72,91 @@ git clone https://github.com/YLorb/YLcloud.git
 cd YLcloud
 ```
 
-## 3. 本地一键部署
+## 3. 开箱部署
 
-在仓库根目录执行：
+YLcloud 使用 Docker Compose，并针对不同系统提供两个等价的首次启动入口。脚本负责：
 
-```powershell
-powershell.exe -NoProfile `
-  -ExecutionPolicy Bypass `
-  -File .\scripts\self-deploy.ps1
+1. 检查 Docker 和 Compose v2；
+2. 缺少时从模板创建 `config/.env`；
+3. 自动生成 JWT、服务 JWT、RabbitMQ、导出主密钥和 Sandbox Token；
+4. 创建模型 API Key 占位文件；
+5. 校验 Compose 配置；
+6. 构建镜像、启动容器并等待健康检查；
+7. 输出容器状态和访问地址。
+
+脚本是幂等的：已有 `config/.env` 和非空 Secret 不会被覆盖。升级现有实例时必须保留原有 JWT、服务 JWT和导出主密钥，否则可能导致现有会话、服务通信或历史导出数据失效。
+
+### 3.1 Windows
+
+安装并启动 Docker Desktop，确认使用 Linux Containers，然后在仓库根目录运行：
+
+```bat
+scripts\install.bat
 ```
 
-首次运行时，部署脚本会基于 `config/.env.example` 创建 `config/.env`，补充必要配置，迁移本地 Secret，构建镜像并启动服务。它还会等待容器和 HTTP 健康检查，并验证数据库迁移状态。
+脚本使用 Windows 自带的 PowerShell 安全随机数 API 生成 Secret，但用户不需要手工运行 PowerShell 命令。
 
-部署报告和失败诊断默认写入：
+### 3.2 Linux
 
-```text
-outputs/self-deploy/
+安装 Docker Engine、Compose v2 和 OpenSSL，确保当前用户有权访问 Docker，然后运行：
+
+```bash
+chmod +x scripts/install.sh
+./scripts/install.sh
 ```
 
-常用参数：
+生产服务器建议使用专用部署账号，不建议以 root 身份长期运行日常管理流程。
 
-```powershell
-# 启动前运行后端测试和前端生产构建
-.\scripts\self-deploy.ps1 -RunTests
+### 3.3 macOS
 
-# 复用已有镜像，跳过构建
-.\scripts\self-deploy.ps1 -SkipBuild
+安装并启动 Docker Desktop。macOS 使用与 Linux 相同的入口：
 
-# 执行包含 PDF 的冒烟验证
-.\scripts\self-deploy.ps1 -RunSmoke -SmokePdfPath "D:\documents\example.pdf"
+```bash
+chmod +x scripts/install.sh
+./scripts/install.sh
 ```
+
+脚本依赖系统可执行的 `openssl`；缺少时会停止并给出明确错误，而不会生成弱 Secret。
+
+### 3.4 检查模式与复用镜像
+
+只初始化缺失文件并验证 Compose，不启动容器：
+
+```bat
+scripts\install.bat --check
+```
+
+```bash
+./scripts/install.sh --check
+```
+
+复用已有本地镜像，跳过构建：
+
+```bat
+scripts\install.bat --skip-build
+```
+
+```bash
+./scripts/install.sh --skip-build
+```
+
+### 3.5 手动 Compose 与故障排查
+
+脚本完成初始化后，仍可以直接使用标准 Compose 命令：
+
+```bash
+docker compose -p ylcloud --env-file config/.env -f config/docker-compose.yml config --quiet
+docker compose -p ylcloud --env-file config/.env -f config/docker-compose.yml up -d --build --wait --wait-timeout 600
+docker compose -p ylcloud --env-file config/.env -f config/docker-compose.yml ps -a
+```
+
+查看失败服务日志：
+
+```bash
+docker compose -p ylcloud --env-file config/.env -f config/docker-compose.yml logs --tail 200 <service-name>
+```
+
+`scripts/install.sh` 和 `scripts/install.bat` 是面向普通用户公开的首次部署入口。其他遗留启动、发布或验收脚本不作为本指南的安装方式。
 
 部署完成后访问：
 
@@ -111,11 +166,8 @@ http://127.0.0.1:5173
 
 如果页面无法打开，可以先检查容器：
 
-```powershell
-docker compose `
-  --env-file config/.env `
-  -f config/docker-compose.yml `
-  ps -a
+```bash
+docker compose -p ylcloud --env-file config/.env -f config/docker-compose.yml ps -a
 ```
 
 ## 4. 配置模型和 Secret
@@ -435,19 +487,32 @@ YLcloud 以 Space 作为知识库边界。首次使用知识库前，应先创�
 
 ## 13. 服务器部署
 
-服务器部署使用发布镜像配置：
+生产服务器推荐使用 Linux、Docker Engine 和 Compose v2。服务器配置使用已发布镜像，而不是在服务器现场构建：
 
-```powershell
-.\scripts\self-deploy.ps1 -Mode Server
+```bash
+cp config/.env.server.example config/.env.server
 ```
 
-首次执行会生成：
+编辑 `config/.env.server`，至少完成以下工作：
 
-```text
-config/.env.server
+- 配置真实的 `ACR_REGISTRY`、`ACR_NAMESPACE` 和镜像标签；
+- 替换所有 `replace-*` 密码；
+- 保持 `YLCLOUD_SPRING_PROFILE=prod`；
+- 按服务器占用情况调整宿主机端口；
+- 将离线模型降级改为符合实际验收要求的值；
+- 按第 3 节的方法创建 `config/secrets/`，不要从开发机复制不受控的明文凭据。
+
+登录镜像仓库并部署：
+
+```bash
+docker login --username <registry-user> <ACR_REGISTRY>
+docker compose -p ylcloud --env-file config/.env.server -f config/docker-compose.hub.yml config --quiet
+docker compose -p ylcloud --env-file config/.env.server -f config/docker-compose.hub.yml pull
+docker compose -p ylcloud --env-file config/.env.server -f config/docker-compose.hub.yml up -d
+docker compose -p ylcloud --env-file config/.env.server -f config/docker-compose.hub.yml ps -a
 ```
 
-脚本随后会主动停止，避免使用模板值启动。编辑文件并替换所有 `replace-*` 值后，再次执行同一命令。
+服务器发布仍应执行人工配置检查和上线验收，不应仅凭某个辅助脚本执行成功就判定部署可用。
 
 生产部署检查会拒绝常见危险配置，包括：
 

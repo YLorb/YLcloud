@@ -80,6 +80,11 @@ src/cloud-frontend/.vite/
 ### Local PowerShell helpers ###
 /*.ps1
 
+### Legacy startup and deployment entrypoints ###
+/scripts/deploy.sh
+/scripts/self-deploy.ps1
+/scripts/start-dev.sh
+
 ### Local shortcuts ###
 /Obsidian.lnk
 
