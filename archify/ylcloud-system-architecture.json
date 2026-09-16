@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "YLCloud 系统架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1390, 800],
+    "repository": {"url": "https://github.com/YLorb/YLcloud", "provider": "github", "revision": "104c5984e661349b157ff4669aec1aa4b83bf851"},
+    "views": [
+      {"id": "requestPath", "label": "主请求链路", "focus": ["user", "frontend", "backend", "mysql", "minio"], "note": "从浏览器进入 REST API，并落到业务数据与对象存储。"},
+      {"id": "ragPath", "label": "知识与 RAG", "focus": ["backend", "rabbitmq", "parser", "model", "qdrant"], "note": "文档任务经消息队列协调解析、模型推理和向量检索。"},
+      {"id": "agentPath", "label": "Agent 工作流", "focus": ["backend", "workflow", "sandbox", "model"], "note": "核心服务调用工作流引擎；工具执行可进入隔离沙箱。"}
+    ]
+  },
+  "components": [
+    {"id": "user", "type": "external", "label": "用户与管理员", "sublabel": "浏览器访问", "pos": [35, 310], "size": [150, 76], "sources": [{"path": "src/cloud-frontend/src/api.ts", "line": 174, "label": "前端登录 API"}]},
+    {"id": "frontend", "type": "frontend", "label": "React Web 前端", "sublabel": "Vite · React Query", "pos": [245, 310], "size": [170, 76], "sources": [{"path": "src/cloud-frontend/package.json", "line": 12, "end_line": 26, "label": "前端依赖"}]},
+    {"id": "backend", "type": "backend", "label": "YLCloud 核心服务", "sublabel": "Spring Boot · REST · MyBatis", "pos": [490, 310], "size": [190, 76], "sources": [{"path": "src/cloud-server/src/main/java/com/ylcloud/YlCloudApplication.java", "line": 7, "end_line": 12, "label": "应用入口"}, {"path": "src/cloud-server/pom.xml", "line": 22, "end_line": 30, "label": "Web 与 AMQP"}]},
+    {"id": "rabbitmq", "type": "messagebus", "label": "RabbitMQ", "sublabel": "异步任务与事件", "brand": "rabbitmq", "pos": [755, 160], "size": [165, 76], "sources": [{"path": "config/docker-compose.yml", "line": 2, "end_line": 8, "label": "消息队列容器"}]},
+    {"id": "mysql", "type": "database", "label": "MySQL", "sublabel": "业务与任务状态", "brand": "mysql", "pos": [490, 500], "size": [170, 76], "sources": [{"path": "config/docker-compose.yml", "line": 34, "end_line": 45, "label": "关系数据库"}]},
+    {"id": "minio", "type": "database", "label": "MinIO", "sublabel": "文件与版本对象", "pos": [720, 500], "size": [170, 76], "sources": [{"path": "config/docker-compose.yml", "line": 54, "end_line": 66, "label": "对象存储"}]},
+    {"id": "qdrant", "type": "database", "label": "Qdrant", "sublabel": "RAG 向量索引", "pos": [1160, 500], "size": [170, 76], "sources": [{"path": "config/docker-compose.yml", "line": 73, "end_line": 81, "label": "向量数据库"}]},
+    {"id": "parser", "type": "backend", "label": "文档解析服务", "sublabel": "FastAPI · OCR · VLM", "pos": [960, 160], "size": [185, 76], "sources": [{"path": "src/document-parser-service/parser_service.py", "line": 13, "label": "FastAPI 服务"}]},
+    {"id": "model", "type": "backend", "label": "模型服务", "sublabel": "Embedding · Rerank · Chat", "pos": [1160, 160], "size": [190, 76], "sources": [{"path": "src/model-service/bge_service.py", "line": 299, "end_line": 320, "label": "向量与重排接口"}]},
+    {"id": "workflow", "type": "backend", "label": "工作流引擎", "sublabel": "FastAPI · Graph Runtime", "pos": [755, 310], "size": [185, 76], "sources": [{"path": "src/workflow-service/mini_agent_flow/service/api.py", "line": 110, "end_line": 124, "label": "工作流 API"}]},
+    {"id": "sandbox", "type": "security", "label": "隔离沙箱服务", "sublabel": "受控工具执行", "pos": [1010, 310], "size": [190, 76], "sources": [{"path": "src/sandbox-service/sandbox_service/api.py", "line": 14, "end_line": 38, "label": "沙箱调用 API"}]}
+  ],
+  "boundaries": [
+    {"kind": "region", "label": "YLCloud 应用与服务", "wraps": ["frontend", "backend", "rabbitmq", "mysql", "minio", "qdrant", "parser", "model", "workflow", "sandbox"], "pad": 22},
+    {"kind": "security-group", "label": "隔离执行边界", "wraps": ["sandbox"], "pad": 14}
+  ],
+  "connections": [
+    {"id": "userToFrontend", "from": "user", "to": "frontend", "label": "HTTPS", "variant": "emphasis"},
+    {"id": "frontendToBackend", "from": "frontend", "to": "backend", "label": "REST /api", "variant": "emphasis"},
+    {"id": "backendToRabbit", "from": "backend", "to": "rabbitmq", "label": "AMQP 任务", "variant": "dashed", "fromSide": "top", "toSide": "bottom"},
+    {"id": "backendToMysql", "from": "backend", "to": "mysql", "label": "MyBatis / JDBC", "fromSide": "bottom", "toSide": "top", "labelAt": [535, 430]},
+    {"id": "backendToMinio", "from": "backend", "to": "minio", "label": "S3 API", "fromSide": "bottom", "toSide": "top"},
+    {"id": "rabbitToParser", "from": "rabbitmq", "to": "parser", "label": "解析任务", "variant": "dashed", "labelAt": [940, 140]},
+    {"id": "backendToWorkflow", "from": "backend", "to": "workflow", "label": "服务 JWT / HTTP", "variant": "security", "labelAt": [718, 290]},
+    {"id": "workflowToSandbox", "from": "workflow", "to": "sandbox", "label": "受控工具调用", "variant": "security"},
+    {"id": "workflowToModel", "from": "workflow", "to": "model", "label": "规划与生成", "fromSide": "top", "toSide": "bottom"},
+    {"id": "modelToQdrant", "from": "model", "to": "qdrant", "label": "Embedding 向量", "fromSide": "bottom", "toSide": "top"}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "核心能力", "items": ["个人与团队文件管理、版本与分享", "知识库、RAG 检索与智能对话"]},
+    {"dot": "amber", "title": "架构特征", "items": ["RabbitMQ 解耦耗时任务", "对象、关系与向量数据分层存储"]}
+  ]
+}
