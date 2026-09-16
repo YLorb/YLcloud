@@ -1,4 +1,4 @@
-name: Build and publish Docker images
+name: Build and publish to Docker Hub
 
 on:
   push:
@@ -18,12 +18,13 @@ permissions:
 
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-images:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     strategy:
       fail-fast: false
@@ -45,9 +46,38 @@ jobs:
             context: ./src/document-parser-service
             dockerfile: ./src/document-parser-service/Dockerfile
 
+          - image: ylcloud-workflow-service
+            context: ./src/workflow-service
+            dockerfile: ./src/workflow-service/Dockerfile
+
+          - image: ylcloud-sandbox-service
+            context: ./src/sandbox-service
+            dockerfile: ./src/sandbox-service/Dockerfile
+
+          - image: ylcloud-tool-file-preflight
+            context: ./src/sandbox-tools/file-preflight
+            dockerfile: ./src/sandbox-tools/file-preflight/Dockerfile
+
+          - image: ylcloud-tool-json-echo
+            context: ./src/sandbox-tools/json-echo
+            dockerfile: ./src/sandbox-tools/json-echo/Dockerfile
+
     steps:
+      - name: Validate publishing credentials
+        if: github.event_name != 'pull_request'
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo '::error::Set repository variable DOCKERHUB_USERNAME and secret DOCKERHUB_TOKEN.'
+            exit 1
+          fi
+
       - name: Checkout source
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -59,26 +89,18 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Log in to Alibaba Cloud ACR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ vars.ACR_REGISTRY }}
-          username: ${{ vars.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
       - name: Generate image metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: |
-            ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
-            ${{ vars.ACR_REGISTRY }}/${{ vars.ACR_NAMESPACE }}/${{ matrix.image }}
+          images: docker.io/${{ vars.DOCKERHUB_NAMESPACE || vars.DOCKERHUB_USERNAME || 'ylcloud-ci' }}/${{ matrix.image }}
           flavor: latest=false
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
+            type=ref,event=pr
+            type=ref,event=tag
             type=semver,pattern={{version}}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
