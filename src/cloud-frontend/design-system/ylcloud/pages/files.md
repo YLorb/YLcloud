@@ -1,47 +1,18 @@
-# Files Page Overrides
+# 文件工作台：预览图对齐规则
 
-> **PROJECT:** YLCloud
-> **Generated:** 2026-07-16 13:39:42
-> **Page Type:** Product Detail
+参考用户提供的两张 YLCloud 文件工作台预览图；只实现应用内部页面，不实现画面外的山景背景、宣传标语或其他 Landing Page 内容。本文件沿用 `MASTER.md` 的蓝色品牌主色、高信息密度、单 Sidebar 和语义 Token 规则。
 
-> ⚠️ **IMPORTANT:** Rules in this file **override** the Master file (`design-system/MASTER.md`).
-> Only deviations from the Master are documented here. For all other rules, refer to the Master.
+## 布局与组件
 
----
+- 单一紧凑 Sidebar：文件、共享空间与智能能力在同一导航列；文件分类是文件功能的次级导航，不新增第二列。
+- Header：左侧文件搜索；右侧通知入口和账户菜单。文件页标题放在内容区路径栏，不在 Header 重复。
+- 文件区：路径栏、上传/新建操作、视图切换。根目录中，文件夹使用紧凑横向图块，文件使用高密度表格；子目录的文件夹与文件同列展示。
+- 文件行：类型色标、名称、大小、更新时间、类型与行级操作。选中行使用浅蓝底色；打开文件时在右侧显示预览面板。
+- 预览面板：位于文件工作台右侧，含文件名、元数据、预览/详情/历史版本/AI 总结选项卡和下载/分享/复制链接操作。真正可预览内容优先使用 API 返回的 URL 或文本；不支持时展示明确空态，不使用假文档图片。
+- 视觉：纯白主体、低对比线条、浅蓝选中态、扁平按钮；小圆角，不加工作台背景插画或宣传性卡片。
 
-## Page-Specific Rules
+## 状态与响应式
 
-### Layout Overrides
-
-- **Max Width:** 1400px or full-width
-- **Grid:** 12-column grid for data flexibility
-- **Sections:** 1. Hero (Name/Role), 2. Project Grid (Masonry), 3. About/Philosophy, 4. Contact
-
-### Spacing Overrides
-
-- **Content Density:** High — optimize for information display
-
-### Typography Overrides
-
-- No overrides — use Master typography
-
-### Color Overrides
-
-- **Strategy:** Neutral background (let work shine). Text: Black/White. Accent: Minimal.
-
-### Component Overrides
-
-- No overrides — use Master component specs
-
----
-
-## Page-Specific Components
-
-- No unique components for this page
-
----
-
-## Recommendations
-
-- Effects: Hover tooltips, chart zoom on click, row highlighting on hover, smooth filter animations, data loading spinners
-- CTA Placement: Project Card Hover + Footer Contact
+- 加载、空、错误、上传中沿用既有状态组件，不能因为预览面板被遮挡。
+- 宽度不足时预览面板覆盖内容或独占下一行；在手机端保持文件列表和操作可用，不产生水平页面溢出。
+- 现有上传、创建、批量、下载、分享、回收站、添加知识库功能必须保留。

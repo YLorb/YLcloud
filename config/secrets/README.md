@@ -6,6 +6,7 @@ This directory contains deploy-time secrets mounted into containers as read-only
 2. Never commit files without the `.example` suffix.
 3. Keep one secret per file with no variable name or quotes.
 4. Restrict real files to the deployment account. On Linux use `chmod 600 config/secrets/*`.
+5. Provider API Key files may be empty after installation. A deployment owner can populate them from 管理后台 → 参数设置 → 密钥与凭据.
 
 Required for application startup:
 

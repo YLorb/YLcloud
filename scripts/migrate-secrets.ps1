@@ -23,6 +23,9 @@ $mapping = [ordered]@{
     YLCLOUD_ARK_API_KEY = "ark_api_key"
     YLCLOUD_RAG_QUERY_API_KEY = "rag_query_api_key"
     YLCLOUD_VLM_API_KEY = "vlm_api_key"
+    YLCLOUD_RABBITMQ_PASSWORD = "rabbitmq_password"
+    YLCLOUD_SANDBOX_SERVICE_TOKEN = "sandbox_service_token"
+    YLCLOUD_EXPORT_MASTER_KEY = "export_master_key"
 }
 
 $envPath = Resolve-InputPath $EnvFile
@@ -44,13 +47,23 @@ function New-JwtSecret {
     return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_')
 }
 
+function New-ExportMasterKey {
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    return [Convert]::ToBase64String($bytes)
+}
+
 foreach ($entry in $mapping.GetEnumerator()) {
     $environmentName = $entry.Key
     $targetPath = Join-Path $secretsPath $entry.Value
     $sourceValue = $values[$environmentName]
-    if (($environmentName -eq "YLCLOUD_JWT_SECRET" -or $environmentName -eq "YLCLOUD_SERVICE_JWT_ACTIVE_SECRET") `
+    if (($environmentName -in @("YLCLOUD_JWT_SECRET", "YLCLOUD_SERVICE_JWT_ACTIVE_SECRET", "YLCLOUD_RABBITMQ_PASSWORD", "YLCLOUD_SANDBOX_SERVICE_TOKEN")) `
             -and [string]::IsNullOrWhiteSpace($sourceValue) -and -not [System.IO.File]::Exists($targetPath)) {
         $sourceValue = New-JwtSecret
+    }
+    if ($environmentName -eq "YLCLOUD_EXPORT_MASTER_KEY" -and [string]::IsNullOrWhiteSpace($sourceValue) `
+            -and -not [System.IO.File]::Exists($targetPath)) {
+        $sourceValue = New-ExportMasterKey
     }
     if ($null -eq $sourceValue) {
         $sourceValue = ""
