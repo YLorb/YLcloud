@@ -89,6 +89,9 @@ src/cloud-frontend/.vite/
 /output/admin-real-test/
 /output/rag-course-e2e/
 
+### Internal project documentation ###
+/docs/
+
 ### Local environment and secrets ###
 .env
 .env.*

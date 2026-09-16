@@ -1,5 +1,17 @@
 # YLcloud
 
+## 项目定位
+
+个人/中小型团队的文件资源管理&知识文档整理与问答。重心在为个人与团队提供可检索、可引用、权限可控的文件资源管控平台。
+
+## TODO
+
+- 完善现有 API 功能，并为后续向外提供安全、可靠的外部Agent暴露操控文件资源能力埋点；
+- 搭建更完整、更智能的内部Agent，提供在web/app直接操控文件资源与知识库的能力；
+- 将非核心功能拆解成组件，轻量化应用；
+- 完善对各家模型的支持；
+- 新增Session登录/SSO单点登录/OAuth2登录。
+
 YLcloud 是一个包含文件存储、空间协作和 RAG 知识库的全栈项目。Docker Compose 会构建前后端并启动 MySQL、MinIO、Qdrant、模型服务和文档解析服务。
 
 代码模块统一放在 `src/`：`cloud-common`、`cloud-pojo`、`cloud-server` 是 Maven 模块，`cloud-frontend` 是前端，`model-service`、`document-parser-service`、`workflow-service`、`sandbox-service` 和 `sandbox-tools` 是独立服务或工具。根目录保留 `config/`、`scripts/`、`schemas/` 与 `docs/`，分别存放部署配置、脚本、共享契约和文档。
