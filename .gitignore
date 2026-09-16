@@ -93,6 +93,7 @@ src/cloud-frontend/.vite/
 /output/backups/
 /output/admin-real-test/
 /output/rag-course-e2e/
+/archify/
 
 ### Internal project documentation ###
 /docs/
