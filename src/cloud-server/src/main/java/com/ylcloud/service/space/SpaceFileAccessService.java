@@ -69,6 +69,7 @@ public class SpaceFileAccessService {
         boolean root = Long.valueOf(0L).equals(node.getParentId());
         return SpaceFileCapabilityVO.builder()
                 .canRead(true)
+                .canShare(mutable)
                 .canCreate(!viewer && node.getDir() == 1)
                 .canRename(!root && (node.getDir() == 1 ? subtreeMutable : mutable))
                 .canMove(!root && (node.getDir() == 1 ? subtreeMutable : mutable))

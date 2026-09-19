@@ -38,6 +38,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .excludePathPatterns("/api/login")
                 .excludePathPatterns("/api/site/public-settings")
                 .excludePathPatterns("/api/share/**")
+                .excludePathPatterns("/api/public/share-links/**")
                 .excludePathPatterns("/api/v1/**", "/api/open/**")
                 // Internal API 使用独立 audience/scope/binding Service JWT，由各内部 Controller 强制验签。
                 .excludePathPatterns("/internal/**");
@@ -45,6 +46,8 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/api/sign", "/api/login", "/api/site/public-settings", "/api/share/**",
                         "/api/v1/**", "/api/open/**");
+        // Public shares use optional login and a separate page credential.
+        // Management endpoints remain authenticated.
         registry.addInterceptor(openApiKeyInterceptor)
                 .addPathPatterns("/api/v1/**", "/api/open/**");
     }

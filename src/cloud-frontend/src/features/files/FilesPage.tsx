@@ -19,9 +19,12 @@ import { FileExplorerBreadcrumbs, FileExplorerSearch } from "./FileExplorerChrom
 import { FilePreviewPanel } from "./FilePreviewPanel";
 import { FileTypeIcon } from "./FileTypeIcon";
 
+import { ShareLinkDialog } from "../share/ShareLinkDialog";
+
 type Crumb = { id: number; name: string };
 
 export function FilesPage() {
+  const [shareTarget, setShareTarget] = useState<FileItem | null>(null);
   const client = useQueryClient();
   const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -222,14 +225,7 @@ export function FilesPage() {
     setSelectedIds(allSelected ? new Set() : new Set(visibleFiles.map((item) => item.fileId)));
   }
 
-  async function share(item: FileItem) {
-    try {
-      const code = await api.shareFile(item.fileUuid, item.parentId);
-      const url = `${window.location.origin}/share/${code}`;
-      await navigator.clipboard.writeText(url);
-      toast.success("分享链接已复制");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "创建分享链接失败"); }
-  }
+  function share(item: FileItem) { setShareTarget(item); }
 
   async function downloadSelected() {
     try {
@@ -267,6 +263,7 @@ export function FilesPage() {
           </div>)
         )}
       </section>
+      {shareTarget && <ShareLinkDialog target={{ sourceType: "PERSONAL", sourceId: shareTarget.fileId, name: shareTarget.name }} onClose={() => setShareTarget(null)} />}
       {previewItem && <FilePreviewPanel key={previewItem.fileId} item={previewItem} preview={preview} loading={previewLoading} error={previewError} onClose={closePreview} onRetry={() => previewFile(previewItem)} onDownload={() => api.downloadFile(previewItem.fileUuid, previewItem.parentId, previewItem.name).catch((error) => toast.error(error instanceof Error ? error.message : "下载失败"))} onShare={() => share(previewItem)} onKnowledge={() => { setKnowledgeTarget(previewItem); setKnowledgeSpaceId(""); }} moreActions={<FileMenu item={previewItem} recycle={isRecycle} onPreview={() => previewFile(previewItem)} onDownload={() => api.downloadFile(previewItem.fileUuid, previewItem.parentId, previewItem.name).catch((error) => toast.error(error instanceof Error ? error.message : "下载失败"))} onShare={() => share(previewItem)} onRestore={() => restoreFile.mutate(previewItem)} onRename={() => { setRenameTarget(previewItem); setRenameName(previewItem.name); }} onKnowledge={() => { setKnowledgeTarget(previewItem); setKnowledgeSpaceId(""); }} onTransfer={(mode) => { setTransfer({ item: previewItem, mode }); setTransferFolderId("0"); }} onDelete={() => setDeleteTarget(previewItem)} />} />}
       <Dialog open={folderOpen} onOpenChange={setFolderOpen} title="新建文件夹" description="文件夹将创建在当前路径。" footer={<><Button onClick={() => setFolderOpen(false)}>取消</Button><Button variant="confirm" loading={createFolder.isPending} disabled={!folderName.trim()} onClick={() => createFolder.mutate()}>确认创建</Button></>}><label className="field"><span>文件夹名称</span><input autoFocus value={folderName} onChange={(event) => setFolderName(event.target.value)} maxLength={128} placeholder="例如：项目资料" /></label></Dialog>
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)} title={isRecycle ? "永久删除文件？" : "移入回收站？"} description={isRecycle ? "此操作不可撤销，文件数据将被永久删除。" : "文件可在回收站中恢复。"} footer={<><Button onClick={() => setDeleteTarget(null)}>取消</Button><Button variant="danger" loading={deleteFile.isPending || purgeFile.isPending} onClick={() => deleteTarget && (isRecycle ? purgeFile.mutate(deleteTarget) : deleteFile.mutate(deleteTarget))}><Trash2 size={16} />{isRecycle ? "永久删除" : "移入回收站"}</Button></>}><div className="danger-callout">将处理：<strong>{deleteTarget?.name}</strong></div></Dialog>
@@ -297,5 +294,5 @@ function FileOnboarding({ onUpload, onAsk }: { onUpload: () => void; onAsk: () =
 }
 
 function FileMenu({ item, recycle, onPreview, onDownload, onShare, onRestore, onRename, onKnowledge, onTransfer, onDelete }: { item: FileItem; recycle: boolean; onPreview: () => void; onDownload: () => void; onShare: () => void; onRestore: () => void; onRename: () => void; onKnowledge: () => void; onTransfer: (mode: "move" | "copy") => void; onDelete: () => void }) {
-  return <DropdownMenu.Root><DropdownMenu.Trigger asChild><Button variant="ghost" size="icon" aria-label={`打开 ${item.name} 的操作菜单`}><MoreHorizontal size={17} /></Button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="dropdown-menu" align="end">{recycle ? <DropdownMenu.Item onSelect={onRestore}><RotateCcw size={15} />恢复</DropdownMenu.Item> : <><DropdownMenu.Item onSelect={onPreview}>{item.isDir ? <ChevronRight size={15} /> : <Search size={15} />}{item.isDir ? "打开" : "预览"}</DropdownMenu.Item>{!item.isDir && <><DropdownMenu.Item onSelect={onDownload}><Download size={15} />下载</DropdownMenu.Item><DropdownMenu.Item onSelect={onKnowledge}><Database size={15} />添加到知识库</DropdownMenu.Item></>}<DropdownMenu.Item onSelect={onShare}><Link2 size={15} />复制分享链接</DropdownMenu.Item><DropdownMenu.Item onSelect={onRename}><Pencil size={15} />重命名</DropdownMenu.Item><DropdownMenu.Item onSelect={() => onTransfer("move")}><FolderInput size={15} />移动</DropdownMenu.Item><DropdownMenu.Item onSelect={() => onTransfer("copy")}><Copy size={15} />复制</DropdownMenu.Item></>}<DropdownMenu.Separator /><DropdownMenu.Item className="dropdown-danger" onSelect={onDelete}><Trash2 size={15} />{recycle ? "永久删除" : "移入回收站"}</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
+  return <DropdownMenu.Root><DropdownMenu.Trigger asChild><Button variant="ghost" size="icon" aria-label={`打开 ${item.name} 的操作菜单`}><MoreHorizontal size={17} /></Button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="dropdown-menu" align="end">{recycle ? <DropdownMenu.Item onSelect={onRestore}><RotateCcw size={15} />恢复</DropdownMenu.Item> : <><DropdownMenu.Item onSelect={onPreview}>{item.isDir ? <ChevronRight size={15} /> : <Search size={15} />}{item.isDir ? "打开" : "预览"}</DropdownMenu.Item>{!item.isDir && <><DropdownMenu.Item onSelect={onDownload}><Download size={15} />下载</DropdownMenu.Item><DropdownMenu.Item onSelect={onKnowledge}><Database size={15} />添加到知识库</DropdownMenu.Item></>}<DropdownMenu.Item onSelect={onShare}><Link2 size={15} />分享链接</DropdownMenu.Item><DropdownMenu.Item onSelect={onRename}><Pencil size={15} />重命名</DropdownMenu.Item><DropdownMenu.Item onSelect={() => onTransfer("move")}><FolderInput size={15} />移动</DropdownMenu.Item><DropdownMenu.Item onSelect={() => onTransfer("copy")}><Copy size={15} />复制</DropdownMenu.Item></>}<DropdownMenu.Separator /><DropdownMenu.Item className="dropdown-danger" onSelect={onDelete}><Trash2 size={15} />{recycle ? "永久删除" : "移入回收站"}</DropdownMenu.Item></DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>;
 }

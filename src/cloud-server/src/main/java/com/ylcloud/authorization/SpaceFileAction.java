@@ -2,6 +2,7 @@ package com.ylcloud.authorization;
 
 public enum SpaceFileAction {
     READ,
+    SHARE,
     CREATE,
     RENAME,
     MOVE,

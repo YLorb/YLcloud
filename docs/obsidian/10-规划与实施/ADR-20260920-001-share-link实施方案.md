@@ -171,3 +171,9 @@ IP 仅信任部署配置的代理链，否则取连接地址；身份必须认�
 - [MySQL InnoDB Locking Reads](https://dev.mysql.com/doc/refman/8.0/en/innodb-locking-reads.html)：事务内锁定读取用于序列化读改写；本方案据此设计批准短事务，不锁住整个传输。
 - [Java 17 ZipOutputStream](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/zip/ZipOutputStream.html)：支持逐条写 ZIP 条目和流输出；具体对象存储衔接仍需项目测试。
 未引入新库或升级版本，当前不作依赖兼容成功声明。
+
+## 20. 实际落地记录（2026-09-20）
+
+采用 ShareLinkService/ShareRepository/ShareCrypto/ShareLinkController，复用现有个人与空间权限服务。V55 建表与替换修订标记，V56 增加物理内容变更保护并归档清空旧分享。密码使用带盐 PBKDF2；公开凭据使用独立签名用途、15 分钟有效期和条件版本绑定。数据库时间统一 UTC 微秒。批准事务写磁盘清单并固定 MinIO 对象版本，事务外流式传输。前端使用原生下载表单，避免全量 Blob。
+
+[[10-规划与实施/测试/TEST-20260920-002-share-link测试结果]] 记录实际验证、发布步骤与限制。

@@ -38,6 +38,7 @@ const settingItems = [
 ];
 
 const routeMeta = [
+  { test: (path: string) => path.startsWith("/shares"), title: "我的分享" },
   { test: (path: string) => path.startsWith("/files"), title: "文件" },
   { test: (path: string) => path.startsWith("/knowledge"), title: "知识库" },
   { test: (path: string) => path.startsWith("/assistant"), title: "AI 问答" },
@@ -120,6 +121,9 @@ export function AppShell() {
           <SidebarSection>
             <SidebarItem asChild selected={location.pathname.startsWith("/files") && selectedFileCategory !== "recycle"} title={collapsed ? "我的文件" : undefined}>
               <NavLink to="/files"><Folder size={18} aria-hidden="true" /><span>我的文件</span></NavLink>
+            </SidebarItem>
+            <SidebarItem asChild selected={location.pathname.startsWith("/shares")} title={collapsed ? "我的分享" : undefined}>
+              <NavLink to="/shares"><Folder size={18} aria-hidden="true" /><span>我的分享</span></NavLink>
             </SidebarItem>
             <SidebarItem asChild selected={location.pathname.startsWith("/spaces")} title={collapsed ? "共享空间" : undefined}>
               <NavLink to="/spaces"><Users size={18} aria-hidden="true" /><span>共享空间</span></NavLink>

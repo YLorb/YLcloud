@@ -89,7 +89,7 @@ export function clearSession() {
   localStorage.removeItem(USER_KEY);
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken();
   if (token) headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);

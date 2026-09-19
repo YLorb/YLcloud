@@ -198,6 +198,7 @@ export type SpaceFile = {
   children?: SpaceFile[];
   capability?: {
     canRead: boolean;
+  canShare?: boolean;
     canCreate: boolean;
     canRename: boolean;
     canMove: boolean;

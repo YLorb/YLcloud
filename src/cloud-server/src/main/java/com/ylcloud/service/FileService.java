@@ -784,30 +784,8 @@ public class FileService {
      * @return 处理结果
      */
     public String shareFile(String fileUuid, Long parentId) {
-        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
-        if(!userFileAvailable(userFileDTO)) {
-            throw new BaseException("文件不可用，无法分享");
-        }
-
-        FileShare exists = fileShareMapper.getActiveByUserFileId(userFileDTO.getId(),userFileDTO.getUserId());
-        if(exists != null) {
-            return "/api/share/" + exists.getShareCode();
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        FileShare fileShare = new FileShare();
-        fileShare.setShareCode(generateUniqueShareCode());
-        fileShare.setUserFileId(userFileDTO.getId());
-        fileShare.setFileUuid(userFileDTO.getFileUuid());
-        fileShare.setOwnerId(userFileDTO.getUserId());
-        fileShare.setStatus(StatusConstant.ENABLE);
-        fileShare.setCreateTime(now);
-        fileShare.setUpdateTime(now);
-        int rows = fileShareMapper.insert(fileShare);
-        if(rows == 0) {
-            throw new BaseException("创建分享链接失败");
-        }
-        return "/api/share/" + fileShare.getShareCode();
+        requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
+        throw new BaseException("旧分享功能已停用，请创建新的分享链接");
     }
 
     /**

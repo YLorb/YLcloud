@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminDataSourceProvider, MockAdminDataSource } from "./core/AdminDataSource";
 import { DashboardPage } from "./pages/DashboardPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -11,18 +11,20 @@ import { UserGroupsPage } from "./pages/UserGroupsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { AdminFilesPage } from "./pages/AdminFilesPage";
 import { SharesPage } from "./pages/SharesPage";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { shareApi, type ShareLink } from "../share/shareApi";
 import { AdminTasksPage } from "./pages/AdminTasksPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { EventsPage } from "./pages/EventsPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { OAuthAppsPage } from "./pages/OAuthAppsPage";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const pages = [
   ["面板首页", DashboardPage], ["参数设置", SettingsPage], ["文件系统", FileSystemPage],
   ["存储策略", StoragePoliciesPage], ["节点", NodesPage], ["用户组", UserGroupsPage],
-  ["用户", UsersPage], ["文件", AdminFilesPage], ["分享", SharesPage],
+  ["用户", UsersPage], ["文件", AdminFilesPage],
   ["后台任务", AdminTasksPage], ["订单", OrdersPage], ["事件", EventsPage],
   ["滥用举报", ReportsPage], ["OAuth 应用", OAuthAppsPage]
 ] as const;
@@ -97,15 +99,23 @@ describe("管理后台前端原型", () => {
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
   });
 
-  it("撤销演示分享只修改状态，不删除记录", async () => {
+  it("真实分享页调用撤销 API 并保留记录显示累计次数", async () => {
     const user = userEvent.setup();
-    const share = { id: "s-1", shareId: "demo-share", file: "文档.pdf", owner: "演示用户", views: 0, downloads: 0, expiresAt: "", status: "有效" };
-    render(<AdminDataSourceProvider dataSource={new MockAdminDataSource({ shares: [share] })}><SharesPage /></AdminDataSourceProvider>);
-    await screen.findByText("demo-share");
+    const share: ShareLink = { id: 1, shortCode: "11aaaaaa", name: "文档.pdf", sourceType: "PERSONAL", sourceId: 2, creatorId: 1, directory: false, downloadCount: 3, maxDownloads: 5, expiresAt: null, passwordEnabled: false, forceDownload: false, state: "ACTIVE", version: 1 };
+    const list = vi.spyOn(shareApi, "list").mockResolvedValueOnce({ items: [share], total: 1, page: 1, size: 20 })
+      .mockResolvedValue({ items: [{ ...share, state: "EXPIRED" }], total: 1, page: 1, size: 20 });
+    const revoke = vi.spyOn(shareApi, "revoke").mockResolvedValue();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><SharesPage /></QueryClientProvider>);
+    await screen.findByText("11aaaaaa");
+    expect(screen.queryByText("前端演示模式")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "撤销" }));
     await user.click(screen.getByRole("button", { name: "确认撤销" }));
-    expect(screen.getByText("demo-share")).toBeInTheDocument();
-    expect(within(screen.getByRole("row", { name: /demo-share/ })).getByText("已撤销")).toBeInTheDocument();
+    expect(await screen.findByText("已失效")).toBeInTheDocument();
+    expect(screen.getByText("3 / 5")).toBeInTheDocument();
+    expect(revoke).toHaveBeenCalledWith(1);
+    expect(list).toHaveBeenCalledWith(true, 1);
+    client.clear();
   });
 
   it("失败任务重试需要确认，确认后状态转为等待中", async () => {

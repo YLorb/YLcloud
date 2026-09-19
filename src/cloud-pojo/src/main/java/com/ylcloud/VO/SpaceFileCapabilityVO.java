@@ -7,6 +7,7 @@ import lombok.Value;
 @Builder
 public class SpaceFileCapabilityVO {
     boolean canRead;
+    boolean canShare;
     boolean canCreate;
     boolean canRename;
     boolean canMove;
