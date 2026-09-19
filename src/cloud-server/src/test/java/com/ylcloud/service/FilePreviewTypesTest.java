@@ -16,6 +16,9 @@ class FilePreviewTypesTest {
         assertEquals("pdf", FilePreviewTypes.resolvePreviewType("application/pdf", "report.pdf"));
         assertEquals("text", FilePreviewTypes.resolvePreviewType("application/octet-stream", "notes.md"));
         assertEquals("application/json;charset=UTF-8", FilePreviewTypes.resolveContentType("data.json", null));
+        assertEquals("office", FilePreviewTypes.resolvePreviewType("application/octet-stream", "report.DOCX"));
+        assertEquals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", FilePreviewTypes.resolveContentType("budget.xlsx", null));
+        assertEquals("office", FilePreviewTypes.resolvePreviewType("application/vnd.ms-powerpoint", "slides.ppt"));
     }
 
     /**

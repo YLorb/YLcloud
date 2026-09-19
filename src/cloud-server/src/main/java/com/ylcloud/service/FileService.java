@@ -69,6 +69,8 @@ public class FileService {
     @Autowired
     private MinioclientUtil minioclientUtil;
     @Autowired
+    private OfficePreviewService officePreviewService;
+    @Autowired
     private SiteSettingService siteSettingService;
     @Autowired
     private StorageService storageService;
@@ -680,6 +682,10 @@ public class FileService {
             filePreviewVO.setTextContent(readTextPreview(file));
             return filePreviewVO;
         }
+        if("office".equals(previewType)) {
+            filePreviewVO.setPreviewUrl("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId);
+            return filePreviewVO;
+        }
         if("image".equals(previewType) || "pdf".equals(previewType) || "video".equals(previewType) || "audio".equals(previewType)) {
             filePreviewVO.setPreviewUrl("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId);
             return filePreviewVO;
@@ -703,6 +709,10 @@ public class FileService {
 
         String contentType = resolveContentType(userFileDTO.getFileName(),file.getType());
         String previewType = resolvePreviewType(contentType,userFileDTO.getFileName());
+        if("office".equals(previewType)) {
+            officePreviewService.writePdf(fileUuid,userFileDTO.getFileName(),file.getSize(),response);
+            return;
+        }
         if("text".equals(previewType)) {
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         }
