@@ -15,6 +15,7 @@ public final class FilePreviewTypes {
      * @return 图片、PDF、视频、音频、文本或不支持
      */
     public static String resolvePreviewType(String contentType, String fileName) {
+        if(hasExtension(fileName,".doc",".docx",".xls",".xlsx",".ppt",".pptx")) return "office";
         if(contentType.startsWith("image/")) return "image";
         if("application/pdf".equals(contentType)) return "pdf";
         if(contentType.startsWith("video/")) return "video";
@@ -43,6 +44,12 @@ public final class FilePreviewTypes {
         if(hasExtension(key,".bmp")) return "image/bmp";
         if(hasExtension(key,".svg")) return "image/svg+xml";
         if(hasExtension(key,".pdf")) return "application/pdf";
+        if(hasExtension(key,".doc")) return "application/msword";
+        if(hasExtension(key,".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if(hasExtension(key,".xls")) return "application/vnd.ms-excel";
+        if(hasExtension(key,".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if(hasExtension(key,".ppt")) return "application/vnd.ms-powerpoint";
+        if(hasExtension(key,".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
         if(hasExtension(key,".mp4")) return "video/mp4";
         if(hasExtension(key,".webm")) return "video/webm";
         if(hasExtension(key,".ogg",".ogv")) return "video/ogg";

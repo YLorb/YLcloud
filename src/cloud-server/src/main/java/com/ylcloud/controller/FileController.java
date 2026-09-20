@@ -67,7 +67,7 @@ public class FileController {
     @PostMapping("/share/{fileUuid}")
     public Result<String> share(@PathVariable String fileUuid,
                                 @RequestParam(value = "parentId", defaultValue = "0") Long parentId) {
-        return Result.success(fileService.shareFile(fileUuid,parentId));
+        return Result.error(410, "旧分享功能已停用，请创建新的分享链接");
     }
 
     /**

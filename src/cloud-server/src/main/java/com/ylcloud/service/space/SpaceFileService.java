@@ -3,6 +3,7 @@ package com.ylcloud.service.space;
 import com.ylcloud.service.CrossStoreFileWriteService;
 import com.ylcloud.service.CrossStoreOperationService;
 import com.ylcloud.service.FilePreviewTypes;
+import com.ylcloud.service.OfficePreviewService;
 import com.ylcloud.service.InitialFileVersionService;
 import com.ylcloud.service.PhysicalFileCleanupService;
 import com.ylcloud.service.QuotaService;
@@ -90,6 +91,8 @@ public class SpaceFileService {
     private final SpaceFilePreflightService preflightService;
     private final SpaceRagService spaceRagService;
     private final MinioclientUtil minioclientUtil;
+    @Autowired
+    private OfficePreviewService officePreviewService;
     private final SiteSettingService siteSettingService;
     private final PhysicalFileCleanupService physicalFileCleanupService;
     private final InitialFileVersionService initialFileVersionService;
@@ -619,6 +622,10 @@ public class SpaceFileService {
             vo.setTextContent(readTextPreview(file));
             return vo;
         }
+        if("office".equals(previewType)) {
+            vo.setPreviewUrl("/api/space/" + spaceId + "/files/" + fileId + "/preview/stream");
+            return vo;
+        }
         if(isStreamPreviewType(previewType)) {
             vo.setPreviewUrl("/api/space/" + spaceId + "/files/" + fileId + "/preview/stream");
             return vo;
@@ -639,6 +646,10 @@ public class SpaceFileService {
         File file = requireFileInfo(spaceFile);
         String contentType = resolveContentType(spaceFile.getFileName(),file.getType());
         String previewType = resolvePreviewType(contentType,spaceFile.getFileName());
+        if("office".equals(previewType)) {
+            officePreviewService.writePdf(spaceFile.getFileUuid(),spaceFile.getFileName(),file.getSize(),response);
+            return;
+        }
         if("text".equals(previewType)) {
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         }

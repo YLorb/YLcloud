@@ -1,76 +1,49 @@
-import { useEffect, useState } from "react";
-import { Download, FileText, Folder, HardDrive, Loader2 } from "lucide-react";
-import { api } from "../../api";
-import type { PublicSiteSettings, ShareFile } from "../../types";
-import { formatSize } from "../../fileUtils";
+import { useEffect, useRef, useState } from "react";
+import { FileText, Folder, Download } from "lucide-react";
+import type { PublicSiteSettings } from "../../types";
+import { Button } from "../../components/ui/Button";
+import { shareApi, type ShareOpen } from "./shareApi";
+import "./share-link.css";
 
-function flattenShare(root: ShareFile): ShareFile[] {
-  return [root, ...(root.children || []).flatMap(flattenShare)];
-}
-
-export function PublicShareView({ shareCode, settings }: { shareCode: string; settings: PublicSiteSettings | null }) {
-  const [root, setRoot] = useState<ShareFile | null>(null);
-  const [selected, setSelected] = useState<ShareFile | null>(null);
+export function PublicShareView({ shareCode, settings, legacy = false }: { shareCode: string; settings: PublicSiteSettings | null; legacy?: boolean }) {
+  const [data, setData] = useState<ShareOpen | null>(null);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-
+  const [verifying, setVerifying] = useState(false);
+  const opening = useRef<Promise<ShareOpen> | null>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const triggered = useRef(false);
   useEffect(() => {
-    setError("");
-    api.getShare(shareCode)
-      .then((file) => {
-        setRoot(file);
-        setSelected(file.dir ? flattenShare(file).find((item) => !item.dir) || file : file);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "分享内容加载失败"));
-  }, [shareCode]);
-
-  return (
-    <main className="public-share-page">
-      <header>
-        <span className="brand-icon"><HardDrive size={22} /></span>
-        <div>
-          <strong>{settings?.siteName || "YL Cloud"}</strong>
-          <span>公开分享</span>
-        </div>
-      </header>
-      {error ? (
-        <section className="public-share-state error-state"><strong>无法打开分享</strong><span>{error}</span></section>
-      ) : !root ? (
-        <section className="public-share-state"><Loader2 className="spin" size={24} />正在加载分享内容</section>
-      ) : (
-        <section className="public-share-card">
-          <aside>
-            <p>分享内容</p>
-            <h1>{root.name}</h1>
-            <div className="share-file-list">
-              {flattenShare(root).map((file) => (
-                <button className={selected?.fileId === file.fileId ? "active" : ""} key={file.fileId} type="button" onClick={() => setSelected(file)}>
-                  {file.dir ? <Folder size={18} /> : <FileText size={18} />}
-                  <span>{file.name}</span>
-                  {!file.dir && <small>{formatSize(file.size)}</small>}
-                </button>
-              ))}
-            </div>
-          </aside>
-          <article className="public-share-preview">
-            {selected?.dir ? (
-              <div className="preview-placeholder"><Folder size={38} /><h2>{selected.name}</h2><p>请从左侧选择文件预览或下载。</p></div>
-            ) : selected ? (
-              <>
-                <div className="public-share-preview-head">
-                  <div><h2>{selected.name}</h2><span>{selected.contentType || "文件"} · {formatSize(selected.size)}</span></div>
-                  {selected.downloadUrl && <a className="primary-button" href={selected.downloadUrl}><Download size={17} />下载</a>}
-                </div>
-                <div className="public-share-preview-body">
-                  {selected.previewType === "text" ? <pre>{selected.textContent ?? ""}</pre>
-                    : selected.previewUrl && selected.contentType?.startsWith("image/") ? <img src={selected.previewUrl} alt={selected.name} />
-                    : selected.previewUrl ? <iframe title={selected.name} src={selected.previewUrl} />
-                    : <div className="preview-placeholder"><FileText size={38} /><h3>此文件暂不支持在线预览</h3><p>可使用右上角按钮下载查看。</p></div>}
-                </div>
-              </>
-            ) : null}
-          </article>
-        </section>
-      )}
-    </main>
-  );
+    let live = true;
+    // React StrictMode replays effects: this is still one page opening.
+    opening.current ??= shareApi.open(shareCode, legacy);
+    opening.current.then((result) => { if (live) setData(result); }).catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; };
+  }, [shareCode, legacy]);
+  useEffect(() => {
+    if (data?.state === "READY" && data.forceDownload && !triggered.current && form.current) {
+      triggered.current = true; form.current.submit();
+    }
+  }, [data]);
+  async function verify() {
+    if (!data?.visitToken) return;
+    setVerifying(true); setError("");
+    try { const result = await shareApi.verify(shareCode, password, data.visitToken); setData(result); setError(result.message || ""); setPassword(""); }
+    catch (e) { setError(e instanceof Error ? e.message : "验证失败"); }
+    finally { setVerifying(false); }
+  }
+  const download = <form ref={form} method="post" action={`/api/public/share-links/${encodeURIComponent(shareCode)}/download`}>
+    <input type="hidden" name="credential" value={data?.downloadToken || ""} />
+    <Button type="submit" variant="primary"><Download size={16} />下载{data?.directory ? " ZIP" : ""}</Button>
+  </form>;
+  if (data?.state === "READY" && data.forceDownload) return <main className="share-public"><div><p role="status">正在开始下载…</p>{download}</div></main>;
+  return <main className="share-public"><section className="share-public-card">
+    <p>{settings?.siteName || "YL Cloud"} · 分享</p>
+    {data?.state === "EXPIRED" ? <h1>文件已过期</h1> : !data ? <p role="status">{error ? "无法加载分享" : "正在加载…"}</p> :
+      data.state === "PASSWORD_REQUIRED" ? <><h1>请输入提取密码</h1><form onSubmit={(e) => { e.preventDefault(); void verify(); }}>
+        <label htmlFor="share-password">提取密码</label><input id="share-password" type="password" autoComplete="off" required value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Button type="submit" variant="primary" disabled={verifying}>{verifying ? "正在验证…" : "确认"}</Button>
+      </form></> : <>{data.directory ? <Folder size={32} /> : <FileText size={32} />}<h1>{data.name}</h1><p>{data.directory ? "文件夹 · ZIP 下载" : "文件"}</p>{download}</>}
+    {error && <p role="alert">{error}</p>}
+  </section></main>;
 }

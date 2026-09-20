@@ -69,6 +69,8 @@ public class FileService {
     @Autowired
     private MinioclientUtil minioclientUtil;
     @Autowired
+    private OfficePreviewService officePreviewService;
+    @Autowired
     private SiteSettingService siteSettingService;
     @Autowired
     private StorageService storageService;
@@ -680,6 +682,10 @@ public class FileService {
             filePreviewVO.setTextContent(readTextPreview(file));
             return filePreviewVO;
         }
+        if("office".equals(previewType)) {
+            filePreviewVO.setPreviewUrl("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId);
+            return filePreviewVO;
+        }
         if("image".equals(previewType) || "pdf".equals(previewType) || "video".equals(previewType) || "audio".equals(previewType)) {
             filePreviewVO.setPreviewUrl("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId);
             return filePreviewVO;
@@ -703,6 +709,10 @@ public class FileService {
 
         String contentType = resolveContentType(userFileDTO.getFileName(),file.getType());
         String previewType = resolvePreviewType(contentType,userFileDTO.getFileName());
+        if("office".equals(previewType)) {
+            officePreviewService.writePdf(fileUuid,userFileDTO.getFileName(),file.getSize(),response);
+            return;
+        }
         if("text".equals(previewType)) {
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         }
@@ -784,30 +794,8 @@ public class FileService {
      * @return 处理结果
      */
     public String shareFile(String fileUuid, Long parentId) {
-        UserFileDTO userFileDTO = requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
-        if(!userFileAvailable(userFileDTO)) {
-            throw new BaseException("文件不可用，无法分享");
-        }
-
-        FileShare exists = fileShareMapper.getActiveByUserFileId(userFileDTO.getId(),userFileDTO.getUserId());
-        if(exists != null) {
-            return "/api/share/" + exists.getShareCode();
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        FileShare fileShare = new FileShare();
-        fileShare.setShareCode(generateUniqueShareCode());
-        fileShare.setUserFileId(userFileDTO.getId());
-        fileShare.setFileUuid(userFileDTO.getFileUuid());
-        fileShare.setOwnerId(userFileDTO.getUserId());
-        fileShare.setStatus(StatusConstant.ENABLE);
-        fileShare.setCreateTime(now);
-        fileShare.setUpdateTime(now);
-        int rows = fileShareMapper.insert(fileShare);
-        if(rows == 0) {
-            throw new BaseException("创建分享链接失败");
-        }
-        return "/api/share/" + fileShare.getShareCode();
+        requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
+        throw new BaseException("旧分享功能已停用，请创建新的分享链接");
     }
 
     /**

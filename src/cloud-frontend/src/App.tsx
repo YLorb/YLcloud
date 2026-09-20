@@ -27,6 +27,7 @@ const StoragePoliciesPage = lazy(() => import("./features/admin/pages/StoragePol
 const UserGroupsPage = lazy(() => import("./features/admin/pages/UserGroupsPage").then((module) => ({ default: module.UserGroupsPage })));
 const UsersPage = lazy(() => import("./features/admin/pages/UsersPage").then((module) => ({ default: module.UsersPage })));
 const AdminFilesPage = lazy(() => import("./features/admin/pages/AdminFilesPage").then((module) => ({ default: module.AdminFilesPage })));
+const MySharesPage = lazy(() => import("./features/share/ShareLinksPage").then((module) => ({ default: module.ShareLinksPage })));
 const SharesPage = lazy(() => import("./features/admin/pages/SharesPage").then((module) => ({ default: module.SharesPage })));
 const AdminTasksPage = lazy(() => import("./features/admin/pages/AdminTasksPage").then((module) => ({ default: module.AdminTasksPage })));
 const NodesPage = lazy(() => import("./features/admin/pages/NodesPage").then((module) => ({ default: module.NodesPage })));
@@ -50,10 +51,10 @@ function AdminRoute() {
   return user?.role?.toUpperCase() === "ADMIN" ? <Outlet /> : <main className="route-error"><span className="route-error__code">403</span><h1>需要管理员权限</h1><p>当前账号不能访问管理设置。请使用管理员账号登录或联系现有管理员授权。</p><Button asChild><a href="/files">返回文件</a></Button></main>;
 }
 
-function PublicShareRoute() {
+function PublicShareRoute({ legacy = false }: { legacy?: boolean }) {
   const { shareCode = "" } = useParams();
   const settings = useQuery({ queryKey: ["public-settings"], queryFn: api.publicSettings, staleTime: 300_000 });
-  return <PublicShareView shareCode={shareCode} settings={settings.data || null} />;
+  return <PublicShareView key={`${legacy}:${shareCode}`} shareCode={shareCode} legacy={legacy} settings={settings.data || null} />;
 }
 
 function NotFound() {
@@ -64,7 +65,8 @@ const router = createBrowserRouter([
   { path: "/component-book", element: <ComponentBookPage />, errorElement: <RouteError /> },
   { path: "/login", element: <AuthPage mode="login" />, errorElement: <RouteError /> },
   { path: "/sign", element: <AuthPage mode="sign" />, errorElement: <RouteError /> },
-  { path: "/share/:shareCode", element: <PublicShareRoute />, errorElement: <RouteError /> },
+  { path: "/s/:shareCode", element: <PublicShareRoute />, errorElement: <RouteError /> },
+  { path: "/share/:shareCode", element: <PublicShareRoute legacy />, errorElement: <RouteError /> },
   {
     element: <ProtectedRoute />,
     errorElement: <RouteError />,
@@ -74,6 +76,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/files" replace /> },
           { path: "/files", element: <LazyPage><FilesPage /></LazyPage> },
+          { path: "/shares", element: <LazyPage><MySharesPage /></LazyPage> },
           { path: "/spaces", element: <LazyPage><SpacesPage /></LazyPage> },
           { path: "/knowledge", element: <LazyPage><KnowledgePage /></LazyPage> },
           { path: "/assistant", element: <LazyPage><AssistantPage /></LazyPage> },

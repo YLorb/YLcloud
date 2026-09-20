@@ -36,7 +36,9 @@ public class UserPermissionInterceptor implements HandlerInterceptor {
     Set<String> requiredPermissions(HttpServletRequest request) {
         String uri = request.getRequestURI();
         String method = request.getMethod();
+        if (uri.startsWith("/api/public/share-links/")) return Set.of();
         Set<String> required = new LinkedHashSet<>();
+        if (uri.startsWith("/api/share-links")) required.add(UserPermissionKeys.CLOUD_DRIVE);
         if(uri.startsWith("/api/admin/") || uri.equals("/api/user/current") || uri.startsWith("/api/site/")) return required;
         if(uri.startsWith("/api/file/") || uri.startsWith("/api/space/") || uri.startsWith("/api/knowledge/")
                 || uri.startsWith("/api/async") || uri.startsWith("/api/storage/")) {
