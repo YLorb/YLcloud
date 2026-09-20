@@ -189,6 +189,7 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: ${YLCLOUD_SPRING_PROFILE:-dev}
+      YLCLOUD_SESSION_COOKIE_SECURE: ${YLCLOUD_SESSION_COOKIE_SECURE:-true}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${YLCLOUD_MYSQL_DATABASE:-ylcloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
       SPRING_DATASOURCE_USERNAME: ${YLCLOUD_MYSQL_USER:-ylcloud}
       SPRING_DATASOURCE_PASSWORD: ${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}

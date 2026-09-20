@@ -18,6 +18,12 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    public ResponseEntity<Result<?>> handleDatabaseUnavailable(org.springframework.dao.DataAccessException ex) {
+        log.error("Database operation failed", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Result.error(503,"服务暂不可用，请稍后重试"));
+    }
+
     @ExceptionHandler(BaseException.class)
     public ResponseEntity<Result<?>> handleBaseException(BaseException ex) {
         String message = ex.getMessage();

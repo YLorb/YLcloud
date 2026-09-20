@@ -38,6 +38,8 @@ mybatis:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  session:
+    cookie-secure: ${YLCLOUD_SESSION_COOKIE_SECURE:true}
   knowledge:
     quality:
       auto-activate-threshold: ${YLCLOUD_KNOWLEDGE_AUTO_ACTIVATE_THRESHOLD:75}

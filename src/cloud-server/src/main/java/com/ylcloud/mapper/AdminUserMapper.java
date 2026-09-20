@@ -36,6 +36,6 @@ public interface AdminUserMapper {
     @Update("update users set role = #{role}, update_time = now() where user_id = #{userId}")
     int updateRole(@Param("userId") Long userId, @Param("role") String role);
 
-    @Update("update users set status = #{status}, update_time = now() where user_id = #{userId}")
+    @Update("update users set status = #{status}, session_version=session_version+1, update_time = now() where user_id = #{userId}")
     int updateStatus(@Param("userId") Long userId, @Param("status") Integer status);
 }

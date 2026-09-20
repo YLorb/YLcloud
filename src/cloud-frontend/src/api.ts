@@ -65,71 +65,61 @@ import type {
 const TOKEN_KEY = "ylcloud_token";
 const USER_KEY = "ylcloud_user";
 
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function getStoredUser(): User | null {
-  const raw = localStorage.getItem(USER_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as User;
-  } catch {
-    return null;
-  }
-}
-
-export function setSession(user: User) {
-  localStorage.setItem(TOKEN_KEY, user.token);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
-}
-
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) { super(message); }
+}
+
+export function handleAuthenticationStatus(status: number) {
+  if (status === 401) window.dispatchEvent(new Event("ylcloud-session-expired"));
+}
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  const token = getToken();
-  if (token) headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
+  if (!["GET", "HEAD", "OPTIONS"].includes((init.method || "GET").toUpperCase())) {
+    headers.set("X-YLCloud-Request", "1");
+  }
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
   let response: Response;
   try {
-    response = await fetch(path, { ...init, headers });
+    response = await fetch(path, { ...init, headers, credentials: "same-origin" });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("请求已取消");
     }
     throw new Error("无法连接服务器，请检查网络或服务状态");
   }
+  if (path !== "/api/login" && !path.startsWith("/api/public/")) handleAuthenticationStatus(response.status);
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    if (!response.ok) throw new Error(`请求失败：${response.status}`);
+    if (!response.ok) throw new ApiError(`请求失败：${response.status}`, response.status);
     return undefined as T;
   }
 
   const result = (await response.json()) as ApiResult<T>;
   if (!response.ok || result.code !== 200) {
-    throw new Error(result.message || `请求失败：${response.status}`);
+    throw new ApiError(result.message || `请求失败：${response.status}`, response.status);
   }
   return result.data;
 }
 
 async function download(path: string, filename: string) {
   const headers = new Headers();
-  const token = getToken();
-  if (token) headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
 
   let response: Response;
   try {
-    response = await fetch(path, { headers });
+    response = await fetch(path, { headers, credentials: "same-origin" });
   } catch {
     throw new Error("无法连接服务器，请检查网络或服务状态");
   }
+  handleAuthenticationStatus(response.status);
   if (!response.ok) {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
@@ -170,10 +160,16 @@ function normalizeFileItems(items: FileItem[]) {
 }
 
 export const api = {
-  login: (username: string, password: string) =>
+  session: () => request<User>("/api/session"),
+  logout: () => request<boolean>("/api/logout", { method: "POST" }),
+  logoutAll: () => request<boolean>("/api/logout-all", { method: "POST" }),
+  changePassword: (currentPassword: string, newPassword: string) => request<boolean>("/api/session/password", {
+    method: "POST", body: JSON.stringify({ currentPassword, newPassword })
+  }),
+  login: (username: string, password: string, rememberMe = false) =>
     request<User>("/api/login", {
       method: "POST",
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, rememberMe })
     }),
   sign: (payload: { username: string; password: string; nickname: string }) =>
     request<void>("/api/sign", {

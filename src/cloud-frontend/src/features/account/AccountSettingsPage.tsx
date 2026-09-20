@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, LoadingState } from "../../components/ui/PageSt
 import { StatusBadge, type StatusTone } from "../../components/ui/StatusBadge";
 import { formatTime } from "../../fileUtils";
 import type { DataExportJob } from "../../types";
+import { LoginSecurityPanel } from "./LoginSecurityPanel";
 
 const exportStatusTone: Record<string, StatusTone> = {
   PENDING: "warning",
@@ -96,6 +97,7 @@ export function AccountSettingsPage() {
 
     <div className="management-layout account-management-layout">
       <div className="management-layout__main">
+        <LoginSecurityPanel />
         <ManagementSection icon={<IdCard size={18} />} title="个人资料" description="用于登录、资源归属和安全审计的基础身份信息。">
           <div className="account-profile-summary"><span aria-hidden="true">{(status?.username || "U").slice(0, 1).toUpperCase()}</span><div><strong>{status?.username || "未知用户"}</strong><small>个人账号 · ID #{status?.userId ?? "—"}</small></div><StatusBadge tone={isCancelled ? "warning" : isPurging || isPurged ? "danger" : "success"}>{accountLabel}</StatusBadge></div>
           <ManagementFacts items={[

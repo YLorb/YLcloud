@@ -16,7 +16,7 @@ export type User = {
   nickname: string;
   role?: string;
   deploymentOwner?: boolean;
-  token: string;
+  token?: never;
 };
 
 export type SiteSetting = {

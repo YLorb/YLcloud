@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthorizedPreview } from "./AuthorizedPreview";
 
-vi.mock("../../api", () => ({ getToken: () => "test-token" }));
+vi.mock("../../api", () => ({ handleAuthenticationStatus: vi.fn() }));
 const fetchMock = vi.fn();
 const createUrl = vi.fn(() => "blob:test-pdf");
 const revokeUrl = vi.fn();
@@ -20,7 +20,7 @@ describe("authorized Office preview", () => {
     fetchMock.mockResolvedValueOnce(pdf());
     const view = render(<AuthorizedPreview url="/api/file/preview/id/stream" title="报告.docx" />);
     expect(await screen.findByTitle("报告.docx")).toHaveAttribute("src", "blob:test-pdf");
-    expect(fetchMock).toHaveBeenCalledWith("/api/file/preview/id/stream", expect.objectContaining({ headers: { Authorization: "Bearer test-token" } }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/file/preview/id/stream", expect.objectContaining({ credentials: "same-origin" }));
     expect(screen.getByRole("link", { name: "在新窗口查看" })).toHaveAttribute("href", "blob:test-pdf");
     view.unmount();
     expect(revokeUrl).toHaveBeenCalledWith("blob:test-pdf");

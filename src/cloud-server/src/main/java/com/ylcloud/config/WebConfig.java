@@ -1,6 +1,7 @@
 package com.ylcloud.config;
 
-import com.ylcloud.interceptor.JwtTokenInterceptor;
+import com.ylcloud.interceptor.SessionInterceptor;
+import com.ylcloud.interceptor.BrowserCsrfInterceptor;
 import com.ylcloud.interceptor.MaintenanceInterceptor;
 import com.ylcloud.interceptor.OpenApiKeyInterceptor;
 import com.ylcloud.interceptor.UserPermissionInterceptor;
@@ -13,7 +14,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 //WebMvcConfigurer：Spring MVC配置接口，可以自定义MVC相关配置
 public class WebConfig implements WebMvcConfigurer {
     @Autowired //自动注入
-    private JwtTokenInterceptor jwtTokenInterceptor;
+    private SessionInterceptor sessionInterceptor;
+    @Autowired
+    private BrowserCsrfInterceptor browserCsrfInterceptor;
     @Autowired
     private UserPermissionInterceptor userPermissionInterceptor;
     @Autowired
@@ -23,6 +26,8 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(browserCsrfInterceptor).addPathPatterns("/api/**")
+                .excludePathPatterns("/api/v1/**", "/api/open/**", "/api/public/share-links/**", "/api/share/**");
         // 维护模式拦截器：需在所有授权之前执行，覆盖所有 /api/** 路径
         // 维护模式下仅放行 GET（只读）、健康检查和维护管理端点；
         // /api/v1/** 和 /api/open/** 不再豁免——Open API 写入在维护期同样应被阻止。
@@ -30,9 +35,9 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(maintenanceInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/api/sign", "/api/login", "/api/site/public-settings",
-                        "/api/share/**", "/api/admin/maintenance/disable");
+                        "/api/share/**", "/api/logout", "/api/logout-all", "/api/admin/maintenance/disable");
 
-        registry.addInterceptor(jwtTokenInterceptor)
+        registry.addInterceptor(sessionInterceptor)
                 .addPathPatterns("/**")
                 .excludePathPatterns("/api/sign")
                 .excludePathPatterns("/api/login")

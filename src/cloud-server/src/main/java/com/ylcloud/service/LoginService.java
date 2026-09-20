@@ -7,7 +7,8 @@ import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.context.BaseContext;
 import com.ylcloud.entity.User;
 import com.ylcloud.mapper.LoginMapper;
-import com.ylcloud.utils.JwtUtil;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -20,18 +21,26 @@ import java.util.Map;
 @Slf4j
 public class LoginService {
     private final LoginMapper loginMapper;
-    private final JwtUtil jwtUtil;
+    private final BrowserSessionService sessions;
     private final SecurityAuditService auditService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public LoginService(LoginMapper loginMapper, JwtUtil jwtUtil, SecurityAuditService auditService) {
+    public LoginService(LoginMapper loginMapper, BrowserSessionService sessions, SecurityAuditService auditService) {
         this.loginMapper = loginMapper;
-        this.jwtUtil = jwtUtil;
+        this.sessions = sessions;
         this.auditService = auditService;
     }
 
-    public UserLoginVO login(UserLoginDTO userLoginDTO) {
+    public record LoginResult(UserLoginVO user, String credential) {}
+
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED,
+            noRollbackFor = UnauthorizedException.class)
+    public LoginResult login(UserLoginDTO userLoginDTO, HttpServletRequest request) {
         User user = loginMapper.getByUsername(userLoginDTO.getUsername());
+        if (user != null) {
+            loginMapper.lockUserId(user.getId());
+            user = loginMapper.getByUsername(userLoginDTO.getUsername());
+        }
         if(user == null || !StatusConstant.ENABLE.equals(user.getStatus())) {
             auditService.recordFailure("AUTH_LOGIN", "login", null, userLoginDTO.getUsername(),
                     "ACCOUNT", null, null, "用户名或密码错误", Map.of("username", userLoginDTO.getUsername()));
@@ -44,7 +53,7 @@ public class LoginService {
             auditService.recordDenied("AUTH_LOGIN", "login", user.getId(), user.getUsername(),
                     "ACCOUNT", String.valueOf(user.getId()), user.getUsername(),
                     "账号已注销: " + accountStatus);
-            throw new UnauthorizedException("账号已注销，请联系管理员恢复");
+            throw new UnauthorizedException("用户名或密码错误");
         }
 
         if(!passwordMatches(userLoginDTO.getPassword(),user)) {
@@ -56,13 +65,12 @@ public class LoginService {
 
         UserLoginVO userLoginVO = new UserLoginVO();
         BeanUtils.copyProperties(user,userLoginVO);
-        BaseContext.setCurrentId(user.getId());
-        userLoginVO.setToken(jwtUtil.createToken(user.getUsername(),user.getId()));
+        String credential = sessions.create(user.getId(), request);
 
         auditService.recordSuccess("AUTH_LOGIN", "login", user.getId(), user.getUsername(),
                 "ACCOUNT", String.valueOf(user.getId()), user.getUsername(), Map.of());
 
-        return userLoginVO;
+        return new LoginResult(userLoginVO, credential);
     }
 
     private boolean passwordMatches(String rawPassword, User user) {
@@ -79,6 +87,24 @@ public class LoginService {
             log.info("legacy password upgraded userId={}",user.getId());
         }
         return matched;
+    }
+
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
+    public void changePassword(Long userId, String currentPassword, String newPassword) {
+        loginMapper.lockUserId(userId);
+        User user = loginMapper.getById(userId);
+        if (user == null || !Integer.valueOf(1).equals(user.getStatus()) ||
+                (user.getAccountStatus() != null && !"ACTIVE".equals(user.getAccountStatus())) ||
+                !passwordMatches(currentPassword, user)) {
+            throw new com.ylcloud.Exception.ForbiddenException("当前密码不正确或账号不可用");
+        }
+        if (newPassword.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw new com.ylcloud.Exception.ForbiddenException("新密码的 UTF-8 长度不能超过 72 字节");
+        }
+        loginMapper.updatePassword(userId, passwordEncoder.encode(newPassword));
+        sessions.revokeAll(userId);
+        auditService.recordSuccess("AUTH_PASSWORD_CHANGE", "changePassword", userId, user.getUsername(),
+                "ACCOUNT", String.valueOf(userId), null, Map.of());
     }
 
     private boolean isBcryptHash(String password) {

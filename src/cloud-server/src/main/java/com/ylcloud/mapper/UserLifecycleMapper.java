@@ -27,7 +27,7 @@ public interface UserLifecycleMapper {
 
     @Update("update users set account_status = 'CANCELLED', cancelled_at = #{cancelledAt}, " +
             "cancel_requested_by = #{requestedBy}, recoverable_until = #{recoverableUntil}, " +
-            "status = 0, update_time = #{updateTime} " +
+            "status = 0, session_version=session_version+1, update_time = #{updateTime} " +
             "where user_id = #{userId} and account_status = 'ACTIVE'")
     int markCancelled(@Param("userId") Long userId,
                       @Param("cancelledAt") LocalDateTime cancelledAt,

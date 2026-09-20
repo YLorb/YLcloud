@@ -21,8 +21,7 @@ public class ShareLinkController {
     private final ShareLinkService service;
     private final ShareRepository repo;
     private final AdminPermissionService admin;
-    private final JwtUtil jwt;
-    private final LoginMapper users;
+    private final com.ylcloud.service.BrowserSessionService sessions;
 
     @PostMapping("/api/share-links")
     public Result<View> create(@RequestBody Create request){return Result.success(service.create(BaseContext.getCurrentId(),request));}
@@ -77,13 +76,8 @@ public class ShareLinkController {
         response.getWriter().write("<!doctype html><html lang=\"zh-CN\"><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>文件已过期</title><body><main><h1>文件已过期</h1></main></body></html>");
     }
     private Long optionalUser(HttpServletRequest r){
-        String token=r.getHeader("Authorization");if(token==null||token.isBlank())return null;
-        Long id;
-        try{id=jwt.parseToken(token.startsWith("Bearer ")?token.substring(7):token).get("userId",Long.class);}
-        catch(JwtException|IllegalArgumentException e){return null;}
-        if(id==null)return null;
-        User u=users.getById(id);
-        return u!=null&&Integer.valueOf(1).equals(u.getStatus())&&(u.getAccountStatus()==null||"ACTIVE".equals(u.getAccountStatus()))?id:null;
+        User u=sessions.authenticate(r);
+        return u == null ? null : u.getId();
     }
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Result<Object>> invalid(IllegalArgumentException e){
