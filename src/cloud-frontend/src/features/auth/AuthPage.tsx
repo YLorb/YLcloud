@@ -4,6 +4,7 @@ import { HardDrive, LockKeyhole, UserRound } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
+import { useState } from "react";
 import { api } from "../../api";
 import { useSession } from "../../app/session";
 import { Button } from "../../components/ui/Button";
@@ -18,6 +19,7 @@ type AuthFields = z.infer<typeof formSchema>;
 
 export function AuthPage({ mode }: { mode: "login" | "sign" }) {
   const { user, signIn } = useSession();
+  const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const isSign = mode === "sign";
@@ -44,10 +46,10 @@ export function AuthPage({ mode }: { mode: "login" | "sign" }) {
       if (isSign) {
         await api.sign({ username: values.username, password: values.password, nickname: values.nickname!.trim() });
       }
-      const signedInUser = await api.login(values.username, values.password);
+      const signedInUser = await api.login(values.username, values.password, rememberMe);
       signIn(signedInUser);
       const requestedPath = (location.state as { from?: string } | null)?.from;
-      navigate(requestedPath || "/files", { replace: true });
+      navigate(requestedPath?.startsWith("/") && !requestedPath.startsWith("//") ? requestedPath : "/files", { replace: true });
     } catch (error) {
       setError("root", { message: error instanceof Error ? error.message : "认证失败，请稍后重试" });
     }
@@ -83,6 +85,7 @@ export function AuthPage({ mode }: { mode: "login" | "sign" }) {
               <span className="auth-input-control"><LockKeyhole size={18} aria-hidden="true" /><input {...register("password")} type="password" autoComplete={isSign ? "new-password" : "current-password"} placeholder="至少 6 个字符" aria-invalid={Boolean(errors.password)} /></span>
               {errors.password && <small className="field-error">{errors.password.message}</small>}
             </label>
+            <label className="checkbox-label"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /><span>记住登录 15 天（公共设备请勿勾选）</span></label>
             {errors.root && <div className="error-banner" role="alert">{errors.root.message}</div>}
             <Button className="full-width auth-submit" variant="primary" size="lg" type="submit" loading={isSubmitting} disabled={isSign && !allowRegister}>
               {isSign && !allowRegister ? "注册已关闭" : isSign ? "注册" : "登录"}

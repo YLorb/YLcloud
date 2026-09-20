@@ -67,8 +67,7 @@ export function AdminLayout() {
   }
 
   function logout() {
-    signOut();
-    navigate("/login", { replace: true });
+    void signOut().then(() => navigate("/login", { replace: true })).catch(() => {});
   }
 
   function returnToMain() {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getToken } from "../../api";
+import { handleAuthenticationStatus } from "../../api";
 
 export function AuthorizedPreview({ url, title }: { url: string; title: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -11,9 +11,9 @@ export function AuthorizedPreview({ url, title }: { url: string; title: string }
     let objectUrl: string | null = null;
     setBlobUrl(null);
     setError(null);
-    const token = getToken();
-    fetch(url, { signal: controller.signal, headers: token ? { Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token}` } : {} })
+    fetch(url, { signal: controller.signal, credentials: "same-origin" })
       .then(async (response) => {
+        handleAuthenticationStatus(response.status);
         if ((response.headers.get("content-type") || "").includes("application/json")) {
           const result = await response.json() as { message?: string };
           throw new Error(result.message || "预览转换失败");

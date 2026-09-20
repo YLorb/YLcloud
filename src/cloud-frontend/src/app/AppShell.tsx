@@ -96,8 +96,7 @@ export function AppShell() {
   }
 
   function logout() {
-    signOut();
-    navigate("/login", { replace: true });
+    void signOut().then(() => navigate("/login", { replace: true })).catch(() => {});
   }
 
   function searchFiles(value: string) {
