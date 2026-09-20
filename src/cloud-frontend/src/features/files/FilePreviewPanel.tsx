@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { formatSize, formatTime } from "../../fileUtils";
 import type { FileItem, FilePreview } from "../../types";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { AuthorizedPreview } from "./AuthorizedPreview";
 
 type Tab = "preview" | "details" | "versions" | "summary";
 const tabs: { id: Tab; label: string }[] = [
@@ -37,6 +38,7 @@ export function FilePreviewPanel({ item, preview, loading, error, onClose, onRet
       {tab === "preview" && (loading ? <div className="file-preview-panel__state" role="status">正在加载预览…</div>
         : error ? <div className="file-preview-panel__state" role="alert"><strong>预览加载失败</strong><span>{error}</span><button onClick={onRetry}>重试</button></div>
         : preview?.textContent ? <pre className="file-preview-panel__text">{preview.textContent}</pre>
+        : preview?.previewType === "office" && preview.previewUrl ? <AuthorizedPreview url={preview.previewUrl} title={item.name} />
         : preview?.previewUrl && preview.contentType?.startsWith("image/") ? <img className="file-preview-panel__media" src={preview.previewUrl} alt={item.name} />
         : preview?.previewUrl ? <iframe className="file-preview-panel__frame" src={preview.previewUrl} title={item.name} />
         : <div className="file-preview-panel__state"><FileTypeIcon item={item} large /><strong>暂不支持在线预览</strong><span>你仍可下载文件后查看。</span><button onClick={onDownload}>下载文件</button></div>)}

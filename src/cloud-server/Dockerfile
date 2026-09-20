@@ -19,7 +19,7 @@ RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then sed -i 's|http://deb.
     && if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/ubuntu.sources; fi \
     && if [ -f /etc/apt/sources.list ]; then sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list; fi \
     && apt-get -o Acquire::Retries=5 update \
-    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends curl \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends curl libreoffice-writer libreoffice-calc libreoffice-impress fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
