@@ -1,7 +1,7 @@
 import {
   BarChart3, Bell, ChevronLeft, ChevronRight, Database, FileCog, FileText,
   HardDrive, HelpCircle, ListTodo, LogOut, Menu, MessageSquarePlus,
-  Moon, Search, Settings, Shield, Sun, User, Users, X
+  Moon, Search, Puzzle, Settings, Shield, Sun, User, Users, X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -18,6 +18,7 @@ const liveDataSource = new LiveAdminDataSource();
 
 const sidebarItems = [
   { to: "/admin/dashboard", label: "面板首页", icon: BarChart3 },
+  { to: "/admin/plugins", label: "插件管理", icon: Puzzle },
   { to: "/admin/settings", label: "参数设置", icon: Settings },
   { to: "/admin/fs", label: "文件系统", icon: FileCog },
   { to: "/admin/storage", label: "存储策略", icon: Database },
@@ -89,7 +90,7 @@ export function AdminLayout() {
         <SidebarBody>
           <SidebarSection>
             <SidebarSectionLabel>管理</SidebarSectionLabel>
-            {sidebarItems.map(({ to, label, icon: Icon }) => (
+            {sidebarItems.filter(item => item.to !== "/admin/plugins" || user?.deploymentOwner).map(({ to, label, icon: Icon }) => (
               <SidebarItem key={to} asChild selected={isActive(location.pathname, to)} title={collapsed ? label : undefined}>
                 <NavLink to={to}><Icon size={18} aria-hidden="true" /><span>{label}</span></NavLink>
               </SidebarItem>
@@ -108,7 +109,7 @@ export function AdminLayout() {
       </Sidebar>
 
       <section className="app-workspace">
-        <header className="app-topbar">
+        <header className="app-topbar admin-topbar">
           <button className="mobile-menu-button" onClick={() => setMobileOpen(true)} aria-label="打开导航"><Menu size={20} /></button>
           <h1>{title}</h1>
           <div className="topbar-actions">
@@ -122,7 +123,7 @@ export function AdminLayout() {
         <main id="main-content" className="route-content" tabIndex={-1}><Outlet /></main>
       </section>
       <nav className="mobile-bottom-nav" aria-label="移动端Admin导航">
-        {sidebarItems.slice(0, 5).map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} className={({ isActive }) => isActive ? "mobile-nav-item mobile-nav-item--active" : "mobile-nav-item"}><Icon size={20} /><span>{label}</span></NavLink>)}
+        {sidebarItems.filter(item => item.to !== "/admin/plugins" || user?.deploymentOwner).slice(0, 5).map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} className={({ isActive }) => isActive ? "mobile-nav-item mobile-nav-item--active" : "mobile-nav-item"}><Icon size={20} /><span>{label}</span></NavLink>)}
       </nav>
     </div>
     </AdminDataSourceProvider>

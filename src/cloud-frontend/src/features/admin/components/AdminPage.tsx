@@ -4,11 +4,12 @@ import { Button } from "../../../components/ui/Button";
 import { cn } from "../../../lib/cn";
 import { useAdminDataSource } from "../core/AdminDataSource";
 
-export function AdminPage({ eyebrow, title, description, actions, children }: {
+export function AdminPage({ eyebrow, title, description, actions, notice, children }: {
   eyebrow: string;
   title: string;
   description: string;
   actions?: ReactNode;
+  notice?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -17,7 +18,7 @@ export function AdminPage({ eyebrow, title, description, actions, children }: {
         <div><span>{eyebrow}</span><h2>{title}</h2><p>{description}</p></div>
         {actions && <div className="admin-page__actions">{actions}</div>}
       </header>
-      <AdminPrototypeNotice />
+      {notice ?? <AdminPrototypeNotice />}
       {children}
     </div>
   );

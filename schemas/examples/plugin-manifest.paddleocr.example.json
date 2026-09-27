@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "example.paddleocr",
+  "name": "PaddleOCR 文档解析（契约示例）",
+  "version": "0.1.0-example",
+  "description": "仅用于 Manifest 契约演示；不是已构建、安装或验证的 PaddleOCR 插件发行包。",
+  "spiVersion": 1,
+  "runtimeModes": [
+    "DOCKER",
+    "LOCAL"
+  ],
+  "providers": [
+    {
+      "id": "example.paddleocr.document-parser",
+      "version": "0.1.0-example",
+      "capability": "document-parser",
+      "documentParsing": {
+        "mediaTypes": [
+          "application/pdf",
+          "image/png",
+          "image/jpeg"
+        ],
+        "languages": [
+          "zh-CN",
+          "en"
+        ],
+        "supportsTables": true,
+        "supportsFormulas": true,
+        "defaultOptions": {
+          "language": "zh-CN",
+          "recognizeTables": false,
+          "recognizeFormulas": true
+        }
+      }
+    }
+  ]
+}

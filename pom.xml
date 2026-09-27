@@ -19,6 +19,8 @@
     <description>Personal cloud drive service</description>
 
     <modules>
+        <module>src/cloud-plugin-spi</module>
+        <module>src/cloud-plugin-core</module>
         <module>src/cloud-common</module>
         <module>src/cloud-pojo</module>
         <module>src/cloud-server</module>

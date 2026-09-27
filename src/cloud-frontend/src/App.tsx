@@ -29,6 +29,7 @@ const UsersPage = lazy(() => import("./features/admin/pages/UsersPage").then((mo
 const AdminFilesPage = lazy(() => import("./features/admin/pages/AdminFilesPage").then((module) => ({ default: module.AdminFilesPage })));
 const MySharesPage = lazy(() => import("./features/share/ShareLinksPage").then((module) => ({ default: module.ShareLinksPage })));
 const SharesPage = lazy(() => import("./features/admin/pages/SharesPage").then((module) => ({ default: module.SharesPage })));
+const PluginsPage = lazy(() => import("./features/admin/plugins/PluginsPage").then((module) => ({ default: module.PluginsPage })));
 const AdminTasksPage = lazy(() => import("./features/admin/pages/AdminTasksPage").then((module) => ({ default: module.AdminTasksPage })));
 const NodesPage = lazy(() => import("./features/admin/pages/NodesPage").then((module) => ({ default: module.NodesPage })));
 const OrdersPage = lazy(() => import("./features/admin/pages/OrdersPage").then((module) => ({ default: module.OrdersPage })));
@@ -48,6 +49,8 @@ function ProtectedRoute() {
 
 function AdminRoute() {
   const { user } = useSession();
+  const location = useLocation();
+  if (user?.deploymentOwner && location.pathname.replace(/\/$/, "") === "/admin/plugins") return <Outlet />;
   return user?.role?.toUpperCase() === "ADMIN" ? <Outlet /> : <main className="route-error"><span className="route-error__code">403</span><h1>需要管理员权限</h1><p>当前账号不能访问管理设置。请使用管理员账号登录或联系现有管理员授权。</p><Button asChild><a href="/files">返回文件</a></Button></main>;
 }
 
@@ -103,6 +106,7 @@ const router = createBrowserRouter([
               { path: "file-list", element: <LazyPage><AdminFilesPage /></LazyPage> },
               { path: "shares", element: <LazyPage><SharesPage /></LazyPage> },
               { path: "tasks", element: <LazyPage><AdminTasksPage /></LazyPage> },
+              { path: "plugins", element: <LazyPage><PluginsPage /></LazyPage> },
               { path: "orders", element: <LazyPage><OrdersPage /></LazyPage> },
               { path: "events", element: <LazyPage><EventsPage /></LazyPage> },
               { path: "reports", element: <LazyPage><ReportsPage /></LazyPage> },

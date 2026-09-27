@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "YLcloud Plugin Manifest V1",
+  "description": "静态结构规范；Provider ID 唯一性、语言规范化/支持范围和默认值一致性还由宿主 Reader 校验。版本只接受整数 JSON token。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "version",
+    "spiVersion",
+    "runtimeModes",
+    "providers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+    },
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "spiVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "runtimeModes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "DOCKER",
+          "LOCAL"
+        ]
+      }
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/provider"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9._-]{0,127}$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+    },
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "description": "BCP 47 规范化标签，如 zh-CN/en；不是引擎别名。宿主进一步检查规范化与支持范围。"
+    },
+    "defaultOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "recognizeTables",
+        "recognizeFormulas"
+      ],
+      "properties": {
+        "language": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/language"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recognizeTables": {
+          "type": "boolean"
+        },
+        "recognizeFormulas": {
+          "type": "boolean"
+        }
+      }
+    },
+    "documentParsing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mediaTypes",
+        "languages",
+        "supportsTables",
+        "supportsFormulas",
+        "defaultOptions"
+      ],
+      "properties": {
+        "mediaTypes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$"
+          }
+        },
+        "languages": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/language"
+          }
+        },
+        "supportsTables": {
+          "type": "boolean"
+        },
+        "supportsFormulas": {
+          "type": "boolean"
+        },
+        "defaultOptions": {
+          "$ref": "#/$defs/defaultOptions"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "supportsTables": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "defaultOptions": {
+                "properties": {
+                  "recognizeTables": {
+                    "const": false
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "supportsFormulas": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "defaultOptions": {
+                "properties": {
+                  "recognizeFormulas": {
+                    "const": false
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "capability",
+        "documentParsing"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "capability": {
+          "const": "document-parser"
+        },
+        "documentParsing": {
+          "$ref": "#/$defs/documentParsing"
+        }
+      }
+    }
+  }
+}

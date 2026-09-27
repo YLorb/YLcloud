@@ -1233,3 +1233,11 @@ select:focus-visible, [role="tab"]:focus-visible {
 .admin-shortcuts a svg:last-child { margin-left: auto; }
 @media (max-width: 900px) { .admin-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .admin-section__header { flex-direction: column; } .admin-filter-toolbar { align-items: stretch; } .admin-search-field { max-width: none; flex-basis: 100%; } .admin-select-field { flex: 1 1 130px; } .admin-detail-list > div { grid-template-columns: 1fr; gap: 4px; } }
+
+/* 后台窄屏保留操作入口，让长标题省略，避免顶栏挤出视口。 */
+@media (max-width: 480px) {
+  .admin-topbar h1 { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-topbar .topbar-actions { flex: none; margin-left: 0; gap: 0; }
+  .admin-topbar .ui-button--icon { width: 32px; min-width: 32px; padding: 0; }
+  .admin-topbar .mobile-menu-button { flex: none; }
+}

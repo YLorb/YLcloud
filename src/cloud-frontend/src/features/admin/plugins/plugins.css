@@ -1,0 +1,29 @@
+.plugin-list { display: grid; gap: 1rem; }
+.plugin-item { padding: 1.25rem; border: 1px solid var(--border-default); border-radius: .75rem; background: var(--background-surface); min-width: 0; }
+.plugin-item__heading { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.plugin-item__heading h3 { margin: 0; font-size: 1rem; }
+.plugin-item__heading p, .plugin-muted { color: var(--foreground-secondary); font-size: .875rem; }
+.plugin-item__heading p, .plugin-wrap, .plugin-details { overflow-wrap: anywhere; }
+.plugin-tag { align-self: flex-start; background: var(--background-subtle); border: 1px solid var(--border-default); padding: .25rem .5rem; border-radius: .375rem; font-size: .75rem; }
+.plugin-states { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding: 1rem 0; margin: 0; }
+.plugin-states dt { color: var(--foreground-secondary); font-size: .75rem; margin-bottom: .375rem; }
+.plugin-states dd { margin: 0; font-weight: 600; }
+.plugin-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.plugin-hint { background: var(--status-warning-soft); color: var(--foreground-primary); padding: .75rem; border-radius: .375rem; font-size: .875rem; }
+.plugin-item summary { cursor: pointer; color: var(--foreground-secondary); font-size: .875rem; padding: .5rem 0; }
+.plugin-details { font-size: .875rem; color: var(--foreground-secondary); }
+.plugin-text-error { color: var(--status-error); }
+.plugin-feedback { padding: .75rem 1rem; background: var(--background-subtle); border: 1px solid var(--border-default); border-radius: .5rem; overflow-wrap: anywhere; }
+.plugin-empty { display: grid; justify-items: center; text-align: center; gap: .75rem; padding: 3rem 1rem; background: var(--background-surface); border: 1px dashed var(--border-strong); border-radius: .75rem; }
+.plugin-empty h3, .plugin-empty p { margin: 0; }
+.plugin-empty p { color: var(--foreground-secondary); max-width: 32rem; }
+.plugin-manifest-form, .plugin-mode-field { display: grid; gap: .75rem; }
+.plugin-manifest-form label { display: grid; gap: .5rem; }
+.plugin-manifest-form textarea, .plugin-mode-field select { width: 100%; box-sizing: border-box; border: 1px solid var(--border-default); border-radius: .375rem; padding: .75rem; color: var(--foreground-primary); background: var(--background-surface); }
+.plugin-manifest-form textarea { font-family: monospace; resize: vertical; min-height: 10rem; }
+.plugin-manifest-form input { max-width: 100%; min-width: 0; }
+.plugin-skeleton { padding: 2rem; background: var(--background-subtle); border-radius: .75rem; color: var(--foreground-secondary); }
+@media (max-width: 480px) { .plugin-item { padding: 1rem; } .plugin-states { gap: .5rem; } .plugin-states dd { font-size: .875rem; } .plugin-actions > button { flex: 1 1 40%; } }
+
+.plugin-item__heading > div { min-width: 0; max-width: 100%; }
+.plugin-item__heading h3 { overflow-wrap: anywhere; }

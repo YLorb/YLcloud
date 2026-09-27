@@ -78,7 +78,7 @@ export function handleAuthenticationStatus(status: number) {
   if (status === 401) window.dispatchEvent(new Event("ylcloud-session-expired"));
 }
 
-export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}, successCodes: readonly number[] = [200]): Promise<T> {
   const headers = new Headers(init.headers);
   if (!["GET", "HEAD", "OPTIONS"].includes((init.method || "GET").toUpperCase())) {
     headers.set("X-YLCloud-Request", "1");
@@ -104,7 +104,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   }
 
   const result = (await response.json()) as ApiResult<T>;
-  if (!response.ok || result.code !== 200) {
+  if (!response.ok || !successCodes.includes(result.code)) {
     throw new ApiError(result.message || `请求失败：${response.status}`, response.status);
   }
   return result.data;

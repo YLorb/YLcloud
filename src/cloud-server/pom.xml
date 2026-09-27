@@ -16,6 +16,11 @@
     <dependencies>
         <dependency>
             <groupId>com.ylcloud</groupId>
+            <artifactId>cloud-plugin-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.ylcloud</groupId>
             <artifactId>cloud-common</artifactId>
             <version>${project.version}</version>
         </dependency>
