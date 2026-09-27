@@ -31,6 +31,9 @@ public interface FileRagChunkMapper {
             "status = values(status), updatetime = values(updatetime)")
     int insert(FileRagChunk chunk);
 
+    @Update("update file_rag_chunk set metadata = #{metadata}, updatetime = now() where id = #{id}")
+    int updateMetadata(@Param("id") Long id, @Param("metadata") String metadata);
+
     /**
      * 查询 listByFileUuid 相关逻辑。
      * @return 列表结果

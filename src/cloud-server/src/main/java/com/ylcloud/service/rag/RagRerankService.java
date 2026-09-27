@@ -87,7 +87,7 @@ public class RagRerankService {
 
     private int outputTopK(int requestedTopK, int chunkCount) {
         int configuredTopK = rerankProperties().getTopK() == null || rerankProperties().getTopK() <= 0
-                ? 5 : rerankProperties().getTopK();
+                ? 10 : rerankProperties().getTopK();
         int requested = requestedTopK <= 0 ? configuredTopK : requestedTopK;
         int limit = Math.min(requested,configuredTopK);
         return chunkCount <= 0 ? limit : Math.min(limit,chunkCount);

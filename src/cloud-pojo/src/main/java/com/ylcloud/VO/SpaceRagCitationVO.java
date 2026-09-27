@@ -8,6 +8,9 @@ public class SpaceRagCitationVO {
     private Long spaceId;
     private String spaceName;
     private Long chunkId;
+    private Integer page;
+    private Integer offsetStart;
+    private Integer offsetEnd;
     private Long documentId;
     private Long spaceFileId;
     private String fileName;

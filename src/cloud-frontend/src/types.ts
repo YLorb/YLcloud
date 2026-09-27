@@ -511,6 +511,9 @@ export type RagCitation = {
   spaceId?: number;
   spaceName?: string;
   chunkId?: number;
+  page?: number | null;
+  offsetStart?: number | null;
+  offsetEnd?: number | null;
   documentId?: number;
   spaceFileId?: number;
   fileName?: string;
@@ -519,6 +522,13 @@ export type RagCitation = {
   downloadUrl?: string;
   vectorScore?: number;
   rerankScore?: number;
+};
+
+export type RagEvidence = {
+  chunkId: number;
+  page: number | null;
+  offsetStart: number | null;
+  offsetEnd: number | null;
 };
 
 export type RagChatMessage = {
@@ -535,6 +545,7 @@ export type RagQuery = {
   contexts?: string[];
   citations?: RagCitation[];
   retrievedChunkIds?: number[];
+  retrievedEvidence?: RagEvidence[];
   rewriteDurationMs?: number;
   retrievalDurationMs?: number;
   generationDurationMs?: number;

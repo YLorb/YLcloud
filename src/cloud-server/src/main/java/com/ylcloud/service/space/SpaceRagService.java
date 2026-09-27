@@ -18,6 +18,7 @@ import com.ylcloud.VO.SpaceKnowledgePipelineTaskVO;
 import com.ylcloud.VO.SpaceRagConfigVO;
 import com.ylcloud.VO.SpaceRagCitationVO;
 import com.ylcloud.VO.SpaceRagDocumentVO;
+import com.ylcloud.VO.SpaceRagEvidenceVO;
 import com.ylcloud.VO.SpaceRagQueryVO;
 import com.ylcloud.VO.SpaceRagTaskVO;
 import com.ylcloud.config.RagProperties;
@@ -35,6 +36,7 @@ import com.ylcloud.constant.SpaceConstant;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.File;
 import com.ylcloud.entity.FileRagChunk;
+import com.ylcloud.entity.FileRagParseResult;
 import com.ylcloud.entity.SpaceFile;
 import com.ylcloud.entity.SpaceRagConfig;
 import com.ylcloud.entity.SpaceRagConfigLog;
@@ -43,6 +45,7 @@ import com.ylcloud.entity.SpaceRagQueryLog;
 import com.ylcloud.entity.SpaceRagTask;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.FileRagChunkMapper;
+import com.ylcloud.mapper.FileRagParseResultMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
 import com.ylcloud.mapper.SpaceRagChunkRefMapper;
 import com.ylcloud.mapper.SpaceRagConfigLogMapper;
@@ -51,6 +54,7 @@ import com.ylcloud.mapper.SpaceRagMapper;
 import com.ylcloud.mapper.SpaceRagQueryLogMapper;
 import com.ylcloud.mapper.SpaceRagTaskMapper;
 import com.ylcloud.service.rag.QdrantVectorStoreService;
+import com.ylcloud.service.rag.ChunkEvidenceMetadata;
 import com.ylcloud.service.rag.RagChatResult;
 import com.ylcloud.service.rag.RagChatService;
 import com.ylcloud.service.rag.RagRerankService;
@@ -95,13 +99,14 @@ public class SpaceRagService {
     private static final Logger log = LoggerFactory.getLogger(SpaceRagService.class);
     private static final int DEFAULT_CHUNK_SIZE = 1000;
     private static final int DEFAULT_CHUNK_OVERLAP = 100;
-    private static final int DEFAULT_TOP_K = 5;
+    private static final int DEFAULT_TOP_K = 10;
     private static final int MAX_TOP_K = 20;
     private static final ObjectMapper METADATA_MAPPER = new ObjectMapper();
 
     private final SpaceRagMapper spaceRagMapper;
     private final SpaceRagDocumentMapper spaceRagDocumentMapper;
     private final FileRagChunkMapper fileRagChunkMapper;
+    private FileRagParseResultMapper fileRagParseResultMapper;
     private final SpaceRagChunkRefMapper spaceRagChunkRefMapper;
     private final SpaceRagTaskMapper spaceRagTaskMapper;
     private final SpaceRagQueryLogMapper spaceRagQueryLogMapper;
@@ -127,6 +132,11 @@ public class SpaceRagService {
     private UnifiedTaskCenterService taskCenter;
     private AsyncMqProperties mqProperties;
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    public void setFileRagParseResultMapper(FileRagParseResultMapper mapper) {
+        this.fileRagParseResultMapper = mapper;
+    }
 
     private static final int RAG_FANOUT_BATCH_SIZE=100;
     private static final int RAG_PARENT_MAX_ATTEMPTS=100;
@@ -289,7 +299,12 @@ public class SpaceRagService {
         int limit = resolveQueryTopK(config,dto.getRetrievalMode());
         QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),dto.getHistory());
         long rewriteFinishedAt = System.nanoTime();
-        List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
+        Integer configuredContextChunks = ragProperties.getChat().getMaxContextChunks();
+        int maxContextChunks = configuredContextChunks == null || configuredContextChunks <= 0
+                ? RagChatService.MAX_CONTEXT_CHUNKS
+                : Math.min(RagChatService.MAX_CONTEXT_CHUNKS,configuredContextChunks);
+        List<FileRagChunk> chunks = limitChunks(searchChunks(spaceId,queryPlan,limit,config),maxContextChunks);
+        List<SpaceRagEvidenceVO> retrievedEvidence = buildRetrievedEvidence(chunks);
         long retrievalFinishedAt = System.nanoTime();
         RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config,dto.getHistory());
         long generationFinishedAt = System.nanoTime();
@@ -315,8 +330,9 @@ public class SpaceRagService {
         vo.setAnswer(answer);
         vo.setHitChunkIds(hitChunkIds);
         vo.setContexts(contexts);
-        vo.setCitations(noAnswer ? new ArrayList<>() : buildCitations(spaceId,chunks));
+        vo.setCitations(noAnswer ? new ArrayList<>() : buildCitations(spaceId,chunks,retrievedEvidence));
         vo.setRetrievedChunkIds(chunks.stream().map(FileRagChunk::getId).toList());
+        vo.setRetrievedEvidence(retrievedEvidence);
         vo.setRewriteDurationMs(elapsedMillis(startedAt,rewriteFinishedAt));
         vo.setRetrievalDurationMs(elapsedMillis(rewriteFinishedAt,retrievalFinishedAt));
         vo.setGenerationDurationMs(elapsedMillis(retrievalFinishedAt,generationFinishedAt));
@@ -1093,6 +1109,11 @@ public class SpaceRagService {
             chunk.setCreatetime(LocalDateTime.now());
             chunk.setUpdatetime(LocalDateTime.now());
             fileRagChunkMapper.insert(chunk);
+            chunk.setMetadata(ChunkEvidenceMetadata.enrich(
+                    chunk.getMetadata(),chunk.getId(),chunk.getContent(),parsed.getFullText()));
+            if(fileRagChunkMapper.updateMetadata(chunk.getId(),chunk.getMetadata()) != 1) {
+                throw new BaseException("切片证据元数据更新失败");
+            }
             result.add(chunk);
         }
         validateIndexableChunks(result);
@@ -1402,7 +1423,38 @@ public class SpaceRagService {
      * @param chunks 文件分片列表
      * @return 列表结果
      */
-    private List<SpaceRagCitationVO> buildCitations(Long spaceId, List<FileRagChunk> chunks) {
+    private List<SpaceRagEvidenceVO> buildRetrievedEvidence(List<FileRagChunk> chunks) {
+        List<SpaceRagEvidenceVO> evidence = new ArrayList<>();
+        Map<String, String> parsedTextByFile = new LinkedHashMap<>();
+        for(FileRagChunk chunk : chunks) {
+            ChunkEvidenceMetadata.Location location = ChunkEvidenceMetadata.location(chunk.getMetadata());
+            if(location.offsetStart() == null && fileRagParseResultMapper != null) {
+                String parserVersion = metadataString(chunk.getMetadata(),"parserVersion");
+                if(parserVersion != null && !parserVersion.isBlank()) {
+                    String key = chunk.getFileUuid() + "|" + chunk.getFileHash() + "|" + parserVersion;
+                    if(!parsedTextByFile.containsKey(key)) {
+                        FileRagParseResult parsed = fileRagParseResultMapper.getByFileAndVersion(
+                                chunk.getFileUuid(),chunk.getFileHash(),parserVersion);
+                        parsedTextByFile.put(key,parsed == null || !SpaceConstant.RAG_TASK_SUCCESS.equals(parsed.getParseStatus())
+                                ? null : parsed.getFullText());
+                    }
+                    String enriched = ChunkEvidenceMetadata.enrich(chunk.getMetadata(),chunk.getId(),
+                            chunk.getContent(),parsedTextByFile.get(key));
+                    location = ChunkEvidenceMetadata.location(enriched);
+                }
+            }
+            SpaceRagEvidenceVO item = new SpaceRagEvidenceVO();
+            item.setChunkId(chunk.getId());
+            item.setPage(location.page());
+            item.setOffsetStart(location.offsetStart());
+            item.setOffsetEnd(location.offsetEnd());
+            evidence.add(item);
+        }
+        return evidence;
+    }
+
+    private List<SpaceRagCitationVO> buildCitations(Long spaceId, List<FileRagChunk> chunks,
+                                                     List<SpaceRagEvidenceVO> evidence) {
         List<SpaceRagCitationVO> citations = new ArrayList<>();
         if(chunks == null || chunks.isEmpty()) {
             return citations;
@@ -1414,6 +1466,10 @@ public class SpaceRagService {
             citation.setIndex(i + 1);
             citation.setSpaceId(spaceId);
             citation.setChunkId(chunk.getId());
+            SpaceRagEvidenceVO location = evidence.get(i);
+            citation.setPage(location.getPage());
+            citation.setOffsetStart(location.getOffsetStart());
+            citation.setOffsetEnd(location.getOffsetEnd());
             citation.setContentSummary(truncate(chunk.getContent(),240));
             if(document != null) {
                 citation.setDocumentId(document.getId());

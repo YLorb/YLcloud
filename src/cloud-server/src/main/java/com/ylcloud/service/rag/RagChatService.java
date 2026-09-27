@@ -15,6 +15,7 @@ import java.util.List;
 public class RagChatService {
     private static final Logger log = LoggerFactory.getLogger(RagChatService.class);
     private static final String LEGACY_ARK_MODEL = "doubao-seed2.0";
+    public static final int MAX_CONTEXT_CHUNKS = 10;
 
     private final RagModelClient ragModelClient;
     private final RagProperties properties;
@@ -85,21 +86,16 @@ public class RagChatService {
      * @return 列表结果
      */
     private List<String> buildContexts(List<FileRagChunk> chunks) {
-        int maxContextChars = positive(properties.getChat().getMaxContextChars(),12000);
-        int maxChunkChars = positive(properties.getChat().getMaxChunkChars(),1800);
+        int maxContextChunks = Math.min(MAX_CONTEXT_CHUNKS,
+                positive(properties.getChat().getMaxContextChunks(),MAX_CONTEXT_CHUNKS));
         List<String> contexts = new ArrayList<>();
-        int used = 0;
         for(int i = 0; i < chunks.size(); i++) {
+            if(contexts.size() >= maxContextChunks) break;
             String content = chunks.get(i).getContent();
             if(content == null || content.isBlank()) {
                 continue;
             }
-            String numbered = "[" + (i + 1) + "] " + truncate(content,maxChunkChars);
-            if(used + numbered.length() > maxContextChars) {
-                break;
-            }
-            contexts.add(numbered);
-            used += numbered.length();
+            contexts.add("[" + (i + 1) + "] " + content);
         }
         return contexts;
     }

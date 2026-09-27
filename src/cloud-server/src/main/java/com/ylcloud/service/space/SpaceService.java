@@ -326,7 +326,7 @@ public class SpaceService {
         ragConfig.setVectorCollection("space_" + space.getId() + "_rag");
         ragConfig.setChunkSize(1000);
         ragConfig.setChunkOverlap(100);
-        ragConfig.setTopK(5);
+        ragConfig.setTopK(10);
         ragConfig.setTemperature(BigDecimal.valueOf(ragProperties.getChat().getTemperature() == null ? 0.2 : ragProperties.getChat().getTemperature()));
         ragConfig.setScoreThreshold(BigDecimal.ZERO);
         ragConfig.setEnabled(StatusConstant.ENABLE);

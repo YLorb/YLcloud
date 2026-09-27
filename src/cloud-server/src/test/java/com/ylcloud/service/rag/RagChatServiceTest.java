@@ -3,9 +3,12 @@ package com.ylcloud.service.rag;
 import com.ylcloud.config.RagProperties;
 import com.ylcloud.entity.FileRagChunk;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
+import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -94,6 +97,34 @@ class RagChatServiceTest {
 
         assertTrue(result.isSuccess());
         assertFalse(result.isNoAnswer());
+    }
+
+    @Test
+    void sendsTenCompleteChunksWithoutCharacterTruncation() {
+        RagProperties properties = new RagProperties();
+        properties.getChat().setMaxContextChunks(20);
+        RagModelClient client = mock(RagModelClient.class);
+        RagChatResponse response = new RagChatResponse();
+        response.setAnswer("有依据的回答。[1]");
+        when(client.chat(any())).thenReturn(response);
+        List<FileRagChunk> chunks = new ArrayList<>();
+        for(int i = 0; i < 11; i++) {
+            FileRagChunk value = new FileRagChunk();
+            value.setId((long) i + 1);
+            value.setContent("chunk-" + i + ":" + "证据".repeat(1000) + ":end-" + i);
+            chunks.add(value);
+        }
+
+        RagChatResult result = new RagChatService(client,properties).answer("问题",chunks,null);
+
+        assertTrue(result.isSuccess());
+        ArgumentCaptor<RagChatRequest> request = ArgumentCaptor.forClass(RagChatRequest.class);
+        verify(client).chat(request.capture());
+        assertEquals(10,request.getValue().getContexts().size());
+        for(int i = 0; i < 10; i++) {
+            assertEquals("[" + (i + 1) + "] " + chunks.get(i).getContent(),
+                    request.getValue().getContexts().get(i));
+        }
     }
 
     private FileRagChunk chunk() {

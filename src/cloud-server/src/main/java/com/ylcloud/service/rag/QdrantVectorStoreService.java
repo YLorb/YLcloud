@@ -266,6 +266,13 @@ public class QdrantVectorStoreService {
     private Metadata metadata(FileRagChunk chunk) {
         Metadata metadata = new Metadata();
         metadata.put(CHUNK_ID,chunk.getId());
+        metadata.put("chunk_id",chunk.getId());
+        ChunkEvidenceMetadata.Location location = ChunkEvidenceMetadata.location(chunk.getMetadata());
+        if(location.page() != null) metadata.put("page",location.page());
+        if(location.offsetStart() != null && location.offsetEnd() != null) {
+            metadata.put("offsetStart",location.offsetStart());
+            metadata.put("offsetEnd",location.offsetEnd());
+        }
         metadata.put(FILE_UUID,chunk.getFileUuid() == null ? "" : chunk.getFileUuid());
         metadata.put(FILE_HASH,chunk.getFileHash() == null ? "" : chunk.getFileHash());
         metadata.put(STATUS,StatusConstant.ENABLE);

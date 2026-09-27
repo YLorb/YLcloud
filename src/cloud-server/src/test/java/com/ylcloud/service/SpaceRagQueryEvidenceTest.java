@@ -8,10 +8,12 @@ import com.ylcloud.VO.SpaceRagQueryVO;
 import com.ylcloud.config.RagProperties;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.FileRagChunk;
+import com.ylcloud.entity.FileRagParseResult;
 import com.ylcloud.entity.SpaceRagConfig;
 import com.ylcloud.entity.SpaceRagDocument;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.mapper.FileRagChunkMapper;
+import com.ylcloud.mapper.FileRagParseResultMapper;
 import com.ylcloud.mapper.SpaceFileMapper;
 import com.ylcloud.mapper.SpaceRagChunkRefMapper;
 import com.ylcloud.mapper.SpaceRagConfigLogMapper;
@@ -35,6 +37,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -61,13 +64,13 @@ class SpaceRagQueryEvidenceTest {
     private final RagMultiRouteRetriever retriever = mock(RagMultiRouteRetriever.class);
     private final QueryRewriteService queryRewriteService = mock(QueryRewriteService.class);
     private final SiteSettingService siteSettingService = mock(SiteSettingService.class);
+    private final RagProperties properties = new RagProperties();
     private SpaceRagService service;
     private FileRagChunk chunk;
     private SpaceRagQueryDTO query;
 
     @BeforeEach
     void setUp() {
-        RagProperties properties = new RagProperties();
         service = new SpaceRagService(
                 spaceRagMapper,
                 documentMapper,
@@ -145,7 +148,29 @@ class SpaceRagQueryEvidenceTest {
     }
 
     @Test
+    void backfillsRetrievedOffsetsFromCachedParsedTextEvenWithoutAnAnswer() {
+        FileRagParseResultMapper parseMapper = mock(FileRagParseResultMapper.class);
+        service.setFileRagParseResultMapper(parseMapper);
+        chunk.setMetadata("{\"pageStart\":4,\"pageEnd\":4,\"parserVersion\":\"structured-v3\"}");
+        FileRagParseResult parsed = new FileRagParseResult();
+        parsed.setFullText("前文候选上下文后文");
+        parsed.setParseStatus("SUCCESS");
+        when(parseMapper.getByFileAndVersion("file-1","hash-1","structured-v3")).thenReturn(parsed);
+        when(chatService.answer(anyString(),anyList(),any(),anyList()))
+                .thenReturn(RagChatResult.noAnswer("无法从当前知识库回答"));
+
+        SpaceRagQueryVO result = service.query(1L,query,7L);
+
+        assertTrue(result.getCitations().isEmpty());
+        assertEquals(11L,result.getRetrievedEvidence().get(0).getChunkId());
+        assertEquals(4,result.getRetrievedEvidence().get(0).getPage());
+        assertEquals(2,result.getRetrievedEvidence().get(0).getOffsetStart());
+        assertEquals(7,result.getRetrievedEvidence().get(0).getOffsetEnd());
+    }
+
+    @Test
     void modelUnavailableKeepsRetrievedCitationsForManualInspection() {
+        chunk.setMetadata("{\"page\":12,\"offsetStart\":5,\"offsetEnd\":10}");
         when(chatService.answer(anyString(),anyList(),any(),anyList()))
                 .thenReturn(RagChatResult.failed("模型暂不可用，请查看引用。","model unavailable"));
         SpaceRagDocument document = new SpaceRagDocument();
@@ -161,6 +186,38 @@ class SpaceRagQueryEvidenceTest {
         assertEquals(List.of("候选上下文"),result.getContexts());
         assertEquals(1,result.getCitations().size());
         assertEquals(11L,result.getCitations().get(0).getChunkId());
+        assertEquals(12,result.getCitations().get(0).getPage());
+        assertEquals(5,result.getCitations().get(0).getOffsetStart());
+        assertEquals(10,result.getCitations().get(0).getOffsetEnd());
+    }
+
+    @Test
+    void citationsOnlyContainTheTenChunksPassedToChat() {
+        properties.getChat().setMaxContextChunks(20);
+        SpaceRagConfig config = spaceRagMapper.getBySpaceId(1L);
+        config.setTopK(20);
+        query.setRetrievalMode("broad");
+        List<FileRagChunk> candidates = new ArrayList<>();
+        for(int i = 0; i < 12; i++) {
+            candidates.add(positionedChunk((long) i + 1,i,"完整切片 " + i));
+        }
+        when(chunkMapper.listActiveBySpace(1L)).thenReturn(candidates);
+        when(retriever.retrieve(anyLong(),any(QueryPlan.class),anyList(),anyInt(),isNull()))
+                .thenReturn(candidates);
+        when(rerankService.rerank(anyString(),anyList(),anyInt())).thenReturn(candidates);
+        when(chatService.answer(anyString(),anyList(),any(),anyList()))
+                .thenReturn(RagChatResult.success("回答。[1]"));
+
+        SpaceRagQueryVO result = service.query(1L,query,7L);
+
+        ArgumentCaptor<List<FileRagChunk>> passedChunks = ArgumentCaptor.forClass(List.class);
+        verify(chatService).answer(anyString(),passedChunks.capture(),any(),anyList());
+        List<Long> expectedIds = candidates.subList(0,10).stream().map(FileRagChunk::getId).toList();
+        assertEquals(expectedIds,passedChunks.getValue().stream().map(FileRagChunk::getId).toList());
+        assertEquals(expectedIds,result.getRetrievedChunkIds());
+        assertEquals(expectedIds,result.getHitChunkIds());
+        assertEquals(expectedIds,result.getCitations().stream().map(citation -> citation.getChunkId()).toList());
+        assertEquals(10,result.getContexts().size());
     }
 
     @Test

@@ -65,15 +65,14 @@ public class RagProperties {
     @Data
     public static class Rerank {
         private Boolean enabled = true;
-        private Integer candidateTopK = 5;
-        private Integer topK = 5;
+        private Integer candidateTopK = 10;
+        private Integer topK = 10;
     }
 
     @Data
     public static class Chat {
         private Boolean enabled = true;
-        private Integer maxContextChars = 12000;
-        private Integer maxChunkChars = 1800;
+        private Integer maxContextChunks = 10;
         private Integer maxAnswerTokens = 1024;
         private Integer maxHistoryTokens = 2048;
         private Integer summaryMaxTokens = 512;

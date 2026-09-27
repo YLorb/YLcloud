@@ -50,7 +50,7 @@ create table if not exists space_rag_config (
     vector_collection varchar(100) not null,
     chunk_size int not null default 1000,
     chunk_overlap int not null default 100,
-    top_k int not null default 5,
+    top_k int not null default 10,
     temperature decimal(3,2) not null default 0.20,
     score_threshold decimal(6,4) default 0.0000,
     enabled int not null default 1,

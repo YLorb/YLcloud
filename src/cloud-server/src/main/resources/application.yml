@@ -140,8 +140,8 @@ ylcloud:
       max-retries: ${YLCLOUD_MEMORY_MAX_RETRIES:8}
     rerank:
       enabled: ${YLCLOUD_RAG_RERANK_ENABLED:true}
-      candidate-top-k: ${YLCLOUD_RAG_RERANK_CANDIDATE_TOP_K:5}
-      top-k: ${YLCLOUD_RAG_RERANK_TOP_K:5}
+      candidate-top-k: ${YLCLOUD_RAG_RERANK_CANDIDATE_TOP_K:10}
+      top-k: ${YLCLOUD_RAG_RERANK_TOP_K:10}
     query:
       rewrite-enabled: ${YLCLOUD_RAG_QUERY_REWRITE_ENABLED:true}
       model-rewrite-enabled: ${YLCLOUD_RAG_QUERY_MODEL_REWRITE_ENABLED:true}
@@ -181,8 +181,7 @@ ylcloud:
       keep-code-blocks: true
     chat:
       enabled: ${YLCLOUD_RAG_CHAT_ENABLED:true}
-      max-context-chars: 12000
-      max-chunk-chars: 1800
+      max-context-chunks: ${YLCLOUD_RAG_MAX_CONTEXT_CHUNKS:10}
       max-answer-tokens: 1024
       max-history-tokens: ${YLCLOUD_CHAT_MAX_HISTORY_TOKENS:2048}
       summary-max-tokens: ${YLCLOUD_CHAT_SUMMARY_MAX_TOKENS:512}
