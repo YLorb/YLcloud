@@ -19,6 +19,7 @@ class AdminSearchWiringTest {
                 .withBean(FileRagChunkMapper.class, () -> mock(FileRagChunkMapper.class))
                 .withBean(SpaceMapper.class, () -> mock(SpaceMapper.class))
                 .withBean(SpaceFileService.class, () -> mock(SpaceFileService.class))
+                .withBean(OfficePreviewService.class, () -> mock(OfficePreviewService.class))
                 .withBean(RagProperties.class, RagProperties::new)
                 .withBean(EmbeddingModel.class, () -> mock(EmbeddingModel.class))
                 .withBean(QdrantVectorStoreService.class, () -> mock(QdrantVectorStoreService.class))

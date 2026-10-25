@@ -98,8 +98,12 @@ public class WebhookDeliveryWorker {
         envelope.put("resourceVersion",event.getResourceVersion());
         envelope.put("occurredAt",event.getOccurredAt().atZone(ZoneId.systemDefault()).toInstant().toString());
         envelope.put("resource",Map.of("type",event.getResourceType(),"id",event.getResourceId()));
-        envelope.put("data",objectMapper.readValue(event.getMinimalPayloadJson(),new TypeReference<Map<String,Object>>(){}));
-        if(Boolean.TRUE.equals(subscription.getIncludeContent()) && event.getContentPayloadJson() != null
+        boolean knowledgeTask="AGENT_TASK".equals(event.getResourceType()) || event.getEventType().startsWith("AGENT_TASK_");
+        Map<String,Object> data=objectMapper.readValue(event.getMinimalPayloadJson(),new TypeReference<Map<String,Object>>(){});
+        if(knowledgeTask) data.keySet().retainAll(java.util.Set.of("messageId","sessionId","status","answerId"));
+        envelope.put("data",data);
+        // Covers queued legacy events too: clients fetch the answer through current authorization.
+        if(!knowledgeTask && Boolean.TRUE.equals(subscription.getIncludeContent()) && event.getContentPayloadJson() != null
                 && contentAllowed(principal,event)) {
             envelope.put("content",objectMapper.readValue(event.getContentPayloadJson(),new TypeReference<Map<String,Object>>(){}));
         }

@@ -3,26 +3,27 @@ package com.ylcloud.service;
 import com.ylcloud.service.space.SpacePermissionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.DTO.KnowledgeChatQueryCreateDTO;
+import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.KnowledgeRagQueryVO;
 import com.ylcloud.entity.KnowledgeChatMessage;
 import com.ylcloud.entity.KnowledgeChatSession;
+import com.ylcloud.entity.RagTrustedAnswer;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
 import com.ylcloud.service.memory.UserMemoryExtractionService;
+import com.ylcloud.service.rag.RagEvidenceService;
+import com.ylcloud.async.task.StaleTaskException;
+import com.ylcloud.async.worker.TaskExecutionContext;
 import com.ylcloud.workflow.client.WorkflowMessageLifecycleService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class KnowledgeChatQueryServiceTest {
     private final KnowledgeChatSessionMapper sessionMapper = mock(KnowledgeChatSessionMapper.class);
@@ -51,19 +52,100 @@ class KnowledgeChatQueryServiceTest {
     }
 
     @Test
-    void executeStoresAnswerAndCitations() throws Exception {
-        KnowledgeChatMessage task = new KnowledgeChatMessage();
-        task.setId(11L); task.setUserId(7L); task.setTaskStatus("RUNNING");
-        task.setRequestJson(new ObjectMapper().writeValueAsString(request()));
-        when(messageMapper.claimQueued(11L)).thenReturn(1);
-        when(messageMapper.getTaskById(11L)).thenReturn(task);
-        when(contextService.resolve(task)).thenReturn(new ConversationContextSnapshot(1,3L,7L,11L,10L,List.of(),List.of(),0,0,1,0,List.of(),"test",java.time.LocalDateTime.now()));
-        KnowledgeRagQueryVO result = new KnowledgeRagQueryVO(); result.setAnswer("answer"); result.setCitations(List.of());
+    void executeCommitsCanonicalServerAnswerAndTrustBindingAtomically() throws Exception {
+        readyTask(null,3L);
+        RagEvidenceService evidence=trustedAnswer();
+        when(messageMapper.markChatTrustedSuccess(eq(11L),eq(3L),isNull(),eq("server verified answer"),eq("[]"),eq("trusted-1"),any())).thenReturn(1);
+
+        service.execute(11L);
+
+        var order=inOrder(evidence,messageMapper);
+        order.verify(evidence).readAnswer("trusted-1",7L);
+        order.verify(evidence).validateCitations(7L,List.of(),true);
+        order.verify(messageMapper).markChatTrustedSuccess(eq(11L),eq(3L),isNull(),eq("server verified answer"),eq("[]"),eq("trusted-1"),any());
+        verify(messageMapper,never()).markSuccess(anyLong(),anyString(),anyString());
+        verify(messageMapper,never()).bindTrustedAnswer(anyLong(),anyLong(),anyString(),anyString());
+    }
+
+    @Test
+    void revokedEvidenceFailsBeforePublishingSuccess() throws Exception {
+        readyTask(null,3L);
+        RagEvidenceService evidence=trustedAnswer();
+        doThrow(new BaseException("permission revoked")).when(evidence).validateCitations(7L,List.of(),true);
+
+        service.execute(11L);
+
+        verify(messageMapper,never()).markChatTrustedSuccess(anyLong(),anyLong(),any(),anyString(),anyString(),anyString(),any());
+        verify(messageMapper).markChatFailedFenced(eq(11L),eq(3L),isNull(),eq("permission revoked"),any());
+    }
+
+    @Test
+    void answerWithoutServerIdentityCannotBecomeSuccessfulMessage() throws Exception {
+        readyTask(null,3L); trustedAnswer();
+        KnowledgeRagQueryVO result=new KnowledgeRagQueryVO(); result.setAnswer("unverified answer"); result.setCitations(List.of());
         when(ragQueryService.query(any(),eq(7L))).thenReturn(result);
 
         service.execute(11L);
 
-        verify(messageMapper).markSuccess(11L,"answer","[]");
+        verify(messageMapper,never()).markChatTrustedSuccess(anyLong(),anyLong(),any(),anyString(),anyString(),anyString(),any());
+        verify(messageMapper).markChatFailedFenced(eq(11L),eq(3L),isNull(),eq("可信回答关联失败"),any());
+    }
+
+    @Test
+    void lateLegacyResultCannotPublishForRetriedMessage() throws Exception {
+        readyTask(null,3L);
+        trustedAnswer();
+        WebhookEventService events=mock(WebhookEventService.class); service.setWebhookEventService(events);
+        when(messageMapper.markChatTrustedSuccess(eq(11L),eq(3L),isNull(),anyString(),anyString(),anyString(),any())).thenReturn(0);
+
+        service.execute(11L);
+
+        verify(messageMapper).claimQueuedFenced(11L,3L);
+        verifyNoInteractions(events);
+        verify(messageMapper,never()).markChatFailedFenced(anyLong(),anyLong(),any(),anyString(),any());
+    }
+
+    @Test
+    void lateLegacyFailureCannotPublishForRetriedMessage() throws Exception {
+        readyTask(null,3L);
+        when(ragQueryService.query(any(),eq(7L))).thenThrow(new BaseException("old attempt failed"));
+        WebhookEventService events=mock(WebhookEventService.class); service.setWebhookEventService(events);
+        when(messageMapper.markChatFailedFenced(eq(11L),eq(3L),isNull(),anyString(),any())).thenReturn(0);
+
+        service.execute(11L);
+
+        verify(messageMapper).markChatFailedFenced(eq(11L),eq(3L),isNull(),eq("old attempt failed"),any());
+        verifyNoInteractions(events);
+    }
+
+    @Test
+    void boundMqTaskCannotBeClaimedByLegacyWorker() throws Exception {
+        readyTask(30L,3L);
+
+        service.execute(11L);
+
+        verify(messageMapper,never()).claimQueuedFenced(anyLong(),anyLong());
+        verifyNoInteractions(ragQueryService);
+    }
+
+    @Test
+    void asyncSuccessWritesTrustedAnswerUnderSameTaskFence() throws Exception {
+        readyTask(30L,3L); trustedAnswer();
+        when(messageMapper.markChatTrustedSuccess(eq(11L),eq(3L),eq(30L),anyString(),anyString(),anyString(),any())).thenReturn(1);
+
+        assertEquals("SUCCESS",service.executeAsync(11L,30L,3L,false,mock(TaskExecutionContext.class)).get("status"));
+
+        verify(messageMapper).markChatTrustedSuccess(eq(11L),eq(3L),eq(30L),eq("server verified answer"),eq("[]"),eq("trusted-1"),any());
+        verify(messageMapper,never()).bindTrustedAnswer(anyLong(),anyLong(),anyString(),anyString());
+    }
+
+    @Test
+    void lostAsyncFenceDoesNotOverwriteNewAttemptWithFailure() throws Exception {
+        readyTask(30L,3L); trustedAnswer();
+
+        assertThrows(StaleTaskException.class,()->service.executeAsync(11L,30L,3L,false,mock(TaskExecutionContext.class)));
+
+        verify(messageMapper,never()).markChatFailedFenced(anyLong(),anyLong(),any(),anyString(),any());
     }
 
     @Test
@@ -89,7 +171,7 @@ class KnowledgeChatQueryServiceTest {
     }
 
     @Test
-    void reconcilesMissingTerminalAgentWebhookEvent() throws Exception {
+    void reconcilesLegacyTerminalEventWithoutReexposingStoredAnswer() throws Exception {
         WebhookEventService events = mock(WebhookEventService.class);
         KnowledgeChatMessage message = new KnowledgeChatMessage();
         message.setId(11L); message.setSessionId(3L); message.setUserId(7L);
@@ -103,7 +185,43 @@ class KnowledgeChatQueryServiceTest {
         service.reconcileAgentWebhookEvents();
 
         verify(events).publish(eq(7L),eq("AGENT_TASK_COMPLETED"),eq("AGENT_TASK"),eq("11"),eq(2L),
-                eq(null),eq(5L),any(),eq(java.util.Map.of("answer","answer")));
+                eq(null),eq(5L),eq(Map.of("messageId",11L,"sessionId",3L,"status","COMPLETED")),eq(Map.of()));
+    }
+
+    @Test
+    void trustedCompletionWebhookContainsOnlyResolvableAnswerId() throws Exception {
+        KnowledgeChatMessage task=readyTask(null,3L); trustedAnswer();
+        WebhookEventService events=mock(WebhookEventService.class); service.setWebhookEventService(events);
+        when(messageMapper.markChatTrustedSuccess(eq(11L),eq(3L),isNull(),anyString(),anyString(),anyString(),any())).thenReturn(1);
+
+        service.execute(11L);
+
+        verify(events).publish(eq(7L),eq("AGENT_TASK_COMPLETED"),eq("AGENT_TASK"),eq("11"),eq(1L),
+                isNull(),eq(5L),eq(Map.of("messageId",11L,"sessionId",3L,"status","COMPLETED","answerId","trusted-1")),eq(Map.of()));
+        assertEquals("trusted-1",task.getTrustedAnswerId());
+    }
+
+    private KnowledgeChatMessage readyTask(Long asyncTaskId,long version) throws Exception {
+        KnowledgeChatMessage task=new KnowledgeChatMessage();
+        task.setId(11L); task.setSessionId(3L); task.setUserId(7L); task.setRole("assistant"); task.setStatus(1);
+        task.setTaskStatus("QUEUED"); task.setAsyncVersion(version); task.setAsyncTaskId(asyncTaskId);
+        KnowledgeChatQueryCreateDTO request=request(); request.setApiKeyId(19L);
+        task.setRequestJson(new ObjectMapper().writeValueAsString(request));
+        when(messageMapper.getTaskById(11L)).thenReturn(task);
+        when(messageMapper.claimQueuedFenced(11L,version)).thenReturn(1);
+        when(messageMapper.claimChatAsync(eq(11L),eq(version),eq(asyncTaskId),any())).thenReturn(1);
+        when(contextService.resolve(task)).thenReturn(new ConversationContextSnapshot(1,3L,7L,11L,10L,List.of(),List.of(),0,0,1,0,List.of(),"test",java.time.LocalDateTime.now()));
+        KnowledgeRagQueryVO result=new KnowledgeRagQueryVO(); result.setAnswer("untrusted response text"); result.setCitations(List.of()); result.setAnswerId("trusted-1");
+        when(ragQueryService.query(any(),eq(7L))).thenReturn(result);
+        return task;
+    }
+
+    private RagEvidenceService trustedAnswer() {
+        RagEvidenceService evidence=mock(RagEvidenceService.class); service.setEvidenceService(evidence);
+        RagTrustedAnswer answer=new RagTrustedAnswer(); answer.setId("trusted-1"); answer.setUserId(7L);
+        answer.setContent("server verified answer"); answer.setCitationsJson("[]");
+        when(evidence.readAnswer("trusted-1",7L)).thenReturn(answer);
+        return evidence;
     }
 
     private KnowledgeChatQueryCreateDTO request() { KnowledgeChatQueryCreateDTO dto = new KnowledgeChatQueryCreateDTO(); dto.setQuestion("question"); dto.setSpaceIds(List.of(5L)); dto.setRetrievalMode("balanced"); return dto; }

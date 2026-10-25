@@ -92,6 +92,15 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Service
 public class SpaceRagService {
+    private com.ylcloud.service.rag.RagEvidenceService evidenceService;
+    private com.ylcloud.service.KnowledgeRevisionService revisionService;
+
+    @Autowired
+    public void setEvidenceServices(com.ylcloud.service.rag.RagEvidenceService evidenceService,
+                                    com.ylcloud.service.KnowledgeRevisionService revisionService) {
+        this.evidenceService=evidenceService;
+        this.revisionService=revisionService;
+    }
     private static final Logger log = LoggerFactory.getLogger(SpaceRagService.class);
     private static final int DEFAULT_CHUNK_SIZE = 1000;
     private static final int DEFAULT_CHUNK_OVERLAP = 100;
@@ -239,6 +248,23 @@ public class SpaceRagService {
     public SpaceRagConfigVO updateConfig(Long spaceId, SpaceRagConfigUpdateDTO dto, Long userId) {
         spacePermissionService.requireAdmin(spaceId,userId);
         SpaceRagConfig current = requireConfig(spaceId);
+        if(dto == null) throw new BaseException("知识库配置不能为空");
+        long currentRevision = current.getConfigRevision() == null ? 0L : current.getConfigRevision();
+        if(dto.getConfigRevision() != null && dto.getConfigRevision() != currentRevision) {
+            throw new BaseException(409,"知识库配置已被其他管理员修改，请刷新后重试");
+        }
+        Boolean allowStale = dto.getAllowStaleDuringReindex() == null
+                ? Boolean.TRUE.equals(current.getAllowStaleDuringReindex()) : dto.getAllowStaleDuringReindex();
+        Boolean historicalEvidence = dto.getHistoricalEvidenceEnabled() == null
+                ? Boolean.TRUE.equals(current.getHistoricalEvidenceEnabled()) : dto.getHistoricalEvidenceEnabled();
+        Integer retentionDays = dto.getHistoryRetentionDays() == null
+                ? current.getHistoryRetentionDays() : dto.getHistoryRetentionDays();
+        if(retentionDays != null && retentionDays <= 0) {
+            throw new BaseException("历史版本保留天数必须大于 0");
+        }
+        if(historicalEvidence && retentionDays == null) {
+            throw new BaseException("开启历史版本复核前必须设置保留天数");
+        }
         Integer chunkSize = dto.getChunkSize() == null ? current.getChunkSize() : dto.getChunkSize();
         Integer chunkOverlap = dto.getChunkOverlap() == null ? current.getChunkOverlap() : dto.getChunkOverlap();
         if(chunkOverlap >= chunkSize) {
@@ -257,10 +283,14 @@ public class SpaceRagService {
                 dto.getScoreThreshold() == null ? current.getScoreThreshold() : dto.getScoreThreshold(),
                 dto.getEnabled() == null ? current.getEnabled() : dto.getEnabled(),
                 dto.getKnowledgeProfileEnabled() == null ? current.getKnowledgeProfileEnabled() : dto.getKnowledgeProfileEnabled(),
+                allowStale,
+                historicalEvidence,
+                retentionDays,
+                currentRevision,
                 LocalDateTime.now()
         );
         if(rows == 0) {
-            throw new BaseException("空间 RAG 配置更新失败");
+            throw new BaseException(409,"知识库配置已被其他管理员修改，请刷新后重试");
         }
         SpaceRagConfig updated = requireConfig(spaceId);
         saveConfigChangeLog(spaceId,userId,current,updated);
@@ -275,7 +305,6 @@ public class SpaceRagService {
      * @param userId 用户 ID
      * @return 处理结果
      */
-    @Transactional
     public SpaceRagQueryVO query(Long spaceId, SpaceRagQueryDTO dto, Long userId) {
         long startedAt = System.nanoTime();
         spacePermissionService.requireMember(spaceId,userId);
@@ -287,22 +316,34 @@ public class SpaceRagService {
             throw new BaseException("当前空间未启用 RAG");
         }
         int limit = resolveQueryTopK(config,dto.getRetrievalMode());
-        QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),dto.getHistory());
+        List<com.ylcloud.DTO.RagChatMessageDTO> safeHistory=dto.getHistory()==null ? List.of()
+                : dto.getHistory().stream().filter(m -> m!=null && "user".equals(m.getRole())).limit(12).toList();
+        QueryPlan queryPlan = queryRewriteService.plan(dto.getQuestion(),safeHistory);
         long rewriteFinishedAt = System.nanoTime();
-        List<FileRagChunk> chunks = searchChunks(spaceId,queryPlan,limit,config);
+        if(evidenceService==null) throw new BaseException("证据服务不可用");
+        List<FileRagChunk> chunks = evidenceService.authorizedCandidates(spaceId,userId,searchChunks(spaceId,userId,queryPlan,limit,config));
         long retrievalFinishedAt = System.nanoTime();
-        RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config,dto.getHistory());
+        RagChatResult chatResult = ragChatService.answer(dto.getQuestion(),chunks,config,safeHistory);
         long generationFinishedAt = System.nanoTime();
         String answer = chatResult.getAnswer();
-        boolean noAnswer = chatResult.isNoAnswer() || answer == null || answer.isBlank();
+        boolean noAnswer = !chatResult.isVerified() || chatResult.isNoAnswer() || answer == null || answer.isBlank();
+        // External calls run outside a database transaction; re-read authoritative state before publishing.
+        spacePermissionService.requireMember(spaceId,userId);
+        SpaceRagConfig latestConfig=requireConfig(spaceId);
+        if(!java.util.Objects.equals(config.getConfigRevision(),latestConfig.getConfigRevision())
+                || !StatusConstant.ENABLE.equals(latestConfig.getEnabled())) {
+            throw new BaseException("知识库配置已变化，请重新提问");
+        }
+        List<com.ylcloud.VO.SpaceRagCitationVO> verifiedCitations=noAnswer ? List.of()
+                : evidenceService.createCitations(spaceId,userId,chunks,chatResult.getEvidence());
         List<Long> hitChunkIds = new ArrayList<>();
         List<String> contexts = new ArrayList<>();
         StringJoiner idJoiner = new StringJoiner(",");
         if(!noAnswer) {
-            for(FileRagChunk chunk : chunks) {
-                hitChunkIds.add(chunk.getId());
-                contexts.add(chunk.getContent());
-                idJoiner.add(String.valueOf(chunk.getId()));
+            for(com.ylcloud.VO.RagAnswerEvidence evidence : chatResult.getEvidence()) {
+                hitChunkIds.add(evidence.getChunkId());
+                contexts.add(evidence.getContent());
+                idJoiner.add(String.valueOf(evidence.getChunkId()));
             }
         }
         saveQueryLog(spaceId,userId,dto.getQuestion(),answer,idJoiner.toString(),
@@ -313,9 +354,14 @@ public class SpaceRagService {
         vo.setSpaceId(spaceId);
         vo.setQuestion(dto.getQuestion());
         vo.setAnswer(answer);
+        vo.setAnswerStatus(chatResult.getStatus());
+        vo.setReasonCode(chatResult.getReasonCode());
+        vo.setQuestionType(chatResult.getQuestionType());
+        vo.setClaims(chatResult.getClaims());
         vo.setHitChunkIds(hitChunkIds);
         vo.setContexts(contexts);
-        vo.setCitations(noAnswer ? new ArrayList<>() : buildCitations(spaceId,chunks));
+        vo.setCitations(verifiedCitations);
+        vo.setAnswerId(evidenceService.storeAnswer(userId,List.of(spaceId),answer,verifiedCitations,chatResult.getStatus()));
         vo.setRetrievedChunkIds(chunks.stream().map(FileRagChunk::getId).toList());
         vo.setRewriteDurationMs(elapsedMillis(startedAt,rewriteFinishedAt));
         vo.setRetrievalDurationMs(elapsedMillis(rewriteFinishedAt,retrievalFinishedAt));
@@ -556,6 +602,23 @@ public class SpaceRagService {
         Long documentId = document.getId();
         if(!mqRagEnabled()) dispatchAfterCommit(() -> ragTaskExecutorService.runFileTask(task.getId(),documentId,userId));
         return true;
+    }
+
+    /** Only called by the durable intent dispatcher after an authorized version transaction. */
+    @Transactional
+    public void dispatchRevisionRebuild(Long spaceId,Long spaceFileId,String fileHash,Long actorId) {
+        SpaceFile file=requireFile(spaceId,spaceFileId);
+        if(!java.util.Objects.equals(file.getContentHash(),fileHash) || !"ACTIVE".equals(file.getLifecycleState()))
+            throw new StaleTaskException("版本重建意图已过期");
+        expireStaleIndexTasks(spaceId);
+        if(spaceRagTaskMapper.findRunningFileTask(spaceId,spaceFileId)!=null)
+            throw new ConflictException("等待旧索引任务退出后重建当前版本");
+        SpaceRagDocument document=spaceRagDocumentMapper.getBySpaceFileId(spaceId,spaceFileId);
+        if(document==null) document=createDocument(file,actorId);
+        if(mqRagEnabled()) document=refreshDocumentMetadata(document);
+        SpaceRagTask task=createTask(spaceId,spaceFileId,document.getId(),SpaceConstant.RAG_TASK_REBUILD_FILE,actorId);
+        Long documentId=document.getId();
+        if(!mqRagEnabled()) dispatchAfterCommit(()->ragTaskExecutorService.runFileTask(task.getId(),documentId,actorId));
     }
 
     /**
@@ -966,7 +1029,7 @@ public class SpaceRagService {
         if("CLEANUP_PENDING".equals(latest.getVectorState()) && !ragIndexConsistencyService.cleanupDocumentIfPending(latest)) {
             throw new ConflictException("RAG 文档仍在清理上一次不完整索引");
         }
-        ragIndexTransactionService.beginIndex(document.getId());
+        long buildVersion=ragIndexTransactionService.beginIndexVersioned(document.getId());
 
         try {
             List<FileRagChunk> fileChunks = ensureFileChunks(spaceFile,config);
@@ -978,18 +1041,23 @@ public class SpaceRagService {
             if(vectorCount == 0) {
                 throw new BaseException("RAG 索引完整性校验失败");
             }
-            ragIndexTransactionService.commitIndex(
-                    document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks);
+            ragIndexTransactionService.commitIndexVersioned(
+                    document.getSpaceId(),document.getSpaceFileId(),document.getId(),fileChunks,buildVersion);
             fileLifecycleService.indexSucceeded(document.getSpaceId(),document.getSpaceFileId());
         } catch (Throwable ex) {
-            fileLifecycleService.indexFailed(document.getSpaceId(),document.getSpaceFileId(),ex.getMessage());
+            boolean stillOwnsBuild=false;
             try {
-                ragIndexTransactionService.failBuildingIndex(document.getId(),truncate(ex.getMessage(),1000));
+                stillOwnsBuild=ragIndexTransactionService.failBuildingIndexVersioned(document.getId(),buildVersion,truncate(ex.getMessage(),1000));
             } catch (Throwable databaseCleanupError) {
                 ex.addSuppressed(databaseCleanupError);
                 log.error("Failed to isolate incomplete RAG database state: documentId={}",
                         document.getId(),databaseCleanupError);
             }
+            if(!stillOwnsBuild) {
+                if(ex instanceof RuntimeException runtime) throw runtime;
+                throw new BaseException("索引任务已过期，已停止清理");
+            }
+            fileLifecycleService.indexFailed(document.getSpaceId(),document.getSpaceFileId(),ex.getMessage());
             SpaceRagDocument failed = spaceRagDocumentMapper.getAnyById(document.getId());
             try {
                 qdrantVectorStoreService.deleteBySpaceFileStrict(document.getSpaceId(),document.getSpaceFileId());
@@ -1048,13 +1116,14 @@ public class SpaceRagService {
             throw new BaseException("文件哈希不存在，无法建立 RAG 切片");
         }
         List<FileRagChunk> exists = fileRagChunkMapper.listByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
-        if(!exists.isEmpty() && areReusableChunks(exists,spaceFile)) {
+        if(!exists.isEmpty() && areReusableChunks(exists,spaceFile)
+                && exists.stream().allMatch(c -> java.util.Objects.equals(c.getEmbeddingModel(),config.getEmbeddingModel())
+                && java.util.Objects.equals(c.getChunkSize(),safeChunkSize(config.getChunkSize()))
+                && java.util.Objects.equals(c.getChunkOverlap(),safeChunkOverlap(config.getChunkOverlap(),config.getChunkSize())))) {
             validateIndexableChunks(exists);
             return exists;
         }
-        if(!exists.isEmpty()) {
-            fileRagChunkMapper.disableByFileUuidAndHash(spaceFile.getFileUuid(),file.getHash());
-        }
+        // Published chunks are immutable and may still be used by another Space or historical evidence.
         ParsedDocument parsed = documentParser.parse(spaceFile,file);
         if(parsed == null || !parsed.isSuccess()) {
             String message = parsed == null ? "文档解析失败" : parsed.getErrorMessage();
@@ -1073,11 +1142,13 @@ public class SpaceRagService {
             throw new BaseException("文档未产生有效切片，无法建立 RAG 索引");
         }
         List<FileRagChunk> result = new ArrayList<>();
+        String generation=java.util.UUID.randomUUID().toString();
         for(StructuredChunk structuredChunk : chunks) {
             if(structuredChunk == null || structuredChunk.getContent() == null || structuredChunk.getContent().isBlank()) {
                 throw new BaseException("文档切片内容为空，无法建立 RAG 索引");
             }
             FileRagChunk chunk = new FileRagChunk();
+            chunk.setGeneration(generation);
             chunk.setFileUuid(spaceFile.getFileUuid());
             chunk.setFileHash(file.getHash());
             chunk.setChunkIndex(structuredChunk.getChunkIndex());
@@ -1232,6 +1303,13 @@ public class SpaceRagService {
         if(isMetadataFallbackChunks(chunks)) {
             return false;
         }
+        String sourceVersion=null;
+        for(FileRagChunk chunk:chunks) {
+            String pinned=com.ylcloud.service.rag.parser.ImmutableDocumentProvenance.sourceVersion(chunk);
+            if(pinned==null || "legacy".equals(chunk.getGeneration())
+                    || (sourceVersion!=null && !sourceVersion.equals(pinned))) return false;
+            sourceVersion=pinned;
+        }
         String currentVersion = ragProperties.getExtraction() == null ||
                 ragProperties.getExtraction().getParserVersion() == null
                   ? "structured-v3"
@@ -1260,8 +1338,14 @@ public class SpaceRagService {
      * @param config 配置对象
      * @return 列表结果
      */
-    private List<FileRagChunk> searchChunks(Long spaceId, QueryPlan queryPlan, int limit, SpaceRagConfig config) {
-        List<FileRagChunk> spaceChunks = fileRagChunkMapper.listActiveBySpace(spaceId);
+    private List<FileRagChunk> searchChunks(Long spaceId,Long userId, QueryPlan queryPlan, int limit, SpaceRagConfig config) {
+        List<FileRagChunk> spaceChunks = new ArrayList<>(fileRagChunkMapper.listActiveBySpace(spaceId));
+        if(revisionService!=null && Boolean.TRUE.equals(config.getAllowStaleDuringReindex())) {
+            java.util.Set<Long> ids=new java.util.HashSet<>();
+            spaceChunks.forEach(c -> ids.add(c.getId()));
+            for(FileRagChunk old:revisionService.readableChunks(spaceId)) if(ids.add(old.getId())) spaceChunks.add(old);
+        }
+        spaceChunks=evidenceService.authorizedCandidates(spaceId,userId,spaceChunks);
         List<FileRagChunk> candidates = ragMultiRouteRetriever.retrieve(
                 spaceId,
                 queryPlan,
@@ -1269,6 +1353,7 @@ public class SpaceRagService {
                 limit,
                 config.getScoreThreshold() == null ? null : config.getScoreThreshold().doubleValue()
         );
+        candidates=evidenceService.authorizedCandidates(spaceId,userId,candidates);
         if(!candidates.isEmpty()) {
             int candidateTopK = rerankCandidateTopK();
             List<FileRagChunk> expandedCandidates = expandContextChunks(candidates,spaceChunks,queryPlan,candidateTopK);
@@ -1687,6 +1772,10 @@ public class SpaceRagService {
         vo.setScoreThreshold(config.getScoreThreshold());
         vo.setEnabled(config.getEnabled());
         vo.setKnowledgeProfileEnabled(config.getKnowledgeProfileEnabled());
+        vo.setAllowStaleDuringReindex(Boolean.TRUE.equals(config.getAllowStaleDuringReindex()));
+        vo.setHistoricalEvidenceEnabled(Boolean.TRUE.equals(config.getHistoricalEvidenceEnabled()));
+        vo.setHistoryRetentionDays(config.getHistoryRetentionDays());
+        vo.setConfigRevision(config.getConfigRevision() == null ? 0L : config.getConfigRevision());
         vo.setStatus(config.getStatus());
         vo.setCreatetime(config.getCreatetime());
         vo.setUpdatetime(config.getUpdatetime());
@@ -1711,6 +1800,11 @@ public class SpaceRagService {
         vo.setIndexStatus(document.getIndexStatus());
         vo.setChunkCount(document.getChunkCount());
         vo.setErrorMessage(document.getErrorMessage());
+        if("SUCCESS".equals(document.getIndexStatus()) && (revisionService==null
+                || revisionService.safeRevision(document.getSpaceId(),document.getSpaceFileId(),document.getFileHash(),true)==null)) {
+            vo.setIndexStatus("PENDING");
+            vo.setErrorMessage("当前索引尚未通过版本校验，请检查知识库配置或重新处理文档。");
+        }
         vo.setCreatetime(document.getCreatetime());
         vo.setUpdatetime(document.getUpdatetime());
         return vo;
@@ -1840,6 +1934,9 @@ public class SpaceRagService {
         addChanged(fields,"scoreThreshold",before.getScoreThreshold(),after.getScoreThreshold());
         addChanged(fields,"enabled",before.getEnabled(),after.getEnabled());
         addChanged(fields,"knowledgeProfileEnabled",before.getKnowledgeProfileEnabled(),after.getKnowledgeProfileEnabled());
+        addChanged(fields,"allowStaleDuringReindex",Boolean.TRUE.equals(before.getAllowStaleDuringReindex()),Boolean.TRUE.equals(after.getAllowStaleDuringReindex()));
+        addChanged(fields,"historicalEvidenceEnabled",Boolean.TRUE.equals(before.getHistoricalEvidenceEnabled()),Boolean.TRUE.equals(after.getHistoricalEvidenceEnabled()));
+        addChanged(fields,"historyRetentionDays",before.getHistoryRetentionDays(),after.getHistoryRetentionDays());
         return String.join(",",fields);
     }
 
@@ -1861,7 +1958,11 @@ public class SpaceRagService {
                 + "\"temperature\":" + safeTemperature(config.getTemperature()) + ","
                 + "\"scoreThreshold\":" + config.getScoreThreshold() + ","
                 + "\"enabled\":" + config.getEnabled() + ","
-                + "\"knowledgeProfileEnabled\":" + config.getKnowledgeProfileEnabled() + "}";
+                + "\"knowledgeProfileEnabled\":" + config.getKnowledgeProfileEnabled() + ","
+                + "\"allowStaleDuringReindex\":" + Boolean.TRUE.equals(config.getAllowStaleDuringReindex()) + ","
+                + "\"historicalEvidenceEnabled\":" + Boolean.TRUE.equals(config.getHistoricalEvidenceEnabled()) + ","
+                + "\"historyRetentionDays\":" + config.getHistoryRetentionDays() + ","
+                + "\"configRevision\":" + (config.getConfigRevision() == null ? 0L : config.getConfigRevision()) + "}";
     }
 
     /**

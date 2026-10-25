@@ -2,15 +2,18 @@ package com.ylcloud.service;
 
 import com.ylcloud.service.space.SpacePermissionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.DTO.KnowledgeChatQueryCreateDTO;
 import com.ylcloud.DTO.KnowledgeRagQueryDTO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.VO.KnowledgeChatMessageVO;
 import com.ylcloud.VO.KnowledgeRagQueryVO;
+import com.ylcloud.VO.SpaceRagCitationVO;
 import com.ylcloud.constant.StatusConstant;
 import com.ylcloud.entity.KnowledgeChatMessage;
 import com.ylcloud.entity.KnowledgeChatSession;
+import com.ylcloud.entity.RagTrustedAnswer;
 import com.ylcloud.entity.UnifiedAsyncTask;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.mapper.KnowledgeChatSessionMapper;
@@ -37,6 +40,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
@@ -45,6 +49,17 @@ import java.util.concurrent.Executor;
 
 @Service
 public class KnowledgeChatQueryService {
+    private com.ylcloud.service.rag.RagEvidenceService evidenceService;
+    @Autowired
+    public void setEvidenceService(com.ylcloud.service.rag.RagEvidenceService service){this.evidenceService=service;}
+
+    private RagTrustedAnswer validatedAnswer(KnowledgeChatMessage message,KnowledgeRagQueryVO result) throws JsonProcessingException {
+        if(evidenceService==null || result==null || result.getAnswerId()==null) throw new BaseException("可信回答关联失败");
+        RagTrustedAnswer answer=evidenceService.readAnswer(result.getAnswerId(),message.getUserId());
+        List<SpaceRagCitationVO> citations=objectMapper.readValue(answer.getCitationsJson(),new TypeReference<List<SpaceRagCitationVO>>(){});
+        evidenceService.validateCitations(message.getUserId(),citations,true);
+        return answer;
+    }
     private final KnowledgeChatSessionMapper sessionMapper;
     private final KnowledgeChatMessageMapper messageMapper;
     private final SpacePermissionService spacePermissionService;
@@ -192,15 +207,10 @@ public class KnowledgeChatQueryService {
     }
 
     public void execute(Long messageId) {
-        KnowledgeChatMessage before=messageMapper.getTaskById(messageId);
-        if(before!=null && before.getAsyncTaskId()!=null && taskCenter!=null && taskCenter.isActive(before.getAsyncTaskId())) return;
-        if(messageMapper.claimQueued(messageId) == 0) {
-            return;
-        }
-        KnowledgeChatMessage message = findQueuedTask(messageId);
-        if(message == null) {
-            return;
-        }
+        KnowledgeChatMessage message=messageMapper.getTaskById(messageId);
+        if(message==null || message.getAsyncTaskId()!=null) return;
+        long version=currentVersion(message);
+        if(messageMapper.claimQueuedFenced(messageId,version)==0) return;
         KnowledgeChatQueryCreateDTO request = null;
         try {
             request = objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class);
@@ -214,16 +224,14 @@ public class KnowledgeChatQueryService {
             if(quotaService != null) quotaService.consumeModelTokens(message.getUserId(),context.totalTokens());
             contextService.finalizeRetrieval(message,context,result.getCitations() == null ? List.of() : result.getCitations().stream()
                     .map(citation -> citation.getChunkId()).filter(java.util.Objects::nonNull).distinct().toList());
-            String answer = result.getAnswer() == null || result.getAnswer().isBlank()
-                    ? "当前知识库中没有足够相关的信息来回答这个问题。" : result.getAnswer().trim();
-            String citations = objectMapper.writeValueAsString(result.getCitations() == null ? List.of() : result.getCitations());
-            if(messageMapper.markSuccess(messageId,answer,citations) > 0) {
-                if(memoryExtractionService != null) memoryExtractionService.enqueue(message);
-                emitAgent(message,request,"AGENT_TASK_COMPLETED",answer);
+            RagTrustedAnswer answer=validatedAnswer(message,result);
+            if(messageMapper.markChatTrustedSuccess(messageId,version,null,answer.getContent(),answer.getCitationsJson(),answer.getId(),LocalDateTime.now()) > 0) {
+                message.setTrustedAnswerId(answer.getId());
+                emitAgent(message,request,"AGENT_TASK_COMPLETED");
             }
         } catch(Exception exception) {
-            if(messageMapper.markFailed(messageId,errorSummary(exception)) > 0) {
-                emitAgent(message,request,"AGENT_TASK_FAILED",null);
+            if(messageMapper.markChatFailedFenced(messageId,version,null,errorSummary(exception),LocalDateTime.now()) > 0) {
+                emitAgent(message,request,"AGENT_TASK_FAILED");
             }
         } finally {
             if(quotaService != null) quotaService.releaseAgentTask(message.getUserId());
@@ -253,25 +261,23 @@ public class KnowledgeChatQueryService {
             if(quotaService!=null) quotaService.consumeModelTokens(message.getUserId(),snapshot.totalTokens());
             contextService.finalizeRetrieval(message,snapshot,result.getCitations()==null ? List.of() : result.getCitations().stream()
                     .map(citation -> citation.getChunkId()).filter(java.util.Objects::nonNull).distinct().toList());
-            String answer=result.getAnswer()==null || result.getAnswer().isBlank()
-                    ? "当前知识库中没有足够相关的信息来回答这个问题。" : result.getAnswer().trim();
-            String citations=objectMapper.writeValueAsString(result.getCitations()==null ? List.of() : result.getCitations());
-            if(messageMapper.markChatSuccessAsync(messageId,version,asyncTaskId,answer,citations,LocalDateTime.now())!=1) {
+            RagTrustedAnswer answer=validatedAnswer(message,result);
+            if(messageMapper.markChatTrustedSuccess(messageId,version,asyncTaskId,answer.getContent(),answer.getCitationsJson(),answer.getId(),LocalDateTime.now())!=1) {
                 throw new StaleTaskException("Chat 结果被版本栅栏拒绝");
             }
-            if(memoryExtractionService!=null) memoryExtractionService.enqueue(message);
-            emitAgent(message,request,"AGENT_TASK_COMPLETED",answer);
+            message.setTrustedAnswerId(answer.getId());
+            emitAgent(message,request,"AGENT_TASK_COMPLETED");
             return Map.of("messageId",messageId,"status","SUCCESS");
         } catch(TaskCanceledException | StaleWorkerException | StaleTaskException control) {
             throw control;
         } catch(BaseException deterministic) {
-            messageMapper.markChatFailedAsync(messageId,version,asyncTaskId,"Chat request rejected",LocalDateTime.now());
-            emitAgent(message,request,"AGENT_TASK_FAILED",null);
+            if(messageMapper.markChatFailedFenced(messageId,version,asyncTaskId,"Chat request rejected",LocalDateTime.now())==1)
+                emitAgent(message,request,"AGENT_TASK_FAILED");
             throw new FatalTaskException("Chat 请求无法执行");
         } catch(Exception failure) {
             if(finalAttempt) {
-                messageMapper.markChatFailedAsync(messageId,version,asyncTaskId,"Chat service unavailable",LocalDateTime.now());
-                emitAgent(message,request,"AGENT_TASK_FAILED",null);
+                if(messageMapper.markChatFailedFenced(messageId,version,asyncTaskId,"Chat service unavailable",LocalDateTime.now())==1)
+                    emitAgent(message,request,"AGENT_TASK_FAILED");
             }
             throw new RetryableTaskException("Chat 服务暂时不可用");
         } finally {
@@ -293,7 +299,7 @@ public class KnowledgeChatQueryService {
         this.mqProperties=mqProperties;
     }
 
-    private void emitAgent(KnowledgeChatMessage message,KnowledgeChatQueryCreateDTO request,String eventType,String answer) {
+    private void emitAgent(KnowledgeChatMessage message,KnowledgeChatQueryCreateDTO request,String eventType) {
         if(webhookEventService == null || message == null) return;
         try {
             KnowledgeChatQueryCreateDTO effective = request == null
@@ -301,10 +307,12 @@ public class KnowledgeChatQueryService {
             if(effective.getApiKeyId() == null || effective.getSpaceIds() == null || effective.getSpaceIds().isEmpty()) return;
             Long spaceId = effective.getSpaceIds().get(0);
             long version = Math.max(1,(message.getRetryCount() == null ? 0 : message.getRetryCount()) + 1L);
+            Map<String,Object> notification=new LinkedHashMap<>();
+            notification.put("messageId",message.getId()); notification.put("sessionId",message.getSessionId());
+            notification.put("status",eventType.endsWith("COMPLETED") ? "COMPLETED" : "FAILED");
+            if(message.getTrustedAnswerId()!=null) notification.put("answerId",message.getTrustedAnswerId());
             webhookEventService.publish(message.getUserId(),eventType,"AGENT_TASK",String.valueOf(message.getId()),
-                    version,null,spaceId,Map.of("messageId",message.getId(),"sessionId",message.getSessionId(),
-                            "status",eventType.endsWith("COMPLETED") ? "COMPLETED" : "FAILED"),
-                    answer == null ? Map.of() : Map.of("answer",answer));
+                    version,null,spaceId,notification,Map.of());
         } catch(Exception ignored) {
             // 主回答状态已经落库；Webhook Outbox 可由后续对账补偿，不能反向改写回答状态。
         }
@@ -331,12 +339,7 @@ public class KnowledgeChatQueryService {
     public void reconcileAgentWebhookEvents() {
         if(webhookEventService == null) return;
         messageMapper.listMissingAgentWebhookEvents(100).forEach(message -> emitAgent(message,null,
-                "SUCCESS".equals(message.getTaskStatus()) ? "AGENT_TASK_COMPLETED" : "AGENT_TASK_FAILED",
-                "SUCCESS".equals(message.getTaskStatus()) ? message.getContent() : null));
-    }
-
-    private KnowledgeChatMessage findQueuedTask(Long messageId) {
-        return messageMapper.getTaskById(messageId);
+                "SUCCESS".equals(message.getTaskStatus()) ? "AGENT_TASK_COMPLETED" : "AGENT_TASK_FAILED"));
     }
 
     public UnifiedAsyncTask registerUnified(KnowledgeChatMessage message,String taskType) {
@@ -433,13 +436,14 @@ public class KnowledgeChatQueryService {
         return message.length() > 900 ? message.substring(0,900) : message;
     }
 
-    private KnowledgeChatMessageVO toVO(KnowledgeChatMessage message) {
+    KnowledgeChatMessageVO toVO(KnowledgeChatMessage message) {
         KnowledgeChatMessageVO vo = new KnowledgeChatMessageVO();
         vo.setId(message.getId()); vo.setSessionId(message.getSessionId()); vo.setSequenceNo(message.getSequenceNo()); vo.setRole(message.getRole());
         vo.setContent(message.getContent()); vo.setCitationsJson(message.getCitationsJson());
         vo.setTaskStatus(message.getTaskStatus()); vo.setErrorMessage(message.getErrorMessage());
         vo.setRetryCount(message.getRetryCount());
         applyWorkflowPresentation(vo,message);
+        if(evidenceService!=null) evidenceService.protectMessage(message,vo);
         vo.setCreatetime(message.getCreatetime()); vo.setUpdatetime(message.getUpdatetime());
         return vo;
     }

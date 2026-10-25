@@ -81,19 +81,45 @@ paths:
   /assistant/sessions/{sessionId}/queries:
     post:
       operationId: submitAssistantQuery
+      description: Idempotent replay rechecks every Space in the stored original request against the current API Key. Replacing spaceIds in the new body cannot narrow that authorization check.
       parameters:
-        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/ChatIdempotencyKey'}
         - {name: sessionId, in: path, required: true, schema: {type: integer, format: int64}}
       responses:
         '200': {description: Query accepted or replayed}
+        '403': {$ref: '#/components/responses/Error'}
+  /assistant/sessions/{sessionId}/queries/{messageId}:
+    get:
+      operationId: getAssistantQueryResult
+      description: Read one owned task after checking the current key scope and membership for every original Space. Current evidence and revision permissions are revalidated; inaccessible answer content is withheld. Original Agent tasks still require KNOWLEDGE_AGENT through this route.
+      parameters:
+        - {name: sessionId, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: messageId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200': {$ref: '#/components/responses/ChatQueryResult'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /agent/sessions/{sessionId}/queries:
     post:
       operationId: submitAgentQuery
+      description: Requires KNOWLEDGE_AGENT. The server binds the authenticated key; idempotent replay checks all original Spaces against the current key scope.
       parameters:
-        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/ChatIdempotencyKey'}
         - {name: sessionId, in: path, required: true, schema: {type: integer, format: int64}}
       responses:
         '200': {description: Agent query accepted inside KNOWLEDGE_AGENT scope}
+        '403': {$ref: '#/components/responses/Error'}
+  /agent/sessions/{sessionId}/queries/{messageId}:
+    get:
+      operationId: getAgentQueryResult
+      description: Fetch the current authorized result using sessionId and messageId from an Agent webhook notification. Agent notifications contain identifiers, status and an optional answerId; they no longer include answer content even when includeContent is enabled. The unversioned /api/open alias also supports this route.
+      parameters:
+        - {name: sessionId, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: messageId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200': {$ref: '#/components/responses/ChatQueryResult'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     bearerApiKey:
@@ -101,11 +127,41 @@ components:
       scheme: bearer
       bearerFormat: ylk_*
   parameters:
+    ChatIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$'}
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
       schema: {type: string, minLength: 1, maxLength: 128}
   responses:
+    ChatQueryResult:
+      description: Current task status with protected answer content and citations. A successful task can have unavailable evidence; inspect verificationStatus separately.
+      headers:
+        Cache-Control:
+          schema: {type: string, const: 'private, no-store'}
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: {$ref: '#/components/schemas/KnowledgeChatMessage'}
+              meta: {type: object}
     Error:
       description: Stable error envelope with code, message and traceId
+  schemas:
+    KnowledgeChatMessage:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        sessionId: {type: integer, format: int64}
+        role: {type: string, const: assistant}
+        content: {type: string}
+        citationsJson: {type: [string, 'null'], description: Serialized citation array after current authorization checks}
+        answerId: {type: [string, 'null']}
+        taskStatus: {type: string, enum: [QUEUED, RUNNING, SUCCESS, FAILED, CANCELED]}
+        verificationStatus: {type: string, enum: [VERIFIED, PARTIAL, REFUSED, UNAVAILABLE, SERVER_RESULT, PENDING, FAILED, CANCELED]}
+        errorMessage: {type: [string, 'null']}

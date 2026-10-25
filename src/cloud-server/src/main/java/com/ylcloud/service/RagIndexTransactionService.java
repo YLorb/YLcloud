@@ -32,6 +32,10 @@ public class RagIndexTransactionService {
     private final SpaceRagChunkRefMapper chunkRefMapper;
     private UnifiedAsyncTaskMapper asyncTaskMapper;
     private SpaceRagTaskMapper ragTaskMapper;
+    private KnowledgeRevisionService knowledgeRevisionService;
+
+    @Autowired
+    public void setKnowledgeRevisionService(KnowledgeRevisionService service) { this.knowledgeRevisionService=service; }
 
     public RagIndexTransactionService(SpaceRagDocumentMapper documentMapper,
                                       SpaceRagChunkRefMapper chunkRefMapper) {
@@ -55,7 +59,47 @@ public class RagIndexTransactionService {
     }
 
     @Transactional
+    public long beginIndexVersioned(Long documentId) {
+        beginIndex(documentId);
+        SpaceRagDocument document=documentMapper.getAnyByIdForUpdate(documentId);
+        if(document==null || document.getConsistencyVersion()==null) throw new ConflictException("索引版本缺失");
+        return document.getConsistencyVersion();
+    }
+
+    @Transactional
+    public void commitIndexVersioned(Long spaceId,Long spaceFileId,Long documentId,List<FileRagChunk> chunks,long expectedVersion) {
+        if(chunks==null || chunks.isEmpty()) throw new BaseException("RAG 索引提交要求有效切片");
+        if(knowledgeRevisionService!=null) knowledgeRevisionService.lockNode(spaceId,spaceFileId);
+        SpaceRagDocument document=documentMapper.getAnyByIdForUpdate(documentId);
+        if(document==null || !Long.valueOf(expectedVersion).equals(document.getConsistencyVersion())
+                || !"BUILDING".equals(document.getVectorState()) || !spaceId.equals(document.getSpaceId())
+                || !spaceFileId.equals(document.getSpaceFileId())) throw new StaleTaskException("旧索引任务已失去发布资格");
+        LocalDateTime now=LocalDateTime.now();
+        chunkRefMapper.disableByDocumentId(documentId,now);
+        for(FileRagChunk chunk:chunks) {
+            SpaceRagChunkRef ref=new SpaceRagChunkRef();
+            ref.setSpaceId(spaceId); ref.setSpaceFileId(spaceFileId); ref.setDocumentId(documentId);
+            ref.setFileChunkId(chunk.getId()); ref.setStatus(StatusConstant.ENABLE); ref.setCreatetime(now); ref.setUpdatetime(now);
+            chunkRefMapper.insert(ref);
+        }
+        int count=chunkRefMapper.countActiveByDocumentId(documentId);
+        FileRagChunk first=chunks.get(0);
+        if(count!=chunks.size() || documentMapper.commitIndexVersioned(documentId,count,expectedVersion,
+                first.getFileHash(),first.getFileUuid(),now)!=1) throw new StaleTaskException("索引版本或文件内容已变化");
+        if(knowledgeRevisionService!=null) knowledgeRevisionService.recordPublication(spaceId,spaceFileId,documentId,chunks);
+    }
+
+    @Transactional
+    public boolean failBuildingIndexVersioned(Long documentId,long expectedVersion,String error) {
+        LocalDateTime now=LocalDateTime.now();
+        if(documentMapper.failIndexVersioned(documentId,expectedVersion,error,now)!=1) return false;
+        chunkRefMapper.disableByDocumentId(documentId,now);
+        return true;
+    }
+
+    @Transactional
     public void commitIndex(Long spaceId, Long spaceFileId, Long documentId, List<FileRagChunk> chunks) {
+        if(knowledgeRevisionService!=null) knowledgeRevisionService.lockNode(spaceId,spaceFileId);
         if(chunks == null || chunks.isEmpty()) {
             throw new BaseException("RAG 索引提交要求至少一个有效切片");
         }
@@ -78,6 +122,7 @@ public class RagIndexTransactionService {
         if(documentMapper.commitIndex(documentId,activeRefs,LocalDateTime.now()) != 1) {
             throw new ConflictException("RAG 文档状态已变化，拒绝提交过期索引");
         }
+        if(knowledgeRevisionService!=null) knowledgeRevisionService.recordPublication(spaceId,spaceFileId,documentId,chunks);
     }
 
     @Transactional
@@ -91,6 +136,7 @@ public class RagIndexTransactionService {
     @Transactional
     public void commitIndexFenced(Long spaceId,Long spaceFileId,Long documentId,List<FileRagChunk> chunks,
                                   Long ragTaskId,Long asyncTaskId,long resourceVersion,int attemptVersion) {
+        if(knowledgeRevisionService!=null) knowledgeRevisionService.lockNode(spaceId,spaceFileId);
         if(chunks==null || chunks.isEmpty()) throw new BaseException("RAG 索引提交要求至少一个有效切片");
         if(asyncTaskMapper==null || ragTaskMapper==null) throw new IllegalStateException("RAG async fence is unavailable");
         UnifiedAsyncTask central=asyncTaskMapper.getByIdForUpdate(asyncTaskId);
@@ -128,6 +174,7 @@ public class RagIndexTransactionService {
         if(documentMapper.commitIndexFenced(documentId,activeRefs,resourceVersion,asyncTaskId,LocalDateTime.now())!=1) {
             throw new StaleTaskException("RAG document version changed during index commit");
         }
+        if(knowledgeRevisionService!=null) knowledgeRevisionService.recordPublication(spaceId,spaceFileId,documentId,chunks);
     }
 
     @Transactional

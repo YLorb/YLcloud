@@ -35,7 +35,7 @@ public class PptxStructuredParser {
         if(file == null || file.getFileUuid() == null || file.getFileUuid().isBlank()) {
             return ParsedDocument.failed(fileUuid(spaceFile,file),fileHash(file),"pptx-structured",parserVersion(),"PPTX 文件 UUID 不存在");
         }
-        try(InputStream input = minioclientUtil.getObjectStream(file.getFileUuid());
+        try(InputStream input = minioclientUtil.getObjectStream(file.getFileUuid(),com.ylcloud.service.rag.parser.ImmutableDocumentSourceService.requireVersion(file));
             XMLSlideShow slideshow = new XMLSlideShow(input)) {
             List<DocumentBlock> blocks = new ArrayList<>();
             int[] order = {0};

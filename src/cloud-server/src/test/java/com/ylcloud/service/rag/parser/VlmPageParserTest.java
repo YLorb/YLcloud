@@ -50,7 +50,7 @@ class VlmPageParserTest {
         RagProperties properties = new RagProperties();
         ParserServiceClient client = mock(ParserServiceClient.class);
         MinioclientUtil minio = mock(MinioclientUtil.class);
-        when(minio.getPresignedObjectUrl("file-1",300)).thenReturn("http://minio/object");
+        when(minio.getPresignedObjectUrl("file-1","immutable-v1",300)).thenReturn("http://minio/object");
         OcrStructuredParser parser = new OcrStructuredParser(properties,client,minio);
 
         parser.parse(spaceFile(),file());
@@ -69,6 +69,7 @@ class VlmPageParserTest {
 
     private File file() {
         File file = new File();
+        file.setMinioVersionId("immutable-v1");
         file.setFileUuid("file-1");
         file.setHash("hash-1");
         file.setType("pdf");

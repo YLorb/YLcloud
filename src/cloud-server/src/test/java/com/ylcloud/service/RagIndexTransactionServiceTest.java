@@ -22,6 +22,27 @@ import static org.mockito.Mockito.when;
 class RagIndexTransactionServiceTest {
 
     @Test
+    void versionedCommitRejectsLateWorkerBeforeMutatingReferences() {
+        SpaceRagDocumentMapper documents=mock(SpaceRagDocumentMapper.class);
+        SpaceRagChunkRefMapper refs=mock(SpaceRagChunkRefMapper.class);
+        com.ylcloud.entity.SpaceRagDocument document=new com.ylcloud.entity.SpaceRagDocument();
+        document.setId(7L); document.setSpaceId(1L); document.setSpaceFileId(2L); document.setConsistencyVersion(5L); document.setVectorState("BUILDING");
+        when(documents.getAnyByIdForUpdate(7L)).thenReturn(document);
+        RagIndexTransactionService service=new RagIndexTransactionService(documents,refs);
+        assertThrows(com.ylcloud.async.task.StaleTaskException.class,()->service.commitIndexVersioned(1L,2L,7L,List.of(chunk(11L)),4L));
+        org.mockito.Mockito.verifyNoInteractions(refs);
+    }
+
+    @Test
+    void oldFailureCannotDisableNewerGenerationReferences() {
+        SpaceRagDocumentMapper documents=mock(SpaceRagDocumentMapper.class);
+        SpaceRagChunkRefMapper refs=mock(SpaceRagChunkRefMapper.class);
+        RagIndexTransactionService service=new RagIndexTransactionService(documents,refs);
+        assertFalse(service.failBuildingIndexVersioned(7L,4L,"old failure"));
+        org.mockito.Mockito.verifyNoInteractions(refs);
+    }
+
+    @Test
     void beginConflictDoesNotDisableAConcurrentWritersReferences() {
         SpaceRagDocumentMapper documents = mock(SpaceRagDocumentMapper.class);
         SpaceRagChunkRefMapper refs = mock(SpaceRagChunkRefMapper.class);

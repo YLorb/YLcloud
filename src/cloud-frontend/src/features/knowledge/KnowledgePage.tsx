@@ -1,5 +1,4 @@
 import * as Select from "@radix-ui/react-select";
-import * as Switch from "@radix-ui/react-switch";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, BarChart3, Check, ChevronDown, Database, FileCheck2, FileText, Pencil, RefreshCw, RotateCcw, Search, Settings2, ShieldCheck, Sparkles, Tags, TriangleAlert, WandSparkles } from "lucide-react";
@@ -13,7 +12,9 @@ import { Dialog } from "../../components/ui/Dialog";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/PageState";
 import { StatusBadge, type StatusTone } from "../../components/ui/StatusBadge";
 import { formatTime } from "../../fileUtils";
-import type { KnowledgeDocument, KnowledgePipelineTask, KnowledgeProfile, RagConfig } from "../../types";
+import type { KnowledgeDocument, KnowledgePipelineTask, KnowledgeProfile } from "../../types";
+
+import { KnowledgeSettings } from "./KnowledgeSettings";
 
 const pipelineStages = ["文档入库", "解析", "切分", "Embedding", "索引", "知识画像"];
 
@@ -49,7 +50,7 @@ export function KnowledgePage() {
         <Tabs.Content value="profiles" className="tab-panel"><ProfileWorkspace spaceId={spaceId} /></Tabs.Content>
         <Tabs.Content value="pipeline" className="tab-panel"><Pipeline spaceId={spaceId} /></Tabs.Content>
         <Tabs.Content value="analytics" className="tab-panel"><Analytics spaceId={spaceId} /></Tabs.Content>
-        <Tabs.Content value="settings" className="tab-panel"><KnowledgeSettings spaceId={spaceId} onSaved={() => client.invalidateQueries({ queryKey: ["rag-config", spaceId] })} /></Tabs.Content>
+        <Tabs.Content value="settings" className="tab-panel"><KnowledgeSettings spaceId={spaceId} canManage={["OWNER", "ADMIN"].includes(spaces.data?.find((space) => space.id === spaceId)?.role || "")} onSaved={() => client.invalidateQueries({ queryKey: ["rag-config", spaceId] })} /></Tabs.Content>
       </Tabs.Root>
     </div>
   );
@@ -127,17 +128,6 @@ function Analytics({ spaceId }: { spaceId: number }) {
   if (summary.isError || noAnswer.isError) return <ErrorState message={errorMessage(summary.error || noAnswer.error)} onRetry={() => { summary.refetch(); noAnswer.refetch(); }} />;
   const data = summary.data!;
   return <div className="analytics-layout"><div className="metrics-grid"><Metric label="查询总数" value={data.queryCount} /><Metric label="成功回答" value={data.successCount} tone="success" /><Metric label="无答案" value={data.noAnswerCount} tone={data.noAnswerCount ? "warning" : "neutral"} /><Metric label="引用覆盖率" value={`${Math.round((data.citationCoverage || 0) * (data.citationCoverage <= 1 ? 100 : 1))}%`} /></div><section className="panel"><header className="panel-header"><div><span className="section-eyebrow">质量观察</span><h2>无答案问题</h2></div></header>{(noAnswer.data || []).length === 0 ? <EmptyState title="暂时没有无答案记录" message="检索质量表现正常。" /> : <div className="summary-list">{noAnswer.data!.map((log) => <div key={log.id}><span>{log.question}</span><small>{formatTime(log.createtime)}</small></div>)}</div>}</section></div>;
-}
-
-function KnowledgeSettings({ spaceId, onSaved }: { spaceId: number; onSaved: () => void }) {
-  const config = useQuery({ queryKey: ["rag-config", spaceId], queryFn: () => api.ragConfig(spaceId) });
-  const [form, setForm] = useState<Partial<RagConfig>>({});
-  useEffect(() => { if (config.data) setForm({ ...config.data, knowledgeProfileEnabled: config.data.knowledgeProfileEnabled ?? 1 }); }, [config.data]);
-  const save = useMutation({ mutationFn: () => api.updateRagConfig(spaceId, form), onSuccess: () => { onSaved(); toast.success("知识库配置已保存"); }, onError: showError });
-  if (config.isLoading) return <LoadingState label="正在加载知识库配置" />;
-  if (config.isError) return <ErrorState message={errorMessage(config.error)} onRetry={() => config.refetch()} />;
-  const updateNumber = (key: keyof RagConfig, value: string) => setForm((current) => ({ ...current, [key]: Number(value) }));
-  return <div className="settings-form"><section className="settings-section"><div><span className="section-eyebrow">检索</span><h2>切片与召回</h2><p>配置会影响后续构建任务；已索引文档需重建才能完全应用。</p></div><div className="form-grid"><label className="field"><span>切片大小</span><input type="number" min={100} value={form.chunkSize ?? 500} onChange={(event) => updateNumber("chunkSize", event.target.value)} /></label><label className="field"><span>切片重叠</span><input type="number" min={0} value={form.chunkOverlap ?? 50} onChange={(event) => updateNumber("chunkOverlap", event.target.value)} /></label><label className="field"><span>Top K</span><input type="number" min={1} max={50} value={form.topK ?? 5} onChange={(event) => updateNumber("topK", event.target.value)} /></label><label className="field"><span>相关度阈值</span><input type="number" min={0} max={1} step={0.05} value={form.scoreThreshold ?? 0.3} onChange={(event) => updateNumber("scoreThreshold", event.target.value)} /></label></div></section><section className="settings-section"><div><span className="section-eyebrow">增强功能</span><h2>知识画像</h2><p>默认开启。RAG 索引完成后才会执行；关闭时不会启动后续画像步骤。</p></div><label className="switch-field"><Switch.Root className="switch-root" checked={(form.knowledgeProfileEnabled ?? 1) !== 0} onCheckedChange={(checked) => setForm((current) => ({ ...current, knowledgeProfileEnabled: checked ? 1 : 0 }))}><Switch.Thumb className="switch-thumb" /></Switch.Root><span>{(form.knowledgeProfileEnabled ?? 1) !== 0 ? "已开启" : "已关闭"}</span></label></section><div className="sticky-save"><span>保存后，新的处理任务将使用当前配置。</span><Button variant="confirm" loading={save.isPending} onClick={() => save.mutate()}><Check size={16} />保存配置</Button></div></div>;
 }
 
 function TaskSection({ title, tasks, onRetry, retrying }: { title: string; tasks: DisplayTask[]; onRetry: (id: number) => void; retrying: boolean }) {

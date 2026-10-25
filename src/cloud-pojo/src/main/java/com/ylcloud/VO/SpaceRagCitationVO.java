@@ -16,4 +16,14 @@ public class SpaceRagCitationVO {
     private String downloadUrl;
     private Double vectorScore;
     private Double rerankScore;
+    private String evidenceId;
+    private String sourceEvidenceId;
+    private Long revisionId;
+    private Long fileVersionId;
+    private String fileHash;
+    private Integer pageStart;
+    private Integer pageEnd;
+    private String locatorStatus;
+    private String heading;
+    private Boolean stale;
 }

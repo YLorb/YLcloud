@@ -3,6 +3,8 @@ package com.ylcloud.workflow.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.ylcloud.entity.KnowledgeChatMessage;
+import com.ylcloud.VO.KnowledgeRagQueryVO;
+import com.ylcloud.service.rag.RagEvidenceService;
 import com.ylcloud.mapper.KnowledgeChatMessageMapper;
 import com.ylcloud.async.worker.TaskCanceledException;
 import com.ylcloud.async.worker.TaskExecutionContext;
@@ -43,12 +45,14 @@ class WorkflowMessageLifecycleServiceTest {
     private final WorkflowRunRequestFactory requestFactory = mock(WorkflowRunRequestFactory.class);
     private final WorkflowAnswerGenerator answerGenerator = mock(WorkflowAnswerGenerator.class);
     private final KnowledgeChatMessageMapper mapper = mock(KnowledgeChatMessageMapper.class);
+    private final RagEvidenceService evidence = mock(RagEvidenceService.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().findAndAddModules().build();
     private WorkflowMessageLifecycleService service;
 
     @BeforeEach
     void setUp() {
         service = new WorkflowMessageLifecycleService(client, requestFactory, answerGenerator, mapper, objectMapper);
+        service.setEvidenceService(evidence);
     }
 
     @Test
@@ -75,13 +79,16 @@ class WorkflowMessageLifecycleServiceTest {
         when(client.getResult(RUN_ID)).thenReturn(result);
         when(mapper.queueWorkflowGeneration(eq(9L), eq(RUN_ID.toString()), eq(EXECUTION_ID.toString()),
                 eq(1), eq("DEGRADED"), eq(true), any(), any(), any())).thenReturn(1);
-        when(mapper.claimWorkflowGeneration(9L, 1)).thenReturn(1);
-        when(answerGenerator.generate(frozen, result)).thenReturn("Java final answer");
+        when(mapper.claimWorkflowGenerationFenced(9L, 1, null, null)).thenReturn(1);
+        when(answerGenerator.generateVerified(frozen, result)).thenReturn(answer("Java final answer"));
+        when(mapper.markWorkflowGeneratedTrusted(9L, 1, null, null, "Java final answer", "trusted-fixture", "[]")).thenReturn(1);
 
         service.reconcile(9L);
 
-        verify(answerGenerator).generate(frozen, result);
-        verify(mapper).markWorkflowGenerated(9L, 1, "Java final answer");
+        verify(answerGenerator).generateVerified(frozen, result);
+        verify(evidence).validateCitations(eq(7L),eq(List.of()),eq(true));
+        verify(mapper).markWorkflowGeneratedTrusted(9L, 1, null, null, "Java final answer", "trusted-fixture", "[]");
+        verify(mapper,never()).markWorkflowGenerated(any(),any(),any());
     }
 
     @Test
@@ -106,13 +113,14 @@ class WorkflowMessageLifecycleServiceTest {
         message.setGenerationStatus("PENDING");
         message.setWorkflowResultJson(objectMapper.writeValueAsString(result));
         when(mapper.getTaskById(9L)).thenReturn(message, message);
-        when(mapper.claimWorkflowGeneration(9L, 1)).thenReturn(1);
-        when(answerGenerator.generate(message, result)).thenReturn("retry answer");
+        when(mapper.claimWorkflowGenerationFenced(9L, 1, null, null)).thenReturn(1);
+        when(answerGenerator.generateVerified(message, result)).thenReturn(answer("retry answer"));
+        when(mapper.markWorkflowGeneratedTrusted(9L, 1, null, null, "retry answer", "trusted-fixture", "[]")).thenReturn(1);
 
         service.retry(9L);
 
         verify(client, never()).retryRun(any(), any());
-        verify(mapper).markWorkflowGenerated(9L, 1, "retry answer");
+        verify(mapper).markWorkflowGeneratedTrusted(9L, 1, null, null, "retry answer", "trusted-fixture", "[]");
     }
 
     @Test
@@ -126,6 +134,37 @@ class WorkflowMessageLifecycleServiceTest {
         service.retry(9L);
 
         verify(mapper).bindWorkflowRetry(9L, RUN_ID.toString(), newExecution.toString(), 2);
+    }
+
+    @Test
+    void lateTrustedResultDoesNotMarkNewAttemptFailed() throws Exception {
+        WorkflowResult result = result(WorkflowRunStatus.SUCCEEDED, EXECUTION_ID, 1);
+        KnowledgeChatMessage message = message("RUNNING", "SUCCEEDED", EXECUTION_ID.toString(), 1);
+        message.setGenerationStatus("PENDING"); message.setAsyncVersion(3L); message.setAsyncTaskId(44L);
+        message.setWorkflowResultJson(objectMapper.writeValueAsString(result));
+        when(mapper.getTaskById(9L)).thenReturn(message);
+        when(mapper.claimWorkflowGenerationFenced(9L,1,3L,44L)).thenReturn(1);
+        when(answerGenerator.generateVerified(message,result)).thenReturn(answer("late answer"));
+        // CAS zero means cancellation/new attempt owns the resource; do not write a generic failure over it.
+        when(mapper.markWorkflowGeneratedTrusted(9L,1,3L,44L,"late answer","trusted-fixture","[]")).thenReturn(0);
+        service.reconcile(9L);
+        verify(mapper,never()).markWorkflowGenerationFailedFenced(any(),any(),any(),any(),any());
+        verify(mapper,never()).markWorkflowGenerationFailed(any(),any(),any());
+    }
+
+    @Test
+    void finalAuthorizationDenialDoesNotPublishWorkflowAnswer() throws Exception {
+        WorkflowResult result = result(WorkflowRunStatus.SUCCEEDED, EXECUTION_ID, 1);
+        KnowledgeChatMessage message = message("RUNNING", "SUCCEEDED", EXECUTION_ID.toString(), 1);
+        message.setGenerationStatus("PENDING"); message.setAsyncVersion(3L); message.setAsyncTaskId(44L);
+        message.setWorkflowResultJson(objectMapper.writeValueAsString(result));
+        when(mapper.getTaskById(9L)).thenReturn(message);
+        when(mapper.claimWorkflowGenerationFenced(9L,1,3L,44L)).thenReturn(1);
+        when(answerGenerator.generateVerified(message,result)).thenReturn(answer("answer"));
+        doThrow(new com.ylcloud.Exception.BaseException("ACCESS_REVOKED")).when(evidence).validateCitations(eq(7L),any(),eq(true));
+        service.reconcile(9L);
+        verify(mapper,never()).markWorkflowGeneratedTrusted(any(),any(),any(),any(),any(),any(),any());
+        verify(mapper).markWorkflowGenerationFailedFenced(9L,1,3L,44L,"Workflow final generation failed");
     }
 
     @Test
@@ -172,6 +211,12 @@ class WorkflowMessageLifecycleServiceTest {
         value.setWorkflowExecutionId(executionId);
         value.setWorkflowExecutionEpoch(epoch);
         value.setWorkflowStatus(workflowStatus);
+        return value;
+    }
+
+    private KnowledgeRagQueryVO answer(String content) {
+        KnowledgeRagQueryVO value = new KnowledgeRagQueryVO();
+        value.setAnswer(content); value.setAnswerId("trusted-fixture"); value.setCitations(List.of());
         return value;
     }
 

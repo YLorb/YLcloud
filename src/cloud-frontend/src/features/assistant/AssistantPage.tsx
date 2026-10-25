@@ -1,7 +1,7 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertCircle, Bot, Check, ChevronLeft, FileText, ListTree, MessageSquarePlus,
+  AlertCircle, Bot, Check, ChevronLeft, ListTree, MessageSquarePlus,
   MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, RotateCw, Search, Send, Sparkles, Trash2, User, XCircle
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +13,8 @@ import { Dialog } from "../../components/ui/Dialog";
 import { ErrorState, LoadingState } from "../../components/ui/PageState";
 import { StatusBadge, type StatusTone } from "../../components/ui/StatusBadge";
 import type { KnowledgeChatEpisode, KnowledgeChatMessage, KnowledgeChatSession, RagCitation } from "../../types";
+
+import { EvidenceCitation } from "./EvidenceCitation";
 
 export function AssistantPage() {
   const client = useQueryClient();
@@ -222,14 +224,31 @@ function Message({ message, onRetry, onCancel, retrying, cancelling }: { message
   const pending = ["QUEUED", "RUNNING"].includes(message.taskStatus || "");
   const failed = message.taskStatus === "FAILED";
   const presentation = messagePresentation(message);
-  return <article id={message.sequenceNo ? `message-${message.sequenceNo}` : undefined} className={assistant ? "message-row message-row--assistant" : "message-row message-row--user"}><span className="message-avatar">{assistant ? <Bot size={17} /> : <User size={17} />}</span><div>{pending ? <div className="message-bubble message-bubble--thinking" role="status"><i /><i /><i /><span>{message.taskStatus === "QUEUED" ? "已排队，等待生成回答" : "正在检索相关文档并生成回答……"}</span></div> : <div className="message-bubble">{message.content}</div>}{assistant && message.taskStatus && <div className="message-statuses"><StatusBadge tone={presentation.tone}>{presentation.primary}</StatusBadge>{message.workflowStatus && <details className="assistant-process-details"><summary>处理详情</summary><span>处理流程 · {message.workflowStatus}</span></details>}{pending && message.workflowRunId && <Button variant="ghost" size="sm" loading={cancelling} onClick={onCancel}><XCircle size={14} />取消</Button>}</div>}{failed && <div className="assistant-error" role="alert"><AlertCircle size={17} /><div><strong>回答生成失败</strong><p>{message.errorMessage || "服务暂时不可用，请稍后重试。"}</p></div><Button size="sm" loading={retrying} onClick={onRetry}><RotateCw size={15} />重试</Button></div>}{assistant && !failed && citations.length > 0 && <div className="citation-list"><span>引用来源</span>{citations.map((citation, index) => <article key={`${citation.documentId}-${citation.chunkId}-${index}`}><FileText size={15} /><div><strong>{citation.fileName || `来源 ${index + 1}`}</strong><p>{citation.contentSummary || "相关文档片段"}</p></div>{citation.rerankScore != null && <small>{Math.round(citation.rerankScore * 100)}%</small>}</article>)}</div>}</div></article>;
+  const verification = verificationPresentation(message.verificationStatus);
+  return <article id={message.sequenceNo ? `message-${message.sequenceNo}` : undefined} className={assistant ? "message-row message-row--assistant" : "message-row message-row--user"}><span className="message-avatar">{assistant ? <Bot size={17} /> : <User size={17} />}</span><div>{pending ? <div className="message-bubble message-bubble--thinking" role="status"><i /><i /><i /><span>{message.taskStatus === "QUEUED" ? "已排队，等待生成回答" : "正在检索相关文档并生成回答……"}</span></div> : <div className="message-bubble">{message.content}</div>}{assistant && message.taskStatus && <div className="message-statuses"><StatusBadge tone={presentation.tone}>{presentation.primary}</StatusBadge>{verification && <StatusBadge tone={verification.tone}>{verification.label}</StatusBadge>}{message.workflowStatus && <details className="assistant-process-details"><summary>处理详情</summary><span>处理流程 · {message.workflowStatus}</span></details>}{pending && message.workflowRunId && <Button variant="ghost" size="sm" loading={cancelling} onClick={onCancel}><XCircle size={14} />取消</Button>}</div>}{failed && <div className="assistant-error" role="alert"><AlertCircle size={17} /><div><strong>回答生成失败</strong><p>{message.errorMessage || "服务暂时不可用，请稍后重试。"}</p></div><Button size="sm" loading={retrying} onClick={onRetry}><RotateCw size={15} />重试</Button></div>}{assistant && !failed && citations.length > 0 && <div className="citation-list"><span>引用来源</span>{citations.map((citation, index) => <EvidenceCitation key={citation.evidenceId || `${citation.documentId}-${citation.chunkId}-${index}`} citation={citation} index={index} />)}</div>}</div></article>;
 }
 
 function messagePresentation(message: KnowledgeChatMessage): { primary: string; tone: StatusTone; workflowTone: StatusTone } {
-  const primary = { QUEUED: "已排队", RUNNING: "处理中", SUCCESS: message.degraded ? "成功（降级）" : "成功", FAILED: "失败" }[message.taskStatus || "QUEUED"];
-  const tone: StatusTone = message.degraded ? "warning" : message.taskStatus === "FAILED" ? "danger" : message.taskStatus === "SUCCESS" ? "success" : message.taskStatus === "RUNNING" ? "running" : "info";
+  const primary = { QUEUED: "已排队", RUNNING: "处理中", SUCCESS: message.degraded ? "成功（降级）" : "成功", FAILED: "失败", CANCELED: "已取消" }[message.taskStatus || "QUEUED"];
+  const tone: StatusTone = message.degraded ? "warning" : message.taskStatus === "FAILED" ? "danger" : message.taskStatus === "SUCCESS" ? "success" : message.taskStatus === "RUNNING" ? "running" : message.taskStatus === "CANCELED" ? "neutral" : "info";
   const workflowTone: StatusTone = message.workflowStatus === "DEGRADED" ? "warning" : ["FAILED", "TIMED_OUT", "CANCELLED", "ABANDONED"].includes(message.workflowStatus || "") ? "danger" : message.workflowStatus === "SUCCEEDED" ? "success" : message.workflowStatus === "QUEUED" ? "info" : "running";
   return { primary, tone, workflowTone };
+}
+
+function verificationPresentation(status?: string): { label: string; tone: StatusTone } | null {
+  if (!status) return null;
+  const statuses: Record<string, { label: string; tone: StatusTone }> = {
+    VERIFIED: { label: "已核验依据", tone: "success" },
+    PARTIAL: { label: "部分结论已核验", tone: "warning" },
+    REFUSED: { label: "依据不足，已拒答", tone: "info" },
+    UNAVAILABLE: { label: "依据不可用", tone: "warning" },
+    REDACTED: { label: "依据已不可访问", tone: "warning" },
+    SERVER_RESULT: { label: "服务端结果，未核验依据", tone: "neutral" },
+    PENDING: { label: "等待核验", tone: "running" },
+    FAILED: { label: "未完成核验", tone: "danger" },
+    CANCELED: { label: "核验已取消", tone: "neutral" }
+  };
+  return statuses[status] ?? { label: "历史回答未核验", tone: "warning" };
 }
 
 function positiveNumber(value: string | null) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0 ? parsed : null; }

@@ -57,6 +57,8 @@ src/cloud-frontend/.vite/
 .tmp_frontend_reference/
 
 ### Local test artifacts ###
+/.test-python/
+/src/cloud-frontend/output/
 **/test-results/
 **/test-output/
 **/test-reports/

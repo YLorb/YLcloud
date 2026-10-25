@@ -31,4 +31,12 @@ public class SpaceRagConfigUpdateDTO {
     private BigDecimal scoreThreshold;
     private Integer enabled;
     private Integer knowledgeProfileEnabled;
+    private Boolean allowStaleDuringReindex;
+    private Boolean historicalEvidenceEnabled;
+
+    @Min(value = 1, message = "历史版本保留天数必须大于 0")
+    private Integer historyRetentionDays;
+
+    @Min(value = 0, message = "配置版本不能小于 0")
+    private Long configRevision;
 }

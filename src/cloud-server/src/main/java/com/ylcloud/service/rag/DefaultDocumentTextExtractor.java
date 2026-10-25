@@ -55,7 +55,7 @@ public class DefaultDocumentTextExtractor implements DocumentTextExtractor {
         if(!isSupported(extension,extraction)) {
             return ExtractedDocumentText.fallback("暂不支持该文件类型");
         }
-        try(InputStream inputStream = minioclientUtil.getObjectStream(file.getFileUuid())) {
+        try(InputStream inputStream = minioclientUtil.getObjectStream(file.getFileUuid(),com.ylcloud.service.rag.parser.ImmutableDocumentSourceService.requireVersion(file))) {
             String text = isPlainText(extension)
                     ? readPlainText(inputStream,extraction.getMaxTextLength())
                     : parseWithTika(inputStream,extraction.getMaxTextLength());

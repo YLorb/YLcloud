@@ -38,6 +38,10 @@ public class RagIndexConsistencyService {
     private final AtomicBoolean running = new AtomicBoolean();
     private AsyncMqProperties mqProperties;
     private UnifiedTaskCenterService taskCenter;
+    private com.ylcloud.mapper.KnowledgeRevisionMapper revisionMapper;
+
+    @Autowired
+    public void setRevisionMapper(com.ylcloud.mapper.KnowledgeRevisionMapper mapper) { this.revisionMapper=mapper; }
 
     public RagIndexConsistencyService(SpaceRagDocumentMapper documentMapper,
                                       SpaceRagChunkRefMapper chunkRefMapper,
@@ -103,7 +107,7 @@ public class RagIndexConsistencyService {
             isolateAndCleanupStrict(document,"RAG database reference count mismatch",context);
             return Map.of("isolated",true,"reason","reference-count");
         }
-        int vectorCount = vectorStoreService.countByFileUuidStrict(document.getFileUuid());
+        int vectorCount = countCurrentGeneration(document);
         if(vectorCount != activeRefs) {
             isolateAndCleanupStrict(document,"RAG Qdrant vector count mismatch: expected " + activeRefs + ", got " + vectorCount,context);
             return Map.of("isolated",true,"reason","vector-count");
@@ -113,6 +117,11 @@ public class RagIndexConsistencyService {
             throw new StaleTaskException("RAG 对账结果被版本栅栏拒绝");
         }
         return Map.of("validatedVectors",vectorCount);
+    }
+
+    private int countCurrentGeneration(SpaceRagDocument document) {
+        if(revisionMapper==null) return vectorStoreService.countByFileUuidStrict(document.getFileUuid());
+        return vectorStoreService.countPresentChunksStrict(revisionMapper.activeDocumentChunks(document.getId()));
     }
 
     private void cleanupPendingDocuments() {
@@ -166,7 +175,7 @@ public class RagIndexConsistencyService {
                 continue;
             }
             try {
-                int vectorCount = vectorStoreService.countByFileUuidStrict(document.getFileUuid());
+                int vectorCount = countCurrentGeneration(document);
                 if(vectorCount != activeRefs) {
                     invalidateAndCleanup(document,"RAG Qdrant vector count mismatch: expected " + activeRefs + ", got " + vectorCount);
                 }

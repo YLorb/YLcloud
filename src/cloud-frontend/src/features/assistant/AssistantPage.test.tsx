@@ -4,6 +4,8 @@ import { StrictMode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantPage } from "./AssistantPage";
+import { api } from "../../api";
+import type { KnowledgeChatMessage } from "../../types";
 
 vi.mock("../../api", () => ({
   api: {
@@ -96,5 +98,29 @@ describe("AssistantPage effects", () => {
     const secondary = screen.getByText("处理详情");
     expect(primary.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("处理流程 · DEGRADED")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["VERIFIED", "SUCCESS", "已核验依据"],
+    ["PARTIAL", "SUCCESS", "部分结论已核验"],
+    ["REFUSED", "SUCCESS", "依据不足，已拒答"],
+    ["UNAVAILABLE", "SUCCESS", "依据不可用"],
+    ["SERVER_RESULT", "SUCCESS", "服务端结果，未核验依据"],
+    ["PENDING", "RUNNING", "等待核验"],
+    ["FAILED", "FAILED", "未完成核验"],
+    ["CANCELED", "CANCELED", "核验已取消"]
+  ])("renders the server verification state %s without calling it legacy history", async (verificationStatus, taskStatus, label) => {
+    vi.mocked(api.getKnowledgeChatSession).mockResolvedValueOnce({
+      id: 7, userId: 42, title: "核验状态", spaceIds: [48],
+      messages: [{ id: 13, sessionId: 7, role: "assistant", content: "服务端结果", verificationStatus,
+        taskStatus: taskStatus as KnowledgeChatMessage["taskStatus"], errorMessage: taskStatus === "FAILED" ? "模型服务连接超时" : undefined }]
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><AssistantPage /></MemoryRouter></QueryClientProvider>);
+
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(screen.queryByText("历史回答未核验")).not.toBeInTheDocument();
+    if (taskStatus === "CANCELED") expect(screen.getByText("已取消")).toBeInTheDocument();
+    if (taskStatus === "FAILED") expect(screen.getByText("模型服务连接超时")).toBeInTheDocument();
   });
 });

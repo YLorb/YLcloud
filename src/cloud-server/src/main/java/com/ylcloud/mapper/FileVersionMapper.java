@@ -16,6 +16,16 @@ import java.util.List;
 @Mapper
 public interface FileVersionMapper {
 
+    @Select("select id,file_uuid as fileUuid,version_no as versionNo,minio_version_id as minioVersionId,"
+            + "file_name as fileName,file_hash as fileHash,file_md5 as fileMd5,file_type as fileType,file_size as fileSize,"
+            + "created_by as createdBy,is_current as current,status,createtime from file_version "
+            + "where file_uuid=#{fileUuid} and file_hash=#{hash} and status=1 order by id desc limit 1")
+    FileVersion findByHash(@Param("fileUuid") String fileUuid,@Param("hash") String hash);
+
+    @Select("select id,file_uuid as fileUuid,file_hash as fileHash,minio_version_id as minioVersionId "
+            + "from file_version where file_uuid=#{fileUuid} and minio_version_id=#{versionId} and status=1 limit 1")
+    FileVersion findByObjectVersion(@Param("fileUuid") String fileUuid,@Param("versionId") String versionId);
+
     @Update("update file_version set status = 0, is_current = 0 where file_uuid = #{fileUuid} and status = 1")
     int disableByFileUuid(@Param("fileUuid") String fileUuid);
 

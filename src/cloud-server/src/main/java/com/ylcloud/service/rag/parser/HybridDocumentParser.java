@@ -26,6 +26,10 @@ public class HybridDocumentParser implements DocumentParser {
     private final DocumentParseQualityAssessor qualityAssessor;
     private final FileRagParseResultMapper parseResultMapper;
     private final ObjectMapper objectMapper;
+    private ImmutableDocumentSourceService immutableSource;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setImmutableSource(ImmutableDocumentSourceService source) { this.immutableSource=source; }
 
     public HybridDocumentParser(RagProperties ragProperties,
                                 DocxStructuredParser docxStructuredParser,
@@ -51,10 +55,15 @@ public class HybridDocumentParser implements DocumentParser {
 
     @Override
     public ParsedDocument parse(SpaceFile spaceFile, File file) {
+        if(immutableSource==null) throw new IllegalStateException("Immutable parser source provider is unavailable");
+        if(file!=null && file.getUserId()==null && spaceFile!=null) file.setUserId(spaceFile.getCreatedBy());
+        immutableSource.pin(file);
         String parserVersion = parserVersion();
-        FileRagParseResult cached = parseResultMapper.getByFileAndVersion(fileUuid(spaceFile,file),fileHash(file),parserVersion);
+        String cacheVersion = cacheKey(parserVersion,ImmutableDocumentSourceService.requireVersion(file));
+        FileRagParseResult cached = parseResultMapper.getByFileAndVersion(fileUuid(spaceFile,file),fileHash(file),cacheVersion);
         ParsedDocument cachedDocument = fromCache(cached,isDocx(spaceFile,file));
         if(cachedDocument != null) {
+            cachedDocument.setSourceMinioVersionId(ImmutableDocumentSourceService.requireVersion(file));
             return cachedDocument;
         }
 
@@ -89,11 +98,12 @@ public class HybridDocumentParser implements DocumentParser {
             if(fallbackToMetadata()) {
                 parsed = tikaStructuredParser.fallback(spaceFile,file,parsed.getErrorMessage());
             } else {
-                saveResult(parsed);
+                saveResult(parsed,cacheVersion);
                 return parsed;
             }
         }
-        saveResult(parsed);
+        parsed.setSourceMinioVersionId(ImmutableDocumentSourceService.requireVersion(file));
+        saveResult(parsed,cacheVersion);
         return parsed;
     }
 
@@ -110,7 +120,7 @@ public class HybridDocumentParser implements DocumentParser {
                     ? List.of()
                     : objectMapper.readValue(cached.getBlocksJson(),new TypeReference<List<DocumentBlock>>() {});
             return new ParsedDocument(true,"metadata".equals(cached.getParser()),cached.getFileUuid(),cached.getFileHash(),
-                    cached.getParser(),cached.getParserVersion(),cached.getFullText(),blocks,cached.getErrorMessage());
+                    cached.getParser(),parserVersion(),cached.getFullText(),blocks,cached.getErrorMessage());
         } catch (Exception ex) {
             return null;
         }
@@ -126,14 +136,14 @@ public class HybridDocumentParser implements DocumentParser {
         return "docx-structured".equals(cached.getParser()) || "tika-structured".equals(cached.getParser());
     }
 
-    private void saveResult(ParsedDocument document) {
+    private void saveResult(ParsedDocument document,String cacheVersion) {
         try {
             LocalDateTime now = LocalDateTime.now();
             FileRagParseResult result = new FileRagParseResult();
             result.setFileUuid(document.getFileUuid());
             result.setFileHash(document.getFileHash());
             result.setParser(document.getParser());
-            result.setParserVersion(document.getParserVersion());
+            result.setParserVersion(cacheVersion);
             result.setParseStatus(document.isSuccess() && !document.isFallback()
                     ? SpaceConstant.RAG_TASK_SUCCESS
                     : SpaceConstant.RAG_TASK_FAILED);
@@ -147,6 +157,13 @@ public class HybridDocumentParser implements DocumentParser {
         } catch (Exception ignored) {
             // Parse caching must not break the indexing task.
         }
+    }
+
+    static String cacheKey(String parserVersion,String objectVersion) {
+        try {
+            byte[] bytes=(parserVersion+"|"+objectVersion).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            return "pinned-"+java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes)).substring(0,40);
+        } catch(java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
     }
 
     private boolean fallbackToMetadata() {

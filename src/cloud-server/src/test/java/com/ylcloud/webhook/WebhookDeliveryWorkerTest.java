@@ -34,6 +34,23 @@ import static org.mockito.Mockito.when;
 
 class WebhookDeliveryWorkerTest {
     @Test
+    void legacyKnowledgeWebhookNeverDeliversCachedAnswerContent() throws Exception {
+        Fixture fixture=fixture(1);
+        WebhookEvent event=fixture.mapper.getEvent("event-1");
+        event.setResourceType("AGENT_TASK"); event.setEventType("AGENT_TASK_COMPLETED");
+        event.setMinimalPayloadJson("{\"messageId\":11,\"answer\":\"restricted old answer\"}");
+        event.setContentPayloadJson("{\"answer\":\"restricted old answer\"}");
+        when(fixture.cipher.decrypt("current-cipher")).thenReturn("whsec_current");
+        when(fixture.client.post(anyString(),anyString(),anyMap(),any())).thenReturn(200);
+        fixture.worker.deliver(9L);
+        ArgumentCaptor<String> body=ArgumentCaptor.forClass(String.class);
+        verify(fixture.client).post(anyString(),body.capture(),anyMap(),any());
+        assertTrue(body.getValue().contains("\"messageId\":11"));
+        assertFalse(body.getValue().contains("restricted"));
+        assertFalse(body.getValue().contains("\"content\""));
+    }
+
+    @Test
     void deliversStableEventIdWithCurrentAndPreviousRotationSignatures() throws Exception {
         Fixture fixture = fixture(1);
         fixture.subscription.setPreviousSecretCipher("old-cipher");

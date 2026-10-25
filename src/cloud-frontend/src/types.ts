@@ -251,6 +251,10 @@ export type RagConfig = {
   scoreThreshold?: number;
   enabled?: number;
   knowledgeProfileEnabled?: number;
+  allowStaleDuringReindex?: boolean;
+  historicalEvidenceEnabled?: boolean;
+  historyRetentionDays?: number | null;
+  configRevision?: number;
   status?: number;
   createtime?: string;
   updatetime?: string;
@@ -507,6 +511,16 @@ export type AsyncTask = {
 };
 
 export type RagCitation = {
+  evidenceId?: string;
+  sourceEvidenceId?: string;
+  revisionId?: number;
+  fileVersionId?: number;
+  fileHash?: string;
+  pageStart?: number;
+  pageEnd?: number;
+  locatorStatus?: string;
+  heading?: string;
+  stale?: boolean;
   index?: number;
   spaceId?: number;
   spaceName?: string;
@@ -527,6 +541,11 @@ export type RagChatMessage = {
 };
 
 export type RagQuery = {
+  answerId?: string;
+  answerStatus?: "ANSWERED" | "PARTIAL" | "REFUSED" | "UNAVAILABLE";
+  reasonCode?: string;
+  questionType?: "POLICY" | "KNOWLEDGE" | "MIXED" | "UNKNOWN";
+  claims?: Array<{ claimId: string; text: string; type: "FACT" | "INFERENCE"; evidenceIds: string[] }>;
   spaceId?: number;
   spaceName?: string;
   question: string;
@@ -551,6 +570,7 @@ export type StorageQuota = {
 };
 
 export type KnowledgeRagQuery = {
+  answerId?: string;
   question: string;
   answer?: string;
   spaceIds: number[];
@@ -559,13 +579,15 @@ export type KnowledgeRagQuery = {
 };
 
 export type KnowledgeChatMessage = {
+  answerId?: string;
+  verificationStatus?: string;
   id: number;
   sessionId: number;
   sequenceNo?: number;
   role: "user" | "assistant" | "system";
   content: string;
   citationsJson?: string;
-  taskStatus?: "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED";
+  taskStatus?: "QUEUED" | "RUNNING" | "SUCCESS" | "FAILED" | "CANCELED";
   errorMessage?: string;
   retryCount?: number;
   workflowRunId?: string;

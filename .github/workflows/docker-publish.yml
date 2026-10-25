@@ -21,7 +21,48 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  verify-backend:
+    name: Verify backend and evaluation contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Java regression tests
+        run: mvn -B -ntp -pl :cloud-server -am test
+      - name: Evaluation metric contracts
+        run: python3 scripts/test_trusted_answer_metrics.py
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: '**/target/surefire-reports/'
+
+  verify-frontend:
+    name: Verify frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/cloud-frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/cloud-frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
   build-images:
+    needs: [verify-backend, verify-frontend]
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
     timeout-minutes: 90

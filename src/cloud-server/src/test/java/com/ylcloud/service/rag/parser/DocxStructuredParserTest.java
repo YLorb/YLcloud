@@ -25,7 +25,7 @@ class DocxStructuredParserTest {
     @Test
     void extractsParagraphTableAndEmbeddedImageBlocks() throws Exception {
         MinioclientUtil minioclientUtil = mock(MinioclientUtil.class);
-        when(minioclientUtil.getObjectStream("file-1")).thenReturn(new ByteArrayInputStream(docxBytes()));
+        when(minioclientUtil.getObjectStream("file-1","immutable-v1")).thenReturn(new ByteArrayInputStream(docxBytes()));
         DocxStructuredParser parser = new DocxStructuredParser(minioclientUtil,new RagProperties());
 
         ParsedDocument result = parser.parse(spaceFile(),file());
@@ -72,6 +72,7 @@ class DocxStructuredParserTest {
 
     private File file() {
         File file = new File();
+        file.setMinioVersionId("immutable-v1");
         file.setFileUuid("file-1");
         file.setHash("hash-1");
         file.setType("docx");

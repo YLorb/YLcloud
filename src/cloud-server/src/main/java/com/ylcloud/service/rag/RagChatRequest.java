@@ -14,4 +14,5 @@ public class RagChatRequest {
     private List<RagChatMessageDTO> history;
     private Integer maxTokens;
     private Double temperature;
+    private String responseProtocol;
 }

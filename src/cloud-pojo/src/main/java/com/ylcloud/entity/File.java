@@ -38,6 +38,10 @@ public class File {
 
     private String hash;
 
+    /** Internal read pin, never accepted from or exposed to an API client. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient String minioVersionId;
+
     private Integer status;
 
     private LocalDateTime createTime;

@@ -40,7 +40,7 @@ public class DocxStructuredParser {
         if(file == null || file.getFileUuid() == null || file.getFileUuid().isBlank()) {
             return ParsedDocument.failed(fileUuid(spaceFile,file),fileHash(file),"docx-structured",parserVersion,"Missing file UUID");
         }
-        try(InputStream inputStream = minioclientUtil.getObjectStream(file.getFileUuid());
+        try(InputStream inputStream = minioclientUtil.getObjectStream(file.getFileUuid(),com.ylcloud.service.rag.parser.ImmutableDocumentSourceService.requireVersion(file));
             XWPFDocument document = new XWPFDocument(inputStream)) {
             List<DocumentBlock> blocks = new ArrayList<>();
             List<String> headingPath = new ArrayList<>();

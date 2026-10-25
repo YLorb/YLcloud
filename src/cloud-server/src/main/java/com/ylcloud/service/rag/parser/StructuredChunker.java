@@ -28,10 +28,14 @@ public class StructuredChunker {
 
     public List<StructuredChunk> chunk(ParsedDocument document, int chunkSize, int chunkOverlap) {
         List<StructuredChunk> childChunks = buildChildChunks(document,chunkSize,chunkOverlap);
-        if(childChunks.isEmpty()) {
-            return fixedWindowChunks(document);
+        List<StructuredChunk> result=childChunks.isEmpty() ? fixedWindowChunks(document)
+                : withParentChunks(document,childChunks,chunkSize);
+        if(document!=null && document.getSourceMinioVersionId()!=null && !document.getSourceMinioVersionId().isBlank()) {
+            for(StructuredChunk chunk:result) {
+                chunk.setMetadataJson(ImmutableDocumentProvenance.stamp(chunk.getMetadataJson(),document));
+            }
         }
-        return withParentChunks(document,childChunks,chunkSize);
+        return result;
     }
 
     private List<StructuredChunk> buildChildChunks(ParsedDocument document, int chunkSize, int chunkOverlap) {
@@ -543,6 +547,10 @@ public class StructuredChunker {
             metadata.put("chunkLevel",chunk.getChunkLevel());
             metadata.put("fallbackChunking",fallbackChunking);
             metadata.put("chunkingStrategy",strategy);
+            metadata.put("pageStart",chunk.getPageStart());
+            metadata.put("pageEnd",chunk.getPageEnd());
+            metadata.put("headingPath",chunk.getHeadingPath());
+            metadata.put("blockTypes",chunk.getBlockTypes());
             return objectMapper.writeValueAsString(metadata);
         } catch (Exception ex) {
             return "{\"chunkType\":\"" + escapeJson(chunk.getChunkType()) + "\",\"fallbackChunking\":" + fallbackChunking

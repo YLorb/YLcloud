@@ -42,6 +42,12 @@ public class WorkflowMessageLifecycleService {
     private final ObjectMapper objectMapper;
     private UnifiedTaskCenterService taskCenter;
     private AsyncMqProperties mqProperties;
+    private com.ylcloud.service.rag.RagEvidenceService evidenceService;
+
+    @Autowired
+    public void setEvidenceService(com.ylcloud.service.rag.RagEvidenceService evidenceService) {
+        this.evidenceService = evidenceService;
+    }
 
     public WorkflowMessageLifecycleService(
             WorkflowHttpClient client,
@@ -292,17 +298,36 @@ public class WorkflowMessageLifecycleService {
 
     private void generateFinal(KnowledgeChatMessage message) {
         Integer epoch = message.getWorkflowExecutionEpoch();
-        if (epoch == null || messageMapper.claimWorkflowGeneration(message.getId(), epoch) == 0) return;
+        if (epoch == null || messageMapper.claimWorkflowGenerationFenced(message.getId(), epoch,
+                message.getAsyncVersion(),message.getAsyncTaskId()) == 0) return;
         try {
             KnowledgeChatMessage claimed = messageMapper.getTaskById(message.getId());
+            if(claimed == null || !java.util.Objects.equals(message.getAsyncVersion(),claimed.getAsyncVersion())
+                    || !java.util.Objects.equals(message.getAsyncTaskId(),claimed.getAsyncTaskId()))
+                throw new StaleTaskException("Workflow 回答任务已变化");
             WorkflowResult result = objectMapper.readValue(claimed.getWorkflowResultJson(), WorkflowResult.class);
             if (!matchesCurrent(claimed, result.runId(), result.executionId(), result.executionEpoch())) {
                 throw new BaseException("Workflow 冻结结果与当前轮次不一致");
             }
-            String answer = answerGenerator.generate(claimed, result);
-            messageMapper.markWorkflowGenerated(message.getId(), epoch, answer);
+            if(evidenceService == null) throw new BaseException("证据服务不可用");
+            com.ylcloud.VO.KnowledgeRagQueryVO answer = answerGenerator.generateVerified(claimed, result);
+            if(answer == null || answer.getAnswerId() == null) throw new BaseException("可信回答关联缺失");
+            evidenceService.validateCitations(claimed.getUserId(),
+                    answer.getCitations() == null ? java.util.List.of() : answer.getCitations(), true);
+            int updated = messageMapper.markWorkflowGeneratedTrusted(message.getId(), epoch,
+                    claimed.getAsyncVersion(), claimed.getAsyncTaskId(), answer.getAnswer(), answer.getAnswerId(),
+                    objectMapper.writeValueAsString(answer.getCitations() == null ? java.util.List.of() : answer.getCitations()));
+            if(updated != 1) throw new StaleTaskException("Workflow 可信回答提交已过期");
+        } catch (StaleTaskException stale) {
+            // Another attempt/cancellation owns the message. Do not overwrite its state with failure.
+            return;
         } catch (Exception exception) {
-            messageMapper.markWorkflowGenerationFailed(message.getId(), epoch, "Workflow final generation failed");
+            String reason = exception instanceof BaseException && exception.getMessage() != null
+                    && exception.getMessage().startsWith("WORKFLOW_NO_KNOWLEDGE_SCOPE")
+                    ? "WORKFLOW_NO_KNOWLEDGE_SCOPE：未指定知识库，无法生成已验证的知识回答"
+                    : "Workflow final generation failed";
+            messageMapper.markWorkflowGenerationFailedFenced(message.getId(), epoch,
+                    message.getAsyncVersion(),message.getAsyncTaskId(), reason);
         }
     }
 

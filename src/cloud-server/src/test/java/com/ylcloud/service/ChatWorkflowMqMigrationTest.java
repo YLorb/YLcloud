@@ -118,7 +118,7 @@ class ChatWorkflowMqMigrationTest {
 
         assertThrows(TaskCanceledException.class,() -> service.executeAsync(11L,30L,1L,false,context));
 
-        verify(messages,never()).markChatSuccessAsync(anyLong(),anyLong(),anyLong(),anyString(),anyString(),any());
+        verify(messages,never()).markChatTrustedSuccess(anyLong(),anyLong(),anyLong(),anyString(),anyString(),anyString(),any());
     }
 
     @Test

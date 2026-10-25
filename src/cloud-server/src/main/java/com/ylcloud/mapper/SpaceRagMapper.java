@@ -31,7 +31,8 @@ public interface SpaceRagMapper {
      * @return 处理结果
      */
     @Select("select id, space_id as spaceId, embedding_model as embeddingModel, chat_model as chatModel, vector_collection as vectorCollection, " +
-            "chunk_size as chunkSize, chunk_overlap as chunkOverlap, top_k as topK, temperature, score_threshold as scoreThreshold, enabled, knowledge_profile_enabled as knowledgeProfileEnabled, status, createtime, updatetime " +
+            "chunk_size as chunkSize, chunk_overlap as chunkOverlap, top_k as topK, temperature, score_threshold as scoreThreshold, enabled, knowledge_profile_enabled as knowledgeProfileEnabled, " +
+            "allow_stale_during_reindex as allowStaleDuringReindex, historical_evidence_enabled as historicalEvidenceEnabled, history_retention_days as historyRetentionDays, config_revision as configRevision, status, createtime, updatetime " +
             "from space_rag_config where space_id = #{spaceId} and status = 1")
     SpaceRagConfig getBySpaceId(@Param("spaceId") Long spaceId);
 
@@ -41,8 +42,9 @@ public interface SpaceRagMapper {
      */
     @Update("update space_rag_config set embedding_model = #{embeddingModel}, chat_model = #{chatModel}, " +
             "chunk_size = #{chunkSize}, chunk_overlap = #{chunkOverlap}, top_k = #{topK}, temperature = #{temperature}, " +
-            "score_threshold = #{scoreThreshold}, enabled = #{enabled}, knowledge_profile_enabled = #{knowledgeProfileEnabled}, updatetime = #{updateTime} " +
-            "where space_id = #{spaceId} and status = 1")
+            "score_threshold = #{scoreThreshold}, enabled = #{enabled}, knowledge_profile_enabled = #{knowledgeProfileEnabled}, " +
+            "allow_stale_during_reindex = #{allowStaleDuringReindex}, historical_evidence_enabled = #{historicalEvidenceEnabled}, history_retention_days = #{historyRetentionDays}, config_revision = config_revision + 1, updatetime = #{updateTime} " +
+            "where space_id = #{spaceId} and status = 1 and config_revision = #{expectedRevision}")
     int updateConfig(@Param("spaceId") Long spaceId,
                      @Param("embeddingModel") String embeddingModel,
                      @Param("chatModel") String chatModel,
@@ -53,5 +55,9 @@ public interface SpaceRagMapper {
                      @Param("scoreThreshold") BigDecimal scoreThreshold,
                      @Param("enabled") Integer enabled,
                      @Param("knowledgeProfileEnabled") Integer knowledgeProfileEnabled,
+                     @Param("allowStaleDuringReindex") Boolean allowStaleDuringReindex,
+                     @Param("historicalEvidenceEnabled") Boolean historicalEvidenceEnabled,
+                     @Param("historyRetentionDays") Integer historyRetentionDays,
+                     @Param("expectedRevision") Long expectedRevision,
                      @Param("updateTime") LocalDateTime updateTime);
 }
