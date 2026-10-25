@@ -24,7 +24,50 @@ Feature + Refactor + Infrastructure Migration
 
 ## Status
 
-Todo。全部实现、专项测试、集成门禁和观察窗口完成后，才能重命名为 `.done.md`。
+持续维护。2026-10-25 已补充下方当前 TODO 汇总；原平台/MQ 主线已有多项 TASK 标为 completed，不能把本文件仍名为 `.todo.md` 理解为全部尚未开发。全部适用实现、专项测试、集成门禁和观察窗口完成后，才能重命名为 `.done.md`。
+
+## Current TODO — 2026-10-25
+
+检查范围：本地 dev 派生分支 `codex/knowledge-trust-dev`，包含可信问答与一致性的未提交实现。本节合并现有 `.plans`、Obsidian TASK/测试报告和两份 Workflow TODO；本次只登记待办，不实施功能、不重新运行测试、不代表新架构已审核通过或已部署。状态来自相应记录与少量源码核对，不能替代一次完整发布审计。
+
+### 新增：Workflow 工具化与 Java Harness
+
+用户于 2026-10-25 要求先加入 TODO。已确认保留预定义 Workflow 作为 harness 可调用的复合工具，目标框架为 LangChain4j / LangGraph4j。Java harness 负责根对话；Python Workflow 保留有界子流程能力。
+
+方案：`REQ-20261025-002` / `ADR-20261025-002`，位于 `docs/obsidian/10-规划与实施/`。状态：**待实施，详细方案待审核**；此处为待办分组，不冒充已定稿原子任务。
+
+- [ ] HAR-01：确定框架无关 Run/Step/ModelTurn/ToolCall/ToolResult 契约；核实原生工具模型接入路径与 Java17、LangChain4j、LangGraph4j、Qdrant 依赖兼容性。
+- [ ] HAR-02：通用化工具网关；分离稳定 invocationId 与执行 attempt，补齐当前授权、执行栅栏、参数校验、副作用账本和结果查询。
+- [ ] HAR-03：补充 Java harness 与单回合 ModelPort；实现有界决策循环、预算、取消、等待、恢复及可信终结；根状态与 checkpoint 按同一提交版本生效。
+- [ ] HAR-04：将预定义 Workflow 注册为版本化复合工具；实现父子运行绑定、配额预留/结算去重、异步唤醒和取消传播。
+- [ ] HAR-05：既有聊天/公开 API 转接 harness；运行引擎按 run 固定，旧任务排空和兼容查询；保留 answerId、证据及历史权限校验，补齐状态展示与回归验证。
+- [ ] HAR-06：后续以 LangGraph4j 适配器接替 AgentEngine/checkpoint；同一 run 不允许新旧引擎同时推进；更新旧 Workflow 编排约束与文档。
+
+### 其他尚未关闭的 TODO（归并后）
+
+| 编号 | 待办内容 | 当前状态/证据边界 | 记录来源 |
+|---|---|---|---|
+| OPEN-01 | 可信问答真实模型题集、人工标注、正确率/引用支持率/拒答率及延迟费用评测；存储对账与质量看板 | 题集和指标脚本已有部分实现；真实质量评测与看板待完成 | TEST-RUN-20261025-001，T15 |
+| OPEN-02 | 历史版本物理到期回收：具体对象版本权益锁、共享引用保护、清理协议与并发验证 | 逻辑过期已实现；物理回收未实现，不能直接删除所有对象版本 | TEST-RUN-20261025-001，T07 |
+| OPEN-03 | 日期/产品/地域等业务条件元数据的管理与硬过滤；表格单位/脚注/否定的解析及定位验收 | 基础定位已实现；完整元数据治理和样本验收未完成 | TEST-RUN-20261025-001，T08/T09 |
+| OPEN-04 | 可信问答真实 MySQL/MinIO/Qdrant/MQ 联调、并发更新/删除/撤权、旧 worker 迟到、空库/存量迁移、重建与发布回滚演练 | 主体已实现且有本地测试记录；真实依赖、模型与发布尚未验证 | TEST-RUN-20261025-001，T03—T06/T16 |
+| OPEN-05 | Space 文件树、四角色授权、搜索/防重、Personal 导入和异步删除的真实集成、安全、浏览器及 100 层/大批量性能验收；贡献者与预览状态复核 | 文件树专项计划记录主体完成待验证；部分相关 TASK 仍 pending，不能一概称未实现 | `.plans/implement-space-file-tree-sandbox-ingestion.todo.md`；TASK-20260816-001—003、TASK-20260817-001—004 |
+| OPEN-06 | Sandbox Linux 实机隔离/资源限制/取消验收；生产调度与文件链路剩余能力 | 控制面与运行时为 pending-verification；生产链路 TASK 尚 pending，需结合 Space 已实现部分去重 | TASK-20260813-001/003；Workflow TODO 中 TASK-007/027 |
+| OPEN-07 | 管理后台真实接入收尾：设置维护、用户/权限组/配额、搜索、备份、审计、全站文件引用治理、任务查询/归档/持久 checkpoint/人工续跑、系统事件、按日指标、节点配对绑定、集成验收 | TASK-20260913-009—023 混合 in-progress/pending；页面原型不能作为真实能力完成证据 | REQ-20260913-002 及对应 TASK |
+| OPEN-08 | Share-link 并发批准/剩余次数、文件/ZIP 传输、大文件、真实数据库/存储、旧分享关闭及迁移发布验收 | 主体有实现；TASK-005/009 为 pending-verification | TASK-20260920-005/009 |
+| OPEN-09 | Share-link 后续增强：短链冲突处理、下载意图幂等/防重复扣次、密码与访问限流、IP 城市查询 | 明确延期/待设计实现；不混入已完成分享主体 | ISS-20260920-001，SL-TODO-01—04 |
+| OPEN-10 | 真实 MCP Client；真实 Web/SMTP/CalDAV Provider、OAuth 与账号联调 | MCP 当前仅 Fake Provider；外部服务原交付为 Mock，真实接入待办 | Workflow `docs/TODO.md`；TASK-20260722-014 |
+| OPEN-11 | 大 Context/Artifact 引用化、Trace 摘要/diff/脱敏和保留清理；会话删除级联、回调对账；多轮 CLI 的澄清/补参/确认/保存恢复，更多模板与回归 | 历史 TODO 未关闭，已有持久化/执行能力不能整体重复开发；按新 harness/复合工具边界重新归属 | 两份 Workflow TODO；TASK-20260722-010/013 |
+| OPEN-12 | 前端重构收尾：能力对照、API/样式拆分及旧代码清理、路由与交互回归、可访问性/键盘/响应式/浏览器验收 | 历史计划未关单；当前 App 已使用 React Router/Query，不能再把路由重建列为从零开发 | `.plans/frontend-ui-ux-redesign.todo.md`；TASK-20260913-001—008 |
+| OPEN-13 | 存储策略、多存储/跨节点文件数据面与真实调度；完整 Token 计量 | 用户此前明确延期，现有节点控制面不等于数据面已具备 | REQ-20260913-002 的非目标与明确延期 |
+| OPEN-14 | 统一文档状态和发布证据：MQ 基础任务/总计划与已完成子任务、前端和 Workflow 旧 TODO、健康/观测/灰度/降级回滚记录 | 文档存在陈旧/冲突；先按源码与测试证据核对，再更新状态，不凭未勾选项判定缺功能 | TASK-20260725-016；TASK-20260722-011/012；本文件及旧 TODO |
+
+### 历史待办处理原则
+
+- 平台所有者、授权、API Key、公开 API、Webhook、配额、备份及 MQ 多个迁移 TASK 已记录 completed，本次不重新列为待开发；新的回归或发布验证另记。
+- 旧 Workflow TODO 中 LLMTemplateSelector、约定格式 Markdown Importer、Loop、节点超时/全局时限已有实现，不重复加入“新增功能”清单。历史报错没有本轮复现证据，归状态核对。
+- 原 Workflow 的顶层 checkpoint、State Patch、节点并行、Level 3 Graph Generator 等延期项，需按新的 harness / LangGraph4j 方向重新评估；不默认继续扩建旧对话编排器，也不在此轮擅自取消全部子流程增强。
+- 下方原始 Current State、执行波次和约束保留为历史设计依据；若与较新的需求、TASK 或本节状态冲突，应先核实，不从任务 001 重新执行，也不把早期设计约束自动覆盖用户后续决策。
 
 ## Integrated Scope and Coverage
 
@@ -274,4 +317,4 @@ mq-v1 至 mq-v6 仍按版本顺序独立实现、测试、提交、推送和观�
 
 ## Ready to Implement
 
-文档整合完成后，代码实施仍从 TASK-20260725-001 开始。执行者必须按本文件依赖图选择下一个任务；不得分别按“平台 001～015”和“MQ 016～021”两条独立计划推进。
+原始计划从 TASK-20260725-001 开始；当前实施应先核对上方 Current TODO 与各 TASK 的实际状态，跳过已有完成证据的事项，再按依赖选择下一项。平台与 MQ 仍是一条有共享依赖的主线，不得将它们当成两套互不影响的计划。
