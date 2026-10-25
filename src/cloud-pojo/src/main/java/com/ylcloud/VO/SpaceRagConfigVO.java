@@ -22,6 +22,10 @@ public class SpaceRagConfigVO {
     private BigDecimal scoreThreshold;
     private Integer enabled;
     private Integer knowledgeProfileEnabled;
+    private Boolean allowStaleDuringReindex;
+    private Boolean historicalEvidenceEnabled;
+    private Integer historyRetentionDays;
+    private Long configRevision;
     private Integer status;
     private LocalDateTime createtime;
     private LocalDateTime updatetime;

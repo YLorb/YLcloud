@@ -23,12 +23,9 @@ public interface FileRagChunkMapper {
      * @return 影响行数
      */
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    @Insert("insert into file_rag_chunk(file_uuid, file_hash, chunk_index, content, content_hash, token_count, metadata, vector_id, embedding_model, chunk_size, chunk_overlap, status, createtime, updatetime) " +
-            "values(#{fileUuid}, #{fileHash}, #{chunkIndex}, #{content}, #{contentHash}, #{tokenCount}, #{metadata}, #{vectorId}, #{embeddingModel}, #{chunkSize}, #{chunkOverlap}, #{status}, #{createtime}, #{updatetime}) " +
-            "on duplicate key update id = last_insert_id(id), content = values(content), content_hash = values(content_hash), " +
-            "token_count = values(token_count), metadata = values(metadata), vector_id = values(vector_id), " +
-            "embedding_model = values(embedding_model), chunk_size = values(chunk_size), chunk_overlap = values(chunk_overlap), " +
-            "status = values(status), updatetime = values(updatetime)")
+    @Insert("insert into file_rag_chunk(file_uuid, file_hash, generation, chunk_index, content, content_hash, token_count, metadata, vector_id, embedding_model, chunk_size, chunk_overlap, status, createtime, updatetime) " +
+            "values(#{fileUuid}, #{fileHash}, coalesce(#{generation},'legacy'), #{chunkIndex}, #{content}, #{contentHash}, #{tokenCount}, #{metadata}, #{vectorId}, #{embeddingModel}, #{chunkSize}, #{chunkOverlap}, #{status}, #{createtime}, #{updatetime}) " +
+            "on duplicate key update id = last_insert_id(id)")
     int insert(FileRagChunk chunk);
 
     /**
@@ -48,7 +45,12 @@ public interface FileRagChunkMapper {
     @Select("select id, file_uuid as fileUuid, file_hash as fileHash, chunk_index as chunkIndex, content, content_hash as contentHash, " +
             "token_count as tokenCount, metadata, vector_id as vectorId, embedding_model as embeddingModel, chunk_size as chunkSize, " +
             "chunk_overlap as chunkOverlap, status, createtime, updatetime from file_rag_chunk " +
-            "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and status = 1 order by chunk_index")
+            "where file_uuid = #{fileUuid} and file_hash = #{fileHash} and status = 1 " +
+            "and generation=(select c.generation from (select * from file_rag_chunk) c " +
+            "where c.file_uuid=#{fileUuid} and c.file_hash=#{fileHash} and c.status=1 and exists " +
+            "(select 1 from space_rag_chunk_ref r join space_rag_document d on d.id=r.document_id " +
+            "where r.file_chunk_id=c.id and r.status=1 and d.status=1 and d.index_status='SUCCESS' and d.vector_state='ACTIVE') " +
+            "order by c.id desc limit 1) order by chunk_index")
     List<FileRagChunk> listByFileUuidAndHash(@Param("fileUuid") String fileUuid, @Param("fileHash") String fileHash);
 
     /**

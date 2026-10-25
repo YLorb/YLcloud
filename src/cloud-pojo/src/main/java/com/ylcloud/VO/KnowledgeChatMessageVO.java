@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 
 @Data
 public class KnowledgeChatMessageVO {
+    private String answerId;
+    private String verificationStatus;
     private Long id;
     private Long sessionId;
     private Long sequenceNo;

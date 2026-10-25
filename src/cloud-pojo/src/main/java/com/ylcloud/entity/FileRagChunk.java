@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
  */
 @Data
 public class FileRagChunk {
+    private String generation;
     private Long id;
     private String fileUuid;
     private String fileHash;

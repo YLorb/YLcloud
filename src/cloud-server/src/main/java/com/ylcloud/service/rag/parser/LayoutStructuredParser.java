@@ -29,7 +29,7 @@ public class LayoutStructuredParser {
         String objectUrl;
         try {
             int ttlSeconds = extraction.getParserObjectUrlTtlSeconds() == null ? 300 : extraction.getParserObjectUrlTtlSeconds();
-            objectUrl = minioclientUtil.getPresignedObjectUrl(fileUuid(spaceFile,file),ttlSeconds);
+            objectUrl = minioclientUtil.getPresignedObjectUrl(fileUuid(spaceFile,file),ImmutableDocumentSourceService.requireVersion(file),ttlSeconds);
         } catch (Exception ex) {
             return ParsedDocument.failed(fileUuid(spaceFile,file),fileHash(file),"pdf-layout",parserVersion,
                     "Failed to create layout parser object URL: " + ex.getMessage());

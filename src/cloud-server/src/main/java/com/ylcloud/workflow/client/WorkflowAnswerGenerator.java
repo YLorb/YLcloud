@@ -2,46 +2,53 @@ package com.ylcloud.workflow.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.DTO.KnowledgeChatQueryCreateDTO;
+import com.ylcloud.DTO.KnowledgeRagQueryDTO;
+import com.ylcloud.VO.KnowledgeRagQueryVO;
 import com.ylcloud.Exception.BaseException;
 import com.ylcloud.entity.KnowledgeChatMessage;
-import com.ylcloud.service.rag.RagChatRequest;
-import com.ylcloud.service.rag.RagChatResponse;
+import com.ylcloud.service.KnowledgeRagQueryService;
 import com.ylcloud.service.rag.RagModelClient;
 import com.ylcloud.workflow.contract.WorkflowContracts.WorkflowResult;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 
 /** Workflow 只交付结构化 Context；最终自然语言回答始终由 Java 发起生成。 */
 @Component
 public class WorkflowAnswerGenerator {
-    private static final String SYSTEM_PROMPT = "你是 YLcloud 助手。根据 Java 提供的问题与已冻结的 Workflow Context 回答。"
-            + "不得声称执行未出现在结构化结果中的操作；Context 不足时应明确说明。";
-    private final RagModelClient modelClient;
     private final ObjectMapper objectMapper;
+    private KnowledgeRagQueryService queryService;
 
     public WorkflowAnswerGenerator(RagModelClient modelClient, ObjectMapper objectMapper) {
-        this.modelClient = modelClient;
         this.objectMapper = objectMapper;
     }
 
+    @Autowired
+    public void setQueryService(KnowledgeRagQueryService queryService) { this.queryService = queryService; }
+
     public String generate(KnowledgeChatMessage message, WorkflowResult result) {
+        return generateVerified(message, result).getAnswer();
+    }
+
+    /** Frozen tool output is not evidence: re-retrieve within the Java-owned scope and current permissions. */
+    public KnowledgeRagQueryVO generateVerified(KnowledgeChatMessage message, WorkflowResult result) {
         try {
             KnowledgeChatQueryCreateDTO input = objectMapper.readValue(
                     message.getRequestJson(), KnowledgeChatQueryCreateDTO.class
             );
-            RagChatRequest request = new RagChatRequest();
-            request.setSystemPrompt(SYSTEM_PROMPT);
+            if(input.getSpaceIds() == null || input.getSpaceIds().isEmpty())
+                throw new BaseException("WORKFLOW_NO_KNOWLEDGE_SCOPE：未指定知识库，不能生成已验证的知识回答");
+            if(queryService == null) throw new BaseException("可信问答服务不可用");
+            KnowledgeRagQueryDTO request = new KnowledgeRagQueryDTO();
             request.setQuestion(input.getQuestion());
-            request.setContexts(List.of(result.snapshotDraft().injectableContext()));
+            request.setSpaceIds(input.getSpaceIds());
+            request.setRetrievalMode(input.getRetrievalMode());
             request.setHistory(List.of());
-            request.setMaxTokens(1_024);
-            request.setTemperature(0.2);
-            RagChatResponse response = modelClient.chat(request);
-            if (response == null || response.getAnswer() == null || response.getAnswer().isBlank()) {
-                throw new BaseException("Java 最终回答生成结果为空");
-            }
-            return response.getAnswer().trim();
+            KnowledgeRagQueryVO response = queryService.query(request, message.getUserId());
+            if(response == null || response.getAnswerId() == null || response.getAnswer() == null)
+                throw new BaseException("可信回答缺少服务端关联");
+            return response;
         } catch (BaseException exception) {
             throw exception;
         } catch (Exception exception) {

@@ -43,6 +43,10 @@ public class PhysicalFileCleanupService {
     private final ApplicationEventPublisher eventPublisher;
     private AsyncMqProperties mqProperties;
     private UnifiedTaskCenterService taskCenter;
+    private com.ylcloud.mapper.KnowledgeRevisionMapper knowledgeRevisions;
+
+    @Autowired
+    public void setKnowledgeRevisions(com.ylcloud.mapper.KnowledgeRevisionMapper mapper) { this.knowledgeRevisions=mapper; }
 
     public PhysicalFileCleanupService(PhysicalFileCleanupTaskMapper cleanupTaskMapper,
                                       FileInfoMapper fileInfoMapper,
@@ -63,7 +67,16 @@ public class PhysicalFileCleanupService {
     /**
      * 必须仅在引用计数已经归零的永久删除事务中调用。
      */
+    @Transactional
     public void enqueue(String fileUuid) {
+        // Defensive guard only: no new automatic physical deletion is introduced.
+        if(knowledgeRevisions!=null) {
+            com.ylcloud.entity.File current=fileInfoMapper.getPhysicalFileForUpdate(fileUuid);
+            if(current==null) return;
+            if(current.getCount()!=null && current.getCount()>0) return;
+            // Version-specific physical GC is intentionally disabled until its deletion protocol is validated.
+            if(knowledgeRevisions.snapshotCount(fileUuid)>0) return;
+        }
         fileVersionMapper.disableByFileUuid(fileUuid);
         fileRagChunkMapper.disableByFileUuid(fileUuid);
         parseResultMapper.disableByFileUuid(fileUuid);
@@ -79,6 +92,8 @@ public class PhysicalFileCleanupService {
     public Map<String,Object> executeAsync(Long cleanupId,Long asyncTaskId,TaskExecutionContext context) {
         PhysicalFileCleanupTask task = cleanupTaskMapper.getById(cleanupId);
         if(task == null || "SUCCESS".equals(task.getTaskStatus())) return Map.of("alreadyAbsent",true);
+        if(knowledgeRevisions!=null && knowledgeRevisions.snapshotCount(task.getFileUuid())>0)
+            throw new RetryableTaskException("知识修订物理清理尚未启用，保留原对象");
         if(!asyncTaskId.equals(task.getAsyncTaskId())) throw new StaleTaskException("物理清理任务已被新版本替代");
         if(fileInfoMapper.getFileInfo(task.getFileUuid(),0L) != null) throw new StaleTaskException("物理文件已重新登记");
         if(!"RUNNING".equals(task.getTaskStatus())
@@ -107,6 +122,8 @@ public class PhysicalFileCleanupService {
         if(task == null || "SUCCESS".equals(task.getTaskStatus())) {
             return;
         }
+        if(knowledgeRevisions!=null && knowledgeRevisions.snapshotCount(fileUuid)>0) return;
+        if(fileInfoMapper.getFileInfo(fileUuid,0L)!=null) return;
         if(hasActiveAsyncTask(task.getAsyncTaskId())) return;
         if(cleanupTaskMapper.markRunning(task.getId(),LocalDateTime.now()) == 0) {
             return;

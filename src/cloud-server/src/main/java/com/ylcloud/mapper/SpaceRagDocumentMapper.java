@@ -18,6 +18,19 @@ import com.ylcloud.VO.SpaceDocumentSearchVO;
 @Mapper
 public interface SpaceRagDocumentMapper {
 
+    @Update("update space_rag_document d join space_file sf on sf.id=d.space_file_id and sf.space_id=d.space_id "
+            + "set d.index_status='SUCCESS',d.vector_state='ACTIVE',d.chunk_count=#{count},d.consistency_version=d.consistency_version+1,"
+            + "d.consistency_async_task_id=null,d.error_message=null,d.updatetime=#{now} where d.id=#{id} and d.status=1 "
+            + "and sf.status=1 and sf.lifecycle_state='ACTIVE' and d.consistency_version=#{version} and d.vector_state='BUILDING' "
+            + "and d.index_status='INDEXING' and sf.content_hash=#{hash} and sf.file_uuid=#{uuid}")
+    int commitIndexVersioned(@Param("id") Long id,@Param("count") Integer count,@Param("version") Long version,
+                            @Param("hash") String hash,@Param("uuid") String uuid,@Param("now") LocalDateTime now);
+
+    @Update("update space_rag_document set index_status='FAILED',vector_state='CLEANUP_PENDING',"
+            + "consistency_version=consistency_version+1,consistency_async_task_id=null,chunk_count=0,error_message=#{error},updatetime=#{now} "
+            + "where id=#{id} and status=1 and vector_state='BUILDING' and consistency_version=#{version}")
+    int failIndexVersioned(@Param("id") Long id,@Param("version") Long version,@Param("error") String error,@Param("now") LocalDateTime now);
+
     /**
      * 新增 insert 相关逻辑。
      * @return 影响行数

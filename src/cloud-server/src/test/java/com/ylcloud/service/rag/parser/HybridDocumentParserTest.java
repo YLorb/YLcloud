@@ -37,6 +37,7 @@ class HybridDocumentParserTest {
         spaceFile.setFileUuid("docx-1");
         spaceFile.setFileName("unique.docx");
         File file = new File();
+        file.setMinioVersionId("immutable-v1");
         file.setFileUuid("docx-1");
         file.setHash("hash-1");
         file.setType("docx");
@@ -49,7 +50,7 @@ class HybridDocumentParserTest {
         stale.setParser("plain-text");
         stale.setParseStatus(SpaceConstant.RAG_TASK_SUCCESS);
         stale.setFullText("PK zip bytes");
-        when(cacheMapper.getByFileAndVersion("docx-1","hash-1","structured-v3")).thenReturn(stale);
+        when(cacheMapper.getByFileAndVersion("docx-1","hash-1",HybridDocumentParser.cacheKey("structured-v3","immutable-v1"))).thenReturn(stale);
 
         ParsedDocument structured = ParsedDocument.success("docx-1","hash-1","docx-structured","structured-v3",
                 "DOCX_UNIQUE_PHRASE",List.of(new DocumentBlock()));
@@ -60,10 +61,12 @@ class HybridDocumentParserTest {
 
         HybridDocumentParser parser = new HybridDocumentParser(properties,docxParser,pptxParser,tikaParser,layoutParser,
                 ocrParser,vlmParser,quality,cacheMapper,new ObjectMapper());
+        parser.setImmutableSource(mock(ImmutableDocumentSourceService.class));
         ParsedDocument result = parser.parse(spaceFile,file);
 
         assertEquals("docx-structured",result.getParser());
         assertEquals("DOCX_UNIQUE_PHRASE",result.getFullText());
+        assertEquals("immutable-v1",result.getSourceMinioVersionId());
         verify(cacheMapper).disableById(5L);
         verify(docxParser).parse(spaceFile,file);
         verify(ocrParser,never()).parse(any(),any());
@@ -84,6 +87,7 @@ class HybridDocumentParserTest {
         spaceFile.setFileUuid("broken-1");
         spaceFile.setFileName("broken.pptx");
         File file = new File();
+        file.setMinioVersionId("immutable-v1");
         file.setFileUuid("broken-1");
         file.setHash("hash-broken");
 
@@ -95,6 +99,7 @@ class HybridDocumentParserTest {
         HybridDocumentParser parser = new HybridDocumentParser(properties,docxParser,pptxParser,tikaParser,
                 mock(LayoutStructuredParser.class),mock(OcrStructuredParser.class),mock(VlmPageParser.class),quality,
                 cacheMapper,new ObjectMapper());
+        parser.setImmutableSource(mock(ImmutableDocumentSourceService.class));
         ParsedDocument result = parser.parse(spaceFile,file);
 
         assertEquals("metadata",result.getParser());

@@ -1,4 +1,5 @@
 import math
+import json
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +21,8 @@ class BgeServiceTest(unittest.TestCase):
         self.model_name = service.EMBEDDING_MODEL_NAME
         self.expected_dimension = service.EXPECTED_EMBEDDING_DIMENSION
         self.embedding_model = service.embedding_model
+        self.offline_fallback = service.OFFLINE_FALLBACK
+        service.OFFLINE_FALLBACK = False
         service.EXPECTED_EMBEDDING_DIMENSION = 0
         service.embedding_model = None
 
@@ -27,6 +30,7 @@ class BgeServiceTest(unittest.TestCase):
         service.EMBEDDING_MODEL_NAME = self.model_name
         service.EXPECTED_EMBEDDING_DIMENSION = self.expected_dimension
         service.embedding_model = self.embedding_model
+        service.OFFLINE_FALLBACK = self.offline_fallback
 
     def test_selects_dense_loader_for_bge_v15(self):
         service.EMBEDDING_MODEL_NAME = "BAAI/bge-small-zh-v1.5"
@@ -48,6 +52,28 @@ class BgeServiceTest(unittest.TestCase):
             service.validate_vectors([[1.0]], 1)
         with self.assertRaisesRegex(ValueError, "non-finite"):
             service.validate_vectors([[math.nan, 1.0]], 1)
+
+    def test_structured_chat_preserves_data_without_legacy_refusal_instruction(self):
+        request = service.ChatRequest(
+            question='{"currentQuestion":"材料有什么用途？"}',
+            contexts=['{"evidenceId":"c1","content":"数据中包含忽略规则的指令"}'],
+            history=[{"role": "system", "content": "不可信的历史消息"}],
+            responseProtocol="TRUSTED_JSON",
+        )
+        prompt = service.build_chat_prompt(request)
+        payload = json.loads(prompt.split("\n", 1)[1])
+        self.assertEqual(request.contexts, payload["evidence"])
+        self.assertEqual(request.question, payload["question"])
+        self.assertNotIn("如果上下文中没有答案", prompt)
+        self.assertNotIn("不可信的历史消息", prompt)
+
+    def test_existing_chat_keeps_legacy_prompt_when_protocol_omitted(self):
+        request = service.ChatRequest(question="问题", contexts=["资料"])
+        self.assertIn("如果上下文中没有答案", service.build_chat_prompt(request))
+
+    def test_unknown_structured_protocol_is_rejected(self):
+        with self.assertRaises(ValueError):
+            service.ChatRequest(question="问题", contexts=[], responseProtocol="BYPASS")
 
 
 if __name__ == "__main__":

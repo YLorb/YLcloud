@@ -29,12 +29,13 @@ class PptxStructuredParserTest {
             content = output.toByteArray();
         }
         MinioclientUtil minio = mock(MinioclientUtil.class);
-        when(minio.getObjectStream("pptx-1")).thenReturn(new ByteArrayInputStream(content));
+        when(minio.getObjectStream("pptx-1","immutable-v1")).thenReturn(new ByteArrayInputStream(content));
         PptxStructuredParser parser = new PptxStructuredParser(minio,new RagProperties());
         SpaceFile spaceFile = new SpaceFile();
         spaceFile.setFileUuid("pptx-1");
         spaceFile.setFileName("ubuntu.pptx");
         File file = new File();
+        file.setMinioVersionId("immutable-v1");
         file.setFileUuid("pptx-1");
         file.setHash("hash-1");
 

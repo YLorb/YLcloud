@@ -7,6 +7,7 @@ import lombok.Data;
 
 @Data
 public class KnowledgeChatMessageCreateDTO {
+    private String answerId;
     @Pattern(regexp = "^(user|assistant|system)$", message = "对话角色不合法")
     private String role;
 

@@ -20,7 +20,7 @@ import com.ylcloud.interceptor.OpenApiKeyInterceptor;
 import com.ylcloud.mapper.FileInfoMapper;
 import com.ylcloud.security.ApiKeyPrincipal;
 import com.ylcloud.service.FileService;
-import com.ylcloud.service.KnowledgeChatQueryService;
+import com.ylcloud.service.OpenApiKnowledgeChatService;
 import com.ylcloud.service.KnowledgeChatSessionService;
 import com.ylcloud.service.OpenApiVersionPolicyService;
 import com.ylcloud.service.QuotaService;
@@ -28,6 +28,7 @@ import com.ylcloud.service.space.SpaceRagService;
 import com.ylcloud.service.space.SpaceService;
 import com.ylcloud.service.UserApiKeyService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,7 +59,7 @@ public class OpenApiController {
     private final SpaceService spaceService;
     private final SpaceRagService spaceRagService;
     private final KnowledgeChatSessionService chatSessionService;
-    private final KnowledgeChatQueryService chatQueryService;
+    private final OpenApiKnowledgeChatService openApiChats;
     private QuotaService quotas;
 
     @GetMapping("/capabilities")
@@ -162,9 +163,7 @@ public class OpenApiController {
             @RequestBody @Valid KnowledgeChatQueryCreateDTO dto,
             @RequestHeader("Idempotency-Key") String idempotencyKey,HttpServletRequest request) {
         ApiKeyPrincipal principal = OpenApiContext.require();
-        requireSpaces(principal,dto.getSpaceIds(),false);
-        dto.setApiKeyId(null);
-        return success(chatQueryService.submit(sessionId,principal.userId(),dto,idempotencyKey),request);
+        return success(openApiChats.submit(principal,sessionId,dto,idempotencyKey,false),request);
     }
 
     @PostMapping("/agent/sessions/{sessionId}/queries")
@@ -172,9 +171,21 @@ public class OpenApiController {
             @RequestBody @Valid KnowledgeChatQueryCreateDTO dto,
             @RequestHeader("Idempotency-Key") String idempotencyKey,HttpServletRequest request) {
         ApiKeyPrincipal principal = OpenApiContext.require();
-        requireSpaces(principal,dto.getSpaceIds(),true);
-        dto.setApiKeyId(principal.keyId());
-        return success(chatQueryService.submit(sessionId,principal.userId(),dto,idempotencyKey),request);
+        return success(openApiChats.submit(principal,sessionId,dto,idempotencyKey,true),request);
+    }
+
+    @GetMapping("/assistant/sessions/{sessionId}/queries/{messageId}")
+    public OpenApiEnvelope<KnowledgeChatMessageVO> assistantResult(@PathVariable Long sessionId,@PathVariable Long messageId,
+            HttpServletRequest request,HttpServletResponse response) {
+        response.setHeader("Cache-Control","private, no-store");
+        return success(openApiChats.result(OpenApiContext.require(),sessionId,messageId,false),request);
+    }
+
+    @GetMapping("/agent/sessions/{sessionId}/queries/{messageId}")
+    public OpenApiEnvelope<KnowledgeChatMessageVO> agentResult(@PathVariable Long sessionId,@PathVariable Long messageId,
+            HttpServletRequest request,HttpServletResponse response) {
+        response.setHeader("Cache-Control","private, no-store");
+        return success(openApiChats.result(OpenApiContext.require(),sessionId,messageId,true),request);
     }
 
     private void requireSpaces(ApiKeyPrincipal principal,List<Long> spaceIds,boolean agent) {

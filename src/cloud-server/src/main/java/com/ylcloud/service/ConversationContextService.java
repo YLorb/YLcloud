@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ylcloud.DTO.RagChatMessageDTO;
 import com.ylcloud.Exception.BaseException;
+import com.ylcloud.async.task.StaleTaskException;
 import com.ylcloud.config.RagProperties;
 import com.ylcloud.entity.KnowledgeChatMessage;
 import com.ylcloud.entity.KnowledgeChatSession;
@@ -28,6 +29,38 @@ import java.util.List;
 
 @Service
 public class ConversationContextService {
+    private com.ylcloud.service.rag.RagEvidenceService evidenceService;
+    @Autowired
+    public void setEvidenceService(com.ylcloud.service.rag.RagEvidenceService service){this.evidenceService=service;}
+
+    /** Rebuild authorization-sensitive history on every attempt; legacy summaries/memory lack evidence lineage. */
+    private ConversationContextSnapshot protectedContext(KnowledgeChatMessage task) {
+        if(task.getSourceMessageId()==null) throw new BaseException("问答任务缺少来源消息");
+        KnowledgeChatMessage source=messageMapper.getOwned(task.getSourceMessageId(),task.getSessionId(),task.getUserId());
+        if(source==null || !"user".equals(source.getRole())) throw new BaseException("问答来源消息不存在");
+        if(sessionMapper.getActive(task.getSessionId(),task.getUserId())==null) throw new BaseException("会话不存在");
+        List<KnowledgeChatMessage> candidates=messageMapper.listContextCandidates(task.getSessionId(),task.getUserId(),source.getSequenceNo());
+        List<KnowledgeChatMessage> authorized=new ArrayList<>();
+        for(KnowledgeChatMessage candidate:candidates) {
+            if("user".equals(candidate.getRole())) authorized.add(candidate);
+            else if("assistant".equals(candidate.getRole())) {
+                try {
+                    com.ylcloud.entity.RagTrustedAnswer answer=evidenceService.readAnswer(candidate.getTrustedAnswerId(),task.getUserId());
+                    candidate.setContent(answer.getContent()); authorized.add(candidate);
+                } catch(BaseException unavailable) { /* No unverified or revoked assistant content enters model history. */ }
+            }
+        }
+        int questionTokens=tokenEstimator.estimate(source.getContent());
+        int historyBudget=Math.max(0,positive(ragProperties.getChat().getMaxHistoryTokens(),2048)-questionTokens);
+        List<KnowledgeChatMessage> recent=newestWithinBudget(authorized,historyBudget);
+        List<RagChatMessageDTO> history=recent.stream().map(m->message(m.getRole(),truncate(m.getContent(),2000))).toList();
+        int historyTokens=history.stream().mapToInt(item->tokenEstimator.estimate(item.getContent())).sum();
+        ConversationContextSnapshot snapshot=new ConversationContextSnapshot(SNAPSHOT_VERSION,task.getSessionId(),task.getUserId(),task.getId(),source.getId(),
+                recent.stream().map(KnowledgeChatMessage::getId).toList(),history,historyTokens,0,historyTokens+questionTokens,0,List.of(),List.of(),0,
+                "authorized-evidence-history-v1",LocalDateTime.now());
+        persistAuthorizedSnapshot(task,snapshot);
+        return snapshot;
+    }
     private static final Logger log = LoggerFactory.getLogger(ConversationContextService.class);
     private static final int SNAPSHOT_VERSION = 2;
     private static final String SUMMARY_SYSTEM_PROMPT = "你负责压缩对话记忆。只保留用户目标、明确事实、已确认决策、约束、待办和未解决问题；不要补充或推测事实。";
@@ -64,6 +97,7 @@ public class ConversationContextService {
     }
 
     public ConversationContextSnapshot resolve(KnowledgeChatMessage task) {
+        if(evidenceService!=null) return protectedContext(task);
         if(task.getContextSnapshotJson() != null && !task.getContextSnapshotJson().isBlank()) {
             return readSnapshot(task.getContextSnapshotJson());
         }
@@ -146,12 +180,34 @@ public class ConversationContextService {
                 snapshot.version(),snapshot.sessionId(),snapshot.userId(),snapshot.assistantMessageId(),snapshot.sourceMessageId(),
                 snapshot.messageIds(),snapshot.history(),snapshot.historyTokens(),snapshot.summaryTokens(),snapshot.totalTokens(),
                 snapshot.summaryVersion(),chunks,snapshot.memoryIds(),snapshot.memoryTokens(),snapshot.strategy(),snapshot.createdAt());
+        if(evidenceService!=null) {
+            persistAuthorizedSnapshot(task,finalized);
+            return finalized;
+        }
         String json = writeSnapshot(finalized);
         String hash = sha256(json);
         messageMapper.finalizeContextSnapshot(task.getId(),json,hash);
         task.setContextSnapshotJson(json);
         task.setContextHash(hash);
         return finalized;
+    }
+
+    private void persistAuthorizedSnapshot(KnowledgeChatMessage task,ConversationContextSnapshot snapshot) {
+        if(!java.util.Objects.equals(task.getId(),snapshot.assistantMessageId())
+                || !java.util.Objects.equals(task.getSessionId(),snapshot.sessionId())
+                || !java.util.Objects.equals(task.getUserId(),snapshot.userId())
+                || !java.util.Objects.equals(task.getSourceMessageId(),snapshot.sourceMessageId())) {
+            throw new StaleTaskException("会话上下文不属于当前问答任务");
+        }
+        String json=writeSnapshot(snapshot);
+        String hash=sha256(json);
+        if(messageMapper.saveAuthorizedContextSnapshot(task,json,hash,snapshot.version(),snapshot.totalTokens())!=1) {
+            throw new StaleTaskException("会话上下文被任务版本栅栏拒绝");
+        }
+        task.setContextSnapshotJson(json);
+        task.setContextHash(hash);
+        task.setContextVersion(snapshot.version());
+        task.setContextTokenCount(snapshot.totalTokens());
     }
 
     private List<KnowledgeChatMessage> newestWithinBudget(List<KnowledgeChatMessage> candidates, int budget) {

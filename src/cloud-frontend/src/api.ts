@@ -25,6 +25,7 @@ import type {
   RagAnalyticsSummary,
   RagConfigLog,
   RagConfig,
+  RagCitation,
   RagChatMessage,
   RagDocument,
   RagQuery,
@@ -434,6 +435,10 @@ export const api = {
   removeMember: (spaceId: number, userId: number) =>
     request<boolean>(`/api/space/${spaceId}/members/${userId}`, { method: "DELETE" }),
   ragConfig: (spaceId: number) => request<RagConfig>(`/api/space/${spaceId}/rag/config`),
+  retentionImpact: (spaceId: number, historicalEvidenceEnabled: boolean, historyRetentionDays?: number | null) =>
+    request<{ affectedRevisions: number; currentlyAccessible: number; configRevision: number }>(`/api/space/${spaceId}/rag/retention-impact?${params({ historicalEvidenceEnabled, historyRetentionDays: historyRetentionDays ?? undefined })}`),
+  ragEvidence: (spaceId: number, evidenceId: string) =>
+    request<{ citation: RagCitation; content: string }>(`/api/space/${spaceId}/rag/evidence/${encodeURIComponent(evidenceId)}`),
   updateRagConfig: (spaceId: number, payload: Partial<RagConfig>) =>
     request<RagConfig>(`/api/space/${spaceId}/rag/config`, {
       method: "PUT",
@@ -477,7 +482,7 @@ export const api = {
     request<boolean>(`/api/knowledge/chat/sessions/${sessionId}`, { method: "DELETE" }),
   appendKnowledgeChatMessage: (
     sessionId: number,
-    payload: { role: "user" | "assistant" | "system"; content: string; citationsJson?: string }
+    payload: { role: "user" | "assistant"; content: string; citationsJson?: string; answerId?: string }
   ) =>
     request<KnowledgeChatMessage>(`/api/knowledge/chat/sessions/${sessionId}/messages`, {
       method: "POST",

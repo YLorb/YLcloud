@@ -8,6 +8,8 @@ import java.util.List;
 public class KnowledgeRagQueryVO {
     private String question;
     private String answer;
+    private String answerId;
+    private String answerStatus;
     private List<Long> spaceIds;
     private List<SpaceRagQueryVO> results;
     private List<SpaceRagCitationVO> citations;

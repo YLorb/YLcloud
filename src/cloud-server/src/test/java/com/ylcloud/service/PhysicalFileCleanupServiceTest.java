@@ -18,6 +18,22 @@ import static org.mockito.Mockito.when;
 
 class PhysicalFileCleanupServiceTest {
     @Test
+    void snapshotPinnedObjectsCannotBeEnqueuedOrDeletedByOldCleanupTasks() {
+        Fixture fixture=new Fixture();
+        com.ylcloud.mapper.KnowledgeRevisionMapper revisions=mock(com.ylcloud.mapper.KnowledgeRevisionMapper.class);
+        fixture.service.setKnowledgeRevisions(revisions);
+        com.ylcloud.entity.File file=new com.ylcloud.entity.File(); file.setCount(0);
+        when(fixture.fileInfoMapper.getPhysicalFileForUpdate("file-1")).thenReturn(file);
+        when(revisions.snapshotCount("file-1")).thenReturn(1);
+        fixture.service.enqueue("file-1");
+        org.mockito.Mockito.verifyNoInteractions(fixture.versionMapper,fixture.chunkMapper,fixture.parseMapper,fixture.minio);
+        org.mockito.Mockito.verify(fixture.taskMapper,org.mockito.Mockito.never()).enqueue(any(),any());
+        PhysicalFileCleanupTask task=new PhysicalFileCleanupTask(); task.setId(8L); task.setFileUuid("file-1"); task.setTaskStatus("PENDING");
+        when(fixture.taskMapper.getByFileUuid("file-1")).thenReturn(task);
+        fixture.service.process("file-1");
+        org.mockito.Mockito.verifyNoInteractions(fixture.minio);
+    }
+    @Test
     void enqueueDisablesMetadataAndCreatesOutboxEvent() {
         Fixture fixture = new Fixture();
 
@@ -46,6 +62,17 @@ class PhysicalFileCleanupServiceTest {
 
         verify(fixture.minio).removeObjectAllVersions("file-1");
         verify(fixture.taskMapper).markSuccess(eq(8L),any());
+    }
+
+    @Test
+    void oldCleanupTaskDoesNotDeleteAnObjectRegisteredAgain() {
+        Fixture fixture=new Fixture();
+        PhysicalFileCleanupTask task=new PhysicalFileCleanupTask(); task.setId(8L);
+        task.setFileUuid("file-1"); task.setTaskStatus("PENDING");
+        when(fixture.taskMapper.getByFileUuid("file-1")).thenReturn(task);
+        when(fixture.fileInfoMapper.getFileInfo("file-1",0L)).thenReturn(new com.ylcloud.entity.File());
+        fixture.service.process("file-1");
+        org.mockito.Mockito.verifyNoInteractions(fixture.minio);
     }
 
     private static class Fixture {

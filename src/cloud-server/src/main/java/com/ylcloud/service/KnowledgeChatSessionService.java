@@ -24,6 +24,9 @@ import java.util.Set;
 
 @Service
 public class KnowledgeChatSessionService {
+    private com.ylcloud.service.rag.RagEvidenceService evidenceService;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setEvidenceService(com.ylcloud.service.rag.RagEvidenceService service){this.evidenceService=service;}
     private static final int DEFAULT_LIMIT = 50;
 
     private final KnowledgeChatSessionMapper sessionMapper;
@@ -111,20 +114,30 @@ public class KnowledgeChatSessionService {
     @Transactional
     public KnowledgeChatMessageVO appendMessage(Long userId, Long sessionId, KnowledgeChatMessageCreateDTO dto) {
         KnowledgeChatSession session = requireSessionForUpdate(userId,sessionId);
+        String role=dto.getRole()==null || dto.getRole().isBlank() ? "user" : dto.getRole();
+        if(!"user".equals(role) && !"assistant".equals(role)) throw new BaseException("不允许客户端创建系统消息");
+        com.ylcloud.entity.RagTrustedAnswer trusted=null;
+        if("assistant".equals(role)) {
+            if(evidenceService==null) throw new BaseException("证据服务不可用");
+            trusted=evidenceService.readAnswer(dto.getAnswerId(),userId);
+        }
         long sequenceNo = session.getNextSequenceNo() == null ? 1 : session.getNextSequenceNo();
         if(sessionMapper.reserveSequences(sessionId,userId,1,LocalDateTime.now()) == 0) throw new BaseException("会话序号分配失败");
         KnowledgeChatMessage message = new KnowledgeChatMessage();
         message.setSessionId(sessionId);
         message.setUserId(userId);
         message.setSequenceNo(sequenceNo);
-        message.setRole(dto.getRole() == null || dto.getRole().isBlank() ? "user" : dto.getRole());
-        message.setContent(dto.getContent());
-        message.setCitationsJson(dto.getCitationsJson());
+        message.setRole(role);
+        message.setContent(trusted==null ? dto.getContent() : trusted.getContent());
+        message.setCitationsJson(trusted==null ? null : trusted.getCitationsJson());
+        message.setTrustedAnswerId(trusted==null ? null : trusted.getId());
         message.setRetryCount(0);
         message.setStatus(StatusConstant.ENABLE);
         message.setCreatetime(LocalDateTime.now());
         message.setUpdatetime(message.getCreatetime());
         messageMapper.insert(message);
+        if(trusted!=null && messageMapper.bindTrustedAnswer(message.getId(),userId,trusted.getId(),trusted.getContent())!=1)
+            throw new BaseException("可信回答关联失败");
         sessionMapper.touch(sessionId,userId,LocalDateTime.now());
         return toMessageVO(message);
     }
@@ -182,6 +195,7 @@ public class KnowledgeChatSessionService {
         vo.setErrorMessage(message.getErrorMessage());
         vo.setRetryCount(message.getRetryCount());
         KnowledgeChatQueryService.applyWorkflowPresentation(vo,message);
+        if(evidenceService!=null) evidenceService.protectMessage(message,vo);
         vo.setCreatetime(message.getCreatetime());
         vo.setUpdatetime(message.getUpdatetime());
         return vo;

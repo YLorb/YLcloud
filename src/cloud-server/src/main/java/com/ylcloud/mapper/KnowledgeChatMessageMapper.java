@@ -13,7 +13,7 @@ import java.util.List;
 @Mapper
 public interface KnowledgeChatMessageMapper {
     String SELECT_COLUMNS = "id, session_id as sessionId, user_id as userId, sequence_no as sequenceNo, " +
-            "source_message_id as sourceMessageId, role, content, citations_json as citationsJson, " +
+            "source_message_id as sourceMessageId, role, content, citations_json as citationsJson, trusted_answer_id as trustedAnswerId, " +
             "task_status as taskStatus, error_message as errorMessage, request_key as requestKey, request_json as requestJson, " +
             "context_snapshot_json as contextSnapshotJson, context_hash as contextHash, context_version as contextVersion, " +
             "context_token_count as contextTokenCount, retry_count as retryCount, " +
@@ -32,6 +32,11 @@ public interface KnowledgeChatMessageMapper {
             "#{asyncTaskId}, coalesce(#{asyncVersion},1), #{asyncTaskType}, #{status}, #{createtime}, " +
             "coalesce(#{updatetime},#{createtime}))")
     int insert(KnowledgeChatMessage message);
+
+    @Update("update knowledge_chat_message set trusted_answer_id=#{answerId} where id=#{messageId} and user_id=#{userId} "
+            + "and role='assistant' and status=1 and content=#{content}")
+    int bindTrustedAnswer(@Param("messageId") Long messageId,@Param("userId") Long userId,
+                          @Param("answerId") String answerId,@Param("content") String content);
 
     @Select("select " + SELECT_COLUMNS + " " +
             "from knowledge_chat_message where session_id = #{sessionId} and status = 1 order by sequence_no asc")
@@ -70,9 +75,44 @@ public interface KnowledgeChatMessageMapper {
     int finalizeContextSnapshot(@Param("messageId") Long messageId, @Param("snapshotJson") String snapshotJson,
                                 @Param("contextHash") String contextHash);
 
+    /** Authorization-sensitive history is rebuilt per attempt, and only the current worker may persist it. */
+    @Update("update knowledge_chat_message set context_snapshot_json=#{snapshotJson},context_hash=#{contextHash}," +
+            "context_version=#{contextVersion},context_token_count=#{tokenCount},updatetime=now() " +
+            "where id=#{task.id} and session_id=#{task.sessionId} and user_id=#{task.userId} " +
+            "and source_message_id=#{task.sourceMessageId} and role='assistant' and status=1 and task_status='RUNNING' " +
+            "and async_version <=> #{task.asyncVersion} and async_task_id <=> #{task.asyncTaskId} " +
+            "and exists (select 1 from knowledge_chat_session session where session.id=#{task.sessionId} " +
+            "and session.user_id=#{task.userId} and session.status=1)")
+    int saveAuthorizedContextSnapshot(@Param("task") KnowledgeChatMessage task,
+                                      @Param("snapshotJson") String snapshotJson,@Param("contextHash") String contextHash,
+                                      @Param("contextVersion") Integer contextVersion,@Param("tokenCount") Integer tokenCount);
+
     @Update("update knowledge_chat_message set task_status = 'RUNNING', error_message = null, updatetime = now() " +
             "where id = #{messageId} and task_status = 'QUEUED' and status = 1")
     int claimQueued(@Param("messageId") Long messageId);
+
+    @Update("update knowledge_chat_message set task_status='RUNNING',error_message=null,updatetime=now() " +
+            "where id=#{messageId} and async_version=#{version} and async_task_id is null " +
+            "and workflow_run_id is null and task_status='QUEUED' and status=1")
+    int claimQueuedFenced(@Param("messageId") Long messageId,@Param("version") long version);
+
+    /** Commit the trusted answer and terminal state together for both legacy and MQ workers. */
+    @Update("update knowledge_chat_message set content=#{content},citations_json=#{citationsJson}," +
+            "trusted_answer_id=#{answerId},task_status='SUCCESS',error_message=null,updatetime=#{now} " +
+            "where id=#{messageId} and async_version=#{version} and async_task_id <=> #{taskId} " +
+            "and workflow_run_id is null and task_status='RUNNING' and status=1")
+    int markChatTrustedSuccess(@Param("messageId") Long messageId,@Param("version") long version,
+                               @Param("taskId") Long taskId,@Param("content") String content,
+                               @Param("citationsJson") String citationsJson,@Param("answerId") String answerId,
+                               @Param("now") java.time.LocalDateTime now);
+
+    @Update("update knowledge_chat_message set content='回答生成失败，请重试。',citations_json=null," +
+            "trusted_answer_id=null,task_status='FAILED',error_message=#{errorMessage},updatetime=#{now} " +
+            "where id=#{messageId} and async_version=#{version} and async_task_id <=> #{taskId} " +
+            "and workflow_run_id is null and task_status='RUNNING' and status=1")
+    int markChatFailedFenced(@Param("messageId") Long messageId,@Param("version") long version,
+                             @Param("taskId") Long taskId,@Param("errorMessage") String errorMessage,
+                             @Param("now") java.time.LocalDateTime now);
 
     @Update("update knowledge_chat_message set async_task_id=#{taskId}, async_task_type=#{taskType}, updatetime=#{now} " +
             "where id=#{messageId} and async_version=#{version} and role='assistant' and status=1 " +
@@ -124,8 +164,10 @@ public interface KnowledgeChatMessageMapper {
             "updatetime = now() where id = #{messageId} and task_status = 'FAILED' and status = 1")
     int retryFailed(@Param("messageId") Long messageId);
 
-    @Update("update knowledge_chat_message set task_status = 'QUEUED', error_message = '进程中断后自动恢复', updatetime = now() " +
-            "where task_status = 'RUNNING' and updatetime < #{cutoff} and status = 1")
+    @Update("update knowledge_chat_message set task_status = 'QUEUED', async_version=async_version+1, " +
+            "error_message = '进程中断后自动恢复', updatetime = now() " +
+            "where task_status = 'RUNNING' and async_task_id is null and workflow_run_id is null " +
+            "and updatetime < #{cutoff} and status = 1")
     int requeueStale(@Param("cutoff") java.time.LocalDateTime cutoff);
 
     @Select("select " + SELECT_COLUMNS + " from knowledge_chat_message " +
@@ -188,17 +230,41 @@ public interface KnowledgeChatMessageMapper {
             "and generation_status='PENDING' and workflow_status in ('SUCCEEDED','DEGRADED') and status=1")
     int claimWorkflowGeneration(@Param("messageId") Long messageId, @Param("epoch") Integer epoch);
 
+    @Update("update knowledge_chat_message set generation_status='RUNNING',task_status='RUNNING',updatetime=now() " +
+            "where id=#{messageId} and workflow_execution_epoch=#{epoch} and generation_status='PENDING' " +
+            "and workflow_status in ('SUCCEEDED','DEGRADED') and status=1 " +
+            "and async_version <=> #{asyncVersion} and async_task_id <=> #{asyncTaskId}")
+    int claimWorkflowGenerationFenced(@Param("messageId") Long messageId,@Param("epoch") Integer epoch,
+                                      @Param("asyncVersion") Long asyncVersion,@Param("asyncTaskId") Long asyncTaskId);
+
     @Update("update knowledge_chat_message set content=#{content}, citations_json='[]', task_status='SUCCESS', " +
             "generation_status='SUCCESS', error_message=null, updatetime=now() where id=#{messageId} " +
             "and workflow_execution_epoch=#{epoch} and generation_status='RUNNING' and status=1")
     int markWorkflowGenerated(@Param("messageId") Long messageId, @Param("epoch") Integer epoch,
                               @Param("content") String content);
 
+    @Update("update knowledge_chat_message set content=#{content},citations_json=#{citationsJson},trusted_answer_id=#{answerId}," +
+            "task_status='SUCCESS',generation_status='SUCCESS',error_message=null,updatetime=now() " +
+            "where id=#{messageId} and workflow_execution_epoch=#{epoch} and generation_status='RUNNING' and status=1 " +
+            "and async_version <=> #{asyncVersion} and async_task_id <=> #{asyncTaskId}")
+    int markWorkflowGeneratedTrusted(@Param("messageId") Long messageId, @Param("epoch") Integer epoch,
+                                     @Param("asyncVersion") Long asyncVersion, @Param("asyncTaskId") Long asyncTaskId,
+                                     @Param("content") String content, @Param("answerId") String answerId,
+                                     @Param("citationsJson") String citationsJson);
+
     @Update("update knowledge_chat_message set content='回答生成失败，请重试。', task_status='FAILED', " +
             "generation_status='FAILED', error_message=#{errorMessage}, updatetime=now() where id=#{messageId} " +
             "and workflow_execution_epoch=#{epoch} and generation_status='RUNNING' and status=1")
     int markWorkflowGenerationFailed(@Param("messageId") Long messageId, @Param("epoch") Integer epoch,
                                      @Param("errorMessage") String errorMessage);
+
+    @Update("update knowledge_chat_message set content='回答生成失败，请重试。',task_status='FAILED'," +
+            "generation_status='FAILED',error_message=#{errorMessage},updatetime=now() where id=#{messageId} " +
+            "and workflow_execution_epoch=#{epoch} and generation_status='RUNNING' and status=1 " +
+            "and async_version <=> #{asyncVersion} and async_task_id <=> #{asyncTaskId}")
+    int markWorkflowGenerationFailedFenced(@Param("messageId") Long messageId,@Param("epoch") Integer epoch,
+                                           @Param("asyncVersion") Long asyncVersion,@Param("asyncTaskId") Long asyncTaskId,
+                                           @Param("errorMessage") String errorMessage);
 
     @Update("update knowledge_chat_message set generation_status='PENDING',task_status='RUNNING'," +
             "error_message=null,updatetime=now() where id=#{messageId} and workflow_execution_epoch=#{epoch} " +

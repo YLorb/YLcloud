@@ -25,10 +25,10 @@ import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.ylcloud.mapper.KnowledgeRevisionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -61,6 +61,13 @@ public class FileVersionService {
     private final SiteSettingService siteSettingService;
     private final CrossStoreFileWriteService crossStoreFileWriteService;
     private final CrossStoreOperationService crossStoreOperationService;
+    private KnowledgeRevisionService knowledgeRevisions;
+    private KnowledgeRevisionMapper knowledgeRevisionMapper;
+
+    @Autowired
+    public void setKnowledgeRevisions(KnowledgeRevisionService service,KnowledgeRevisionMapper mapper) {
+        this.knowledgeRevisions=service; this.knowledgeRevisionMapper=mapper;
+    }
 
     /**
      * 初始化 FileVersionService 对象。
@@ -142,13 +149,15 @@ public class FileVersionService {
             throw new BaseException("新版本文件哈希计算失败");
         }
 
+        if(knowledgeRevisions!=null) knowledgeRevisions.snapshotCurrentNode(spaceId,spaceFileId);
         spaceFileService.replaceContentGuard(spaceFile,hash);
 
         lockPhysicalFile(spaceFile.getFileUuid());
+        boolean shared=fileInfoMapper.getFileCount(spaceFile.getFileUuid())>1;
         AtomicReference<String> resultRef = new AtomicReference<>();
         CrossStoreOperation operation = claimOperation(idempotencyKey,"VERSION_UPLOAD",userId,
                 CrossStoreOperationService.payloadHash(spaceId,spaceFileId,fileName,uploadFile.getSize(),hash),
-                spaceFile.getFileUuid(),resultRef);
+                shared ? com.ylcloud.utils.UuidUtil.randomUuid() : spaceFile.getFileUuid(),resultRef);
         if(operation != null && CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
             return replayVersion(operation,spaceFile);
         }
@@ -161,9 +170,10 @@ public class FileVersionService {
         fileName = resolveAvailableSpaceName(spaceFile,fileName);
 
         ensureMinioVersioningEnabled();
+        String targetUuid=operation.getResourceId();
         String versionId;
         try {
-            versionId = crossStoreFileWriteService.putNewVersion(uploadFile,spaceFile.getFileUuid());
+            versionId = crossStoreFileWriteService.putNewVersion(uploadFile,targetUuid);
         } catch (Exception e) {
             throw new RuntimeException("新版本文件上传失败",e);
         }
@@ -173,11 +183,11 @@ public class FileVersionService {
         crossStoreOperationService.recordExternalRef(operation.getOperationKey(),versionId);
 
         String fileType = getFileType(fileName);
-        updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),fileName,fileType,uploadFile.getSize(),md5,sha1,hash);
-        FileVersion version = createVersion(spaceFile.getFileUuid(),versionId,fileName,hash,md5,fileType,uploadFile.getSize(),changeNote,userId);
+        persistReplacement(spaceFile,targetUuid,fileName,fileType,uploadFile.getSize(),md5,sha1,hash);
+        FileVersion version = createVersion(targetUuid,versionId,fileName,hash,md5,fileType,uploadFile.getSize(),changeNote,userId);
         resultRef.set(String.valueOf(version.getId()));
         crossStoreOperationService.recordResultCandidate(operation.getOperationKey(),resultRef.get());
-        scheduleRagRebuildAfterCommit(spaceId,spaceFileId,userId);
+        queueRagRebuild(spaceId,spaceFileId,userId);
         return toVO(spaceId,spaceFileId,version);
     }
 
@@ -307,23 +317,32 @@ public class FileVersionService {
             throw new BaseException("该文件未开启历史版本维护");
         }
         FileVersion source = requireVersion(spaceFile,versionRecordId);
+        if(knowledgeRevisions!=null) knowledgeRevisions.snapshotCurrentNode(spaceId,spaceFileId);
         lockPhysicalFile(spaceFile.getFileUuid());
         FileVersion current = fileVersionMapper.getCurrent(spaceFile.getFileUuid());
         boolean createCopy = isExactRestoreTarget(spaceFile,current,source);
+        boolean shared=fileInfoMapper.getFileCount(spaceFile.getFileUuid())>1;
         AtomicReference<String> resultRef = new AtomicReference<>();
         CrossStoreOperation operation = claimOperation(idempotencyKey,"VERSION_RESTORE",userId,
                 CrossStoreOperationService.payloadHash(spaceId,spaceFileId,versionRecordId,source.getMinioVersionId()),
-                createCopy ? com.ylcloud.utils.UuidUtil.randomUuid() : spaceFile.getFileUuid(),resultRef);
+                shared ? com.ylcloud.utils.UuidUtil.randomUuid() : spaceFile.getFileUuid(),resultRef);
         if(operation != null && CrossStoreOperationService.SUCCESS.equals(operation.getOperationStatus())) {
             return replayVersionInSpace(operation,spaceId);
         }
-        if(createCopy) return toVO(spaceId,spaceFileId,current);
+        if(createCopy) {
+            resultRef.set(String.valueOf(current.getId()));
+            crossStoreOperationService.recordResultCandidate(operation.getOperationKey(),resultRef.get());
+            return toVO(spaceId,spaceFileId,current);
+        }
         spaceFileService.replaceContentGuard(spaceFile,source.getFileHash());
         String restoredName = resolveAvailableSpaceName(spaceFile,source.getFileName());
         ensureMinioVersioningEnabled();
+        String targetUuid=operation.getResourceId();
         String newMinioVersionId;
         try {
-            newMinioVersionId = crossStoreFileWriteService.restoreAsNewVersion(spaceFile.getFileUuid(),source.getMinioVersionId());
+            newMinioVersionId = targetUuid.equals(spaceFile.getFileUuid())
+                    ? crossStoreFileWriteService.restoreAsNewVersion(spaceFile.getFileUuid(),source.getMinioVersionId())
+                    : crossStoreFileWriteService.copyVersionToNewObject(source.getFileUuid(),source.getMinioVersionId(),targetUuid);
         } catch (Exception e) {
             throw new RuntimeException("历史版本恢复失败",e);
         }
@@ -332,12 +351,12 @@ public class FileVersionService {
         }
         crossStoreOperationService.recordExternalRef(operation.getOperationKey(),newMinioVersionId);
 
-        updateCurrentFile(spaceId,spaceFileId,spaceFile.getFileUuid(),restoredName,source.getFileType(),source.getFileSize(),source.getFileMd5(),null,source.getFileHash());
+        persistReplacement(spaceFile,targetUuid,restoredName,source.getFileType(),source.getFileSize(),source.getFileMd5(),null,source.getFileHash());
         String note = changeNote == null || changeNote.isBlank() ? "恢复自版本 " + source.getVersionNo() : changeNote;
-        FileVersion version = createVersion(spaceFile.getFileUuid(),newMinioVersionId,restoredName,source.getFileHash(),source.getFileMd5(),source.getFileType(),source.getFileSize(),note,userId);
+        FileVersion version = createVersion(targetUuid,newMinioVersionId,restoredName,source.getFileHash(),source.getFileMd5(),source.getFileType(),source.getFileSize(),note,userId);
         resultRef.set(String.valueOf(version.getId()));
         crossStoreOperationService.recordResultCandidate(operation.getOperationKey(),resultRef.get());
-        scheduleRagRebuildAfterCommit(spaceId,spaceFileId,userId);
+        queueRagRebuild(spaceId,spaceFileId,userId);
         return toVO(spaceId,spaceFileId,version);
     }
 
@@ -407,36 +426,20 @@ public class FileVersionService {
                 sourceVersion.getFileSize(),note,userId);
         resultRef.set(String.valueOf(copyVersion.getId()));
         crossStoreOperationService.recordResultCandidate(operation.getOperationKey(),resultRef.get());
-        scheduleRagRebuildAfterCommit(sourceNode.getSpaceId(),copyNode.getId(),userId);
+        queueRagRebuild(sourceNode.getSpaceId(),copyNode.getId(),userId);
         return toVO(sourceNode.getSpaceId(),copyNode.getId(),copyVersion);
     }
 
     /**
-     * 调度 scheduleRagRebuildAfterCommit 相关逻辑。
+     * 调度 queueRagRebuild 相关逻辑。
      *
      * @param spaceId 空间 ID
      * @param spaceFileId 空间文件 ID
      * @param userId 用户 ID
      */
-    private void scheduleRagRebuildAfterCommit(Long spaceId, Long spaceFileId, Long userId) {
-        Runnable task = () -> {
-            try {
-                spaceRagService.rebuildFile(spaceId,spaceFileId,userId);
-            } catch (Exception ex) {
-                log.warn("Failed to schedule RAG rebuild after file version change, spaceId={}, spaceFileId={}",
-                        spaceId,spaceFileId,ex);
-            }
-        };
-        if(TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    task.run();
-                }
-            });
-            return;
-        }
-        task.run();
+    private void queueRagRebuild(Long spaceId, Long spaceFileId, Long userId) {
+        if(knowledgeRevisions==null) throw new IllegalStateException("Persistent knowledge reindex dispatcher unavailable");
+        knowledgeRevisions.queueReindex(spaceId,spaceFileId,userId);
     }
 
     /**
@@ -515,6 +518,27 @@ public class FileVersionService {
      * @param md5 文件 MD5
      * @param hash 文件哈希
      */
+    private void persistReplacement(SpaceFile node,String targetUuid,String name,String type,Long size,
+                                    String md5,String sha1,String hash) {
+        if(targetUuid.equals(node.getFileUuid())) {
+            updateCurrentFile(node.getSpaceId(),node.getId(),targetUuid,name,type,size,md5,sha1,hash);
+            return;
+        }
+        if(knowledgeRevisionMapper==null) throw new IllegalStateException("Knowledge revision mapper unavailable");
+        LocalDateTime now=LocalDateTime.now();
+        File replacement=File.builder().fileUuid(targetUuid).dir(false).name(name).type(type).size(size)
+                .md5(md5).sha1(sha1).hash(hash).count(1).status(StatusConstant.ENABLE).createTime(now).updateTime(now).build();
+        if(fileInfoMapper.insertFileInfo(replacement)!=1) throw new BaseException("共享文件写时分离失败");
+        String oldUuid=node.getFileUuid();
+        if(knowledgeRevisionMapper.rebindPhysical(node.getSpaceId(),node.getId(),oldUuid,targetUuid,now)!=1)
+            throw new BaseException("文件版本已变化，拒绝替换共享文件引用");
+        if(fileInfoMapper.updateFileCount(oldUuid,-1)!=1) throw new BaseException("共享文件引用计数更新失败");
+        knowledgeRevisionMapper.rebindPhysicalReference(node.getId(),oldUuid,targetUuid);
+        knowledgeRevisionMapper.rebindDocumentPhysical(node.getSpaceId(),node.getId(),targetUuid);
+        spaceFileMapper.updateFileName(node.getSpaceId(),node.getId(),name,now);
+        node.setFileUuid(targetUuid);
+    }
+
     private void updateCurrentFile(Long spaceId, Long spaceFileId, String fileUuid, String fileName, String type, Long size, String md5, String sha1, String hash) {
         int rows = fileInfoMapper.updatePhysicalFileInfo(fileUuid,fileName,type,size,md5,sha1,hash,LocalDateTime.now());
         if(rows == 0) {

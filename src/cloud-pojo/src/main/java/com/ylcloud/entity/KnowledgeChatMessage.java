@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 @Data
 public class KnowledgeChatMessage {
+    private String trustedAnswerId;
     private Long id;
     private Long sessionId;
     private Long userId;

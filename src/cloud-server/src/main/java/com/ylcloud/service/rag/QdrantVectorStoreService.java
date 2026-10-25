@@ -97,7 +97,7 @@ public class QdrantVectorStoreService {
                 if(chunk.getId() == null || chunk.getContent() == null || chunk.getContent().isBlank()) {
                     throw new IllegalArgumentException("RAG indexing received an invalid chunk");
                 }
-                String id=stablePointId(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex());
+                String id=stableChunkPointId(chunk);
                 ids.add(id);
                 currentPointIds.add(id);
                 segments.add(TextSegment.from(chunk.getContent(),metadata(chunk)));
@@ -123,13 +123,10 @@ public class QdrantVectorStoreService {
         if(chunks==null || chunks.isEmpty()) {
             throw new IllegalArgumentException("RAG point cleanup requires the committed chunk generation");
         }
-        String fileUuid = chunks.get(0).getFileUuid();
-        Set<String> currentIds=new HashSet<>();
-        for(FileRagChunk chunk:chunks) {
-            currentIds.add(stablePointId(chunk.getFileUuid(),chunk.getFileHash(),chunk.getChunkIndex()));
-        }
-        removeObsoletePointIds(fileUuid,currentIds);
-        awaitCountByFileUuid(fileUuid,chunks.size());
+        // A newer generation cannot prove older generations are unreferenced.
+        // Retained snapshots and other Spaces may still own those exact chunk points.
+        // Physical cleanup is performed only after all reference/retention rights expire.
+        log.debug("Deferred shared generation cleanup: {} chunks", chunks.size());
     }
 
     static int validateEmbeddingBatch(List<Embedding> embeddings, int expectedCount, Integer expectedDimension) {
@@ -269,7 +266,7 @@ public class QdrantVectorStoreService {
         metadata.put(FILE_UUID,chunk.getFileUuid() == null ? "" : chunk.getFileUuid());
         metadata.put(FILE_HASH,chunk.getFileHash() == null ? "" : chunk.getFileHash());
         metadata.put(STATUS,StatusConstant.ENABLE);
-        metadata.put(POINT_ID_VERSION,"v2");
+        metadata.put(POINT_ID_VERSION,"v3");
         return metadata;
     }
 
@@ -331,6 +328,23 @@ public class QdrantVectorStoreService {
     /**
      * 文件级 pointId：同一文件无论被多少 Space 引用，pointId 唯一。
      */
+    public static String stableChunkPointId(FileRagChunk chunk) {
+        if(chunk==null || chunk.getId()==null || chunk.getFileUuid()==null || chunk.getFileHash()==null) {
+            throw new IllegalArgumentException("Immutable point identity requires persisted chunk identity");
+        }
+        String source="point-id-v3|"+chunk.getFileUuid()+"|"+chunk.getFileHash()+"|"+chunk.getId();
+        return UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /** Counts membership of each exact chunk, allowing legacy and v3 points to coexist during migration. */
+    public int countPresentChunksStrict(List<FileRagChunk> chunks) {
+        int present=0;
+        for(FileRagChunk chunk:chunks) {
+            if(count(Map.of(FILE_UUID,chunk.getFileUuid(),FILE_HASH,chunk.getFileHash(),CHUNK_ID,chunk.getId()))>0) present++;
+        }
+        return present;
+    }
+
     public static String stablePointId(String fileUuid, String fileHash, Integer chunkIndex) {
         if(fileUuid==null || fileUuid.isBlank() || fileHash==null || fileHash.isBlank() || chunkIndex==null || chunkIndex<0) {
             throw new IllegalArgumentException("Stable RAG point ID requires file UUID, hash and chunk index");
@@ -355,16 +369,6 @@ public class QdrantVectorStoreService {
         throw new IllegalStateException("Qdrant stable point verification failed; missing="+missing.size());
     }
 
-    private void removeObsoletePointIds(String fileUuid, Set<String> currentIds) {
-        List<String> obsolete=new ArrayList<>(pointIdsByFileUuid(fileUuid));
-        obsolete.removeAll(currentIds);
-        if(obsolete.isEmpty()) return;
-        restClient.post()
-                .uri("/collections/{collection}/points/delete?wait=true",properties.getQdrant().getCollectionName())
-                .body(Map.of("points",obsolete)).retrieve().toBodilessEntity();
-    }
-
-    @SuppressWarnings("unchecked")
     private Set<String> pointIdsByFileUuid(String fileUuid) {
         Set<String> ids=new HashSet<>();
         Object offset=null;

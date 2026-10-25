@@ -343,6 +343,14 @@ public class MinioclientUtil {
                 .build());
     }
 
+    public String getPresignedObjectUrl(String fileUuid, String versionId, int expirySeconds) throws Exception {
+        if(versionId==null || versionId.isBlank()) throw new IllegalArgumentException("Immutable object version is required");
+        return minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                .method(Method.GET).bucket(defaultBucket).object(fileUuid)
+                .extraQueryParams(java.util.Map.of("versionId",versionId))
+                .expiry(expirySeconds<=0 ? 300 : expirySeconds).build());
+    }
+
     /**
      * 浠ュ唴鑱旀柟寮忚緭鍑哄璞★紝鐢ㄤ簬娴忚鍣ㄩ瑙堛€?     *
      * @param fileUuid 鏂囦欢 UUID锛屼篃鏄?MinIO 瀵硅薄鍚?     * @param fileName 鏂囦欢灞曠ず鍚?     * @param contentType HTTP 鍐呭绫诲瀷

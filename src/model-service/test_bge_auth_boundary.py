@@ -2,6 +2,8 @@ import os
 import sys
 import types
 import unittest
+import json
+from unittest.mock import patch
 
 os.environ["OFFLINE_FALLBACK"] = "true"
 os.environ["FALLBACK_DIMENSION"] = "4"
@@ -47,6 +49,24 @@ class BgeAuthBoundaryTest(unittest.TestCase):
             )
             self.assertEqual(200, accepted.status_code)
             self.assertEqual(4, accepted.json()["dimension"])
+
+    def test_trusted_json_chat_reaches_provider_without_prose_protocol_conflict(self):
+        answer = '{"questionType":"KNOWLEDGE"}'
+        with patch.object(bge_service, "chat_api_key", return_value="synthetic-test-key"), \
+                patch.object(bge_service, "CHAT_BASE_URL", "https://model.example.invalid/v1"), \
+                patch.object(bge_service, "call_text_model", return_value=(answer, {})) as provider, \
+                TestClient(bge_service.app) as client:
+            payload = {"question": "材料有什么用途？", "contexts": ['{"evidenceId":"e1","content":"导热率低"}'],
+                       "systemPrompt": "Return the classification JSON schema.", "responseProtocol": "TRUSTED_JSON"}
+            headers = {"Authorization": f"Bearer {issue(scope='model.chat')}"}
+            result = client.post("/chat", json=payload, headers=headers)
+            self.assertEqual(200, result.status_code)
+            self.assertEqual(answer, result.json()["answer"])
+            passed_prompt = provider.call_args.args[5]
+            self.assertEqual(payload["contexts"], json.loads(passed_prompt.split("\n", 1)[1])["evidence"])
+            self.assertNotIn("如果上下文中没有答案", passed_prompt)
+            rejected = client.post("/chat", json={**payload, "responseProtocol": "BYPASS"}, headers=headers)
+            self.assertEqual(422, rejected.status_code)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,16 @@ public class ParsedDocument {
     private String fullText;
     private List<DocumentBlock> blocks = new ArrayList<>();
     private String errorMessage;
+    /** Set only after the parser's input has been pinned to an immutable object version. */
+    private String sourceMinioVersionId;
+
+    public ParsedDocument(boolean success, boolean fallback, String fileUuid, String fileHash,
+                          String parser, String parserVersion, String fullText, List<DocumentBlock> blocks,
+                          String errorMessage) {
+        this.success=success; this.fallback=fallback; this.fileUuid=fileUuid; this.fileHash=fileHash;
+        this.parser=parser; this.parserVersion=parserVersion; this.fullText=fullText; this.blocks=blocks;
+        this.errorMessage=errorMessage;
+    }
 
     public static ParsedDocument success(String fileUuid, String fileHash, String parser, String parserVersion,
                                          String fullText, List<DocumentBlock> blocks) {

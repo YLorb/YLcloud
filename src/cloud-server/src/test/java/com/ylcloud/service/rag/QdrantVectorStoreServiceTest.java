@@ -11,6 +11,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class QdrantVectorStoreServiceTest {
 
     @Test
+    void immutableChunkIdentityDoesNotCollideAcrossReparsedGenerations() {
+        com.ylcloud.entity.FileRagChunk old=new com.ylcloud.entity.FileRagChunk();
+        old.setId(1L); old.setFileUuid("shared"); old.setFileHash("same-content"); old.setChunkIndex(0);
+        com.ylcloud.entity.FileRagChunk newer=new com.ylcloud.entity.FileRagChunk();
+        newer.setId(2L); newer.setFileUuid("shared"); newer.setFileHash("same-content"); newer.setChunkIndex(0);
+        org.junit.jupiter.api.Assertions.assertNotEquals(QdrantVectorStoreService.stableChunkPointId(old),QdrantVectorStoreService.stableChunkPointId(newer));
+        assertEquals(QdrantVectorStoreService.stableChunkPointId(old),QdrantVectorStoreService.stableChunkPointId(old));
+    }
+
+    @Test
     void acceptsFiniteVectorsWithExpectedCountAndDimension() {
         int dimension = QdrantVectorStoreService.validateEmbeddingBatch(
                 List.of(Embedding.from(new float[]{1.0f,0.0f}),Embedding.from(new float[]{0.0f,1.0f})),2,2);

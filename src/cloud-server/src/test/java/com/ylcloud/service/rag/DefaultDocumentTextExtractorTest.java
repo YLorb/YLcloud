@@ -26,7 +26,7 @@ class DefaultDocumentTextExtractorTest {
         DefaultDocumentTextExtractor extractor = new DefaultDocumentTextExtractor(minioclientUtil,properties);
         SpaceFile spaceFile = spaceFile("notes.txt");
         File file = file("file-1","notes.txt",100L);
-        when(minioclientUtil.getObjectStream("file-1"))
+        when(minioclientUtil.getObjectStream("file-1","immutable-v1"))
                 .thenReturn(new ByteArrayInputStream("hello rag".getBytes(StandardCharsets.UTF_8)));
 
         ExtractedDocumentText result = extractor.extract(spaceFile,file);
@@ -47,7 +47,7 @@ class DefaultDocumentTextExtractorTest {
         assertFalse(result.isSuccess());
         assertTrue(result.isFallback());
         assertEquals("暂不支持该文件类型",result.getErrorMessage());
-        verify(minioclientUtil,never()).getObjectStream("file-1");
+        verify(minioclientUtil,never()).getObjectStream("file-1","immutable-v1");
     }
 
     @Test
@@ -62,7 +62,7 @@ class DefaultDocumentTextExtractorTest {
         assertFalse(result.isSuccess());
         assertTrue(result.isFallback());
         assertEquals("文件超过正文解析大小限制",result.getErrorMessage());
-        verify(minioclientUtil,never()).getObjectStream("file-1");
+        verify(minioclientUtil,never()).getObjectStream("file-1","immutable-v1");
     }
 
     private SpaceFile spaceFile(String fileName) {
@@ -74,6 +74,7 @@ class DefaultDocumentTextExtractorTest {
 
     private File file(String fileUuid, String name, Long size) {
         File file = new File();
+        file.setMinioVersionId("immutable-v1");
         file.setFileUuid(fileUuid);
         file.setName(name);
         file.setSize(size);
