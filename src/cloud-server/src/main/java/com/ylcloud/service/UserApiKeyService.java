@@ -119,7 +119,7 @@ public class UserApiKeyService {
         String expectedHash = key == null ? DUMMY_HASH : key.getKeyHash();
         boolean hashMatches = plaintext != null && passwordEncoder.matches(plaintext,expectedHash);
         LocalDateTime now = LocalDateTime.now();
-        if(key == null || !hashMatches || !"ACTIVE".equals(key.getKeyStatus())
+        if(key == null || !hashMatches || !"ACTIVE".equals(key.getKeyStatus()) || key.getRevokedAt()!=null
                 || (key.getExpiresAt() != null && !key.getExpiresAt().isAfter(now))) {
             throw new BaseException(401,"API Key 无效、已过期或已撤销");
         }
@@ -167,12 +167,18 @@ public class UserApiKeyService {
         requireAccountActive(userId);
         UserApiKey key = mapper.getById(keyId);
         LocalDateTime now = LocalDateTime.now();
-        if(key == null || !userId.equals(key.getUserId()) || !"ACTIVE".equals(key.getKeyStatus())
+        if(key == null || !userId.equals(key.getUserId()) || !"ACTIVE".equals(key.getKeyStatus()) || key.getRevokedAt()!=null
                 || (key.getExpiresAt() != null && !key.getExpiresAt().isAfter(now))) {
             throw new BaseException(403,"API Key 不存在、已过期或已撤销");
         }
         return new ApiKeyPrincipal(key.getId(),key.getUserId(),key.getKeyPrefix(),key.getDriveAccess(),
                 key.getDriveRootFileId(),Set.copyOf(mapper.listScopes(key.getId())),Set.copyOf(mapper.listSpaceIds(key.getId())));
+    }
+
+    public ApiKeyPrincipal authenticateGatewayIdentity(Long userId,Long keyId) {
+        var principal=requireOwnedActivePrincipal(userId,keyId);
+        if(mapper.touch(keyId,LocalDateTime.now())!=1) throw new BaseException(401,"API Key 已失效");
+        return principal;
     }
 
     private LocalDateTime validateExpiry(UserApiKeyCreateDTO dto,LocalDateTime now) {
@@ -246,7 +252,8 @@ public class UserApiKeyService {
 
     private void requireAccountActive(Long userId) {
         User user = loginMapper.getById(userId);
-        if(user == null || user.getStatus() == null || user.getStatus() != 1) throw new BaseException(403,"API Key 所属账号不可用");
+        if(user == null || user.getStatus() == null || user.getStatus() != 1
+                || (user.getAccountStatus()!=null && !"ACTIVE".equals(user.getAccountStatus()))) throw new BaseException(403,"API Key 所属账号不可用");
     }
 
     private UserApiKeyVO toVO(UserApiKey key,Set<String> scopes,Set<Long> spaces,boolean highRisk) {

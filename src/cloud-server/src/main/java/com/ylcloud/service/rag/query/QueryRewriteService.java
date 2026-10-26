@@ -98,16 +98,21 @@ public class QueryRewriteService {
             plan.setRewriteSource("local");
         }
         List<CompletableFuture<Void>> expansions = new ArrayList<>();
+        // Billable expansions stay in the explicit request scope. A failed reservation stops later calls.
+        // Browser-only queries retain parallel expansion; no inheritable ThreadLocal can leak a key to pool threads.
+        var usage=com.ylcloud.service.metering.ApiUsageContext.current();
+        Executor expansionExecutor=usage==null ? queryExecutor : Runnable::run;
         if(Boolean.TRUE.equals(queryProperties.getMultiQueryEnabled())) {
-            expansions.add(CompletableFuture.runAsync(() -> applyMultiQuery(plan,queryProperties,historyText),queryExecutor));
+            expansions.add(CompletableFuture.runAsync(() -> applyMultiQuery(plan,queryProperties,historyText),expansionExecutor));
         }
         if(Boolean.TRUE.equals(queryProperties.getHydeEnabled())) {
-            expansions.add(CompletableFuture.runAsync(() -> applyHyde(plan,queryProperties),queryExecutor));
+            expansions.add(CompletableFuture.runAsync(() -> applyHyde(plan,queryProperties),expansionExecutor));
         }
         if(Boolean.TRUE.equals(queryProperties.getStepBackEnabled())) {
-            expansions.add(CompletableFuture.runAsync(() -> applyStepBack(plan,queryProperties),queryExecutor));
+            expansions.add(CompletableFuture.runAsync(() -> applyStepBack(plan,queryProperties),expansionExecutor));
         }
         CompletableFuture.allOf(expansions.toArray(new CompletableFuture[0])).join();
+        if(usage!=null) usage.check();
         log.info("RAG query rewrite planning finished: rewritten={}, multiQueries={}, hyde={}, stepBack={}, warnings={}",
                 present(plan.getRewrittenQuery()),plan.getExpandedQueries().size(),present(plan.getHydeDocument()),
                 present(plan.getStepBackQuery()),plan.getWarnings().size());

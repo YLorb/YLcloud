@@ -1,5 +1,5 @@
 import { md5 } from "hash-wasm";
-import { api } from "../../api";
+import { api, ApiError } from "../../api";
 import type { FileItem } from "../../types";
 
 const HASH_SLICE_SIZE = 4 * 1024 * 1024;
@@ -60,7 +60,9 @@ async function retryRequest<T>(action: () => Promise<T>) {
       return await action();
     } catch (error) {
       lastError = error;
-      if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+      if (error instanceof ApiError && error.status === 503) throw error;
+      if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve,
+        error instanceof ApiError && error.status === 429 ? Math.max(1, error.retryAfterSeconds) * 1000 : 500 * (attempt + 1)));
     }
   }
   throw lastError;
@@ -86,7 +88,7 @@ export async function uploadFileWithResume(
   const key = resumeKey(file, parentId, hashes.sha256);
   const savedUploadId = localStorage.getItem(key) || crypto.randomUUID();
   const totalChunks = Math.ceil(file.size / DEFAULT_CHUNK_SIZE);
-  const initialized = await api.initMultipartUpload({
+  const initialized = await retryRequest(() => api.initMultipartUpload({
     uploadId: savedUploadId,
     fileName: file.name,
     fileMd5: hashes.md5,
@@ -96,7 +98,7 @@ export async function uploadFileWithResume(
     chunkSize: DEFAULT_CHUNK_SIZE,
     totalChunks,
     parentId
-  });
+  }));
 
   if (initialized.instantUpload && initialized.file) {
     localStorage.removeItem(key);
@@ -109,7 +111,7 @@ export async function uploadFileWithResume(
   localStorage.setItem(key, uploadId);
   const chunkSize = initialized.chunkSize || DEFAULT_CHUNK_SIZE;
   const confirmedTotal = initialized.totalChunks || Math.ceil(file.size / chunkSize);
-  const status = await api.multipartStatus(uploadId);
+  const status = await retryRequest(() => api.multipartStatus(uploadId));
   const uploaded = new Set(status.uploadedChunks || initialized.uploadedChunks || []);
 
   for (let index = 0; index < confirmedTotal; index += 1) {
@@ -129,11 +131,11 @@ export async function uploadFileWithResume(
   }
 
   hooks.onProgress?.({ fileName: file.name, stage: "merging", percent: 96, uploadedChunks: confirmedTotal, totalChunks: confirmedTotal });
-  const result = await api.mergeMultipartUpload({
+  const result = await retryRequest(() => api.mergeMultipartUpload({
     uploadId,
     fileName: file.name,
     partNames: Array.from({ length: confirmedTotal }, (_, index) => String(index))
-  });
+  }));
   localStorage.removeItem(key);
   hooks.onProgress?.({ fileName: file.name, stage: "merging", percent: 100, uploadedChunks: confirmedTotal, totalChunks: confirmedTotal });
   return result;

@@ -61,6 +61,14 @@ public class OpenApiController {
     private final KnowledgeChatSessionService chatSessionService;
     private final OpenApiKnowledgeChatService openApiChats;
     private QuotaService quotas;
+    @Autowired private com.ylcloud.service.metering.ApiTokenMeteringService metering;
+
+    @GetMapping("/usage/records")
+    public OpenApiEnvelope<List<Map<String,Object>>> usageRecords(@RequestParam(defaultValue="1") int page,
+            @RequestParam(defaultValue="20") int pageSize,HttpServletRequest request) {
+        var principal=OpenApiContext.require();
+        return success(metering.records(principal.userId(),principal.keyId(),page,pageSize),request);
+    }
 
     @GetMapping("/capabilities")
     public OpenApiEnvelope<Map<String,Object>> capabilities(HttpServletRequest request) {
@@ -147,7 +155,11 @@ public class OpenApiController {
                                                             HttpServletRequest request) {
         ApiKeyPrincipal principal = OpenApiContext.require();
         apiKeys.requireSpace(principal,spaceId,false);
-        return success(spaceRagService.query(spaceId,dto,principal.userId()),request);
+        var usage=com.ylcloud.service.metering.ApiUsageContext.current();
+        if(usage!=null) usage.authorize(List.of(spaceId),false);
+        var result=spaceRagService.query(spaceId,dto,principal.userId());
+        if(usage!=null) usage.check();
+        return success(result,request);
     }
 
     @PostMapping("/assistant/sessions")

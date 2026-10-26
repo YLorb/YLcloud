@@ -100,6 +100,18 @@ describe("管理页真实接口", () => {
     await waitFor(() => expect(api.updateDeploymentSecret).toHaveBeenCalledWith("llmApiKey", "sk-browser-only"));
     await waitFor(() => expect(input).toHaveValue(""));
   });
+  it("管理员可将全站默认代理切换为直链并保存到服务器", async () => {
+    vi.mocked(api.adminSettings).mockResolvedValue([{ key: "storage.downloadMode", value: "proxy", valueType: "string", groupName: "file", label: "下载方式", description: "下载模式", secret: false, editable: true }]);
+    vi.mocked(api.updateAdminSettings).mockResolvedValue(undefined);
+    const user = userEvent.setup(); mount(<SettingsPage />);
+    const select = await screen.findByRole("combobox", { name: "下载方式" });
+    expect(select).toHaveValue("proxy");
+    await user.selectOptions(select, "direct");
+    await user.click(screen.getByRole("button", { name: "保存配置" }));
+    expect(api.updateAdminSettings).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "确认保存到服务器" }));
+    await waitFor(() => expect(api.updateAdminSettings).toHaveBeenCalledWith([{ key: "storage.downloadMode", value: "direct" }]));
+  });
   it("维护操作必须确认，传递输入原因", async () => {
     vi.mocked(api.adminSettings).mockResolvedValue([]);
     vi.mocked(api.enableMaintenance).mockResolvedValue({ status: "enabled", message: "ok" });

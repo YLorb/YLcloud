@@ -22,6 +22,7 @@
         <module>src/cloud-common</module>
         <module>src/cloud-pojo</module>
         <module>src/cloud-server</module>
+        <module>src/cloud-gateway</module>
     </modules>
 
     <properties>

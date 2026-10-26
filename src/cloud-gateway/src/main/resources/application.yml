@@ -1,0 +1,56 @@
+server:
+  port: ${YLCLOUD_GATEWAY_PORT:8088}
+  forward-headers-strategy: none
+spring:
+  application:
+    name: ylcloud-gateway
+  config:
+    import: optional:configtree:/run/secrets/
+  r2dbc:
+    url: ${YLCLOUD_GATEWAY_SESSION_DB_URL:r2dbc:mysql://127.0.0.1:3306/ylcloud}
+    username: ${YLCLOUD_GATEWAY_SESSION_DB_USER:ylcloud}
+    password: ${gateway_session_db_password:${YLCLOUD_GATEWAY_SESSION_DB_PASSWORD:}}
+    pool:
+      initial-size: 0
+      max-size: 16
+      max-acquire-time: 2s
+      max-create-connection-time: 2s
+  data:
+    redis:
+      host: ${YLCLOUD_REDIS_HOST:127.0.0.1}
+      port: ${YLCLOUD_REDIS_PORT:6379}
+      password: ${redis_password:${YLCLOUD_REDIS_PASSWORD:}}
+      connect-timeout: 1s
+      timeout: 1s
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 5000
+            # Inactivity timeout, not a whole-file deadline. Never aggregate bodies.
+            response-timeout: ${YLCLOUD_GATEWAY_RESPONSE_TIMEOUT:180s}
+          forwarded:
+            enabled: false
+          x-forwarded:
+            enabled: false
+management:
+  server:
+    port: ${YLCLOUD_GATEWAY_MANAGEMENT_PORT:8089}
+    address: 127.0.0.1
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+ylcloud:
+  gateway:
+    upstream: ${YLCLOUD_GATEWAY_UPSTREAM:http://127.0.0.1:8080}
+    trusted-proxies: ${YLCLOUD_GATEWAY_TRUSTED_PROXIES:}
+    forwarding-secret: ${gateway_forwarding_secret:${YLCLOUD_GATEWAY_FORWARDING_SECRET:}}
+    redis-timeout: 1s
+    key-prefix: "ylcloud:gateway:"
+    session:
+      enabled: ${YLCLOUD_GATEWAY_SESSION_ENABLED:true}
+      cookie-secure: ${YLCLOUD_SESSION_COOKIE_SECURE:true}
+      identity-secret: ${gateway_identity_secret:${YLCLOUD_GATEWAY_IDENTITY_SECRET:}}
+      timeout: 2s

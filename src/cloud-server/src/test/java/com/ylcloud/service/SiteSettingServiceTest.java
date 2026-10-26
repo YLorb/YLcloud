@@ -17,6 +17,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SiteSettingServiceTest {
+    @Test void downloadModeRejectsUnknownValuesAndUnconfiguredDirectEndpoint() {
+        when(mapper.getByKey("storage.downloadMode")).thenReturn(editableSetting("storage.downloadMode", "string"));
+        assertThrows(BaseException.class, () -> service.updateBatch(update("storage.downloadMode", "anything")));
+        assertThrows(BaseException.class, () -> service.updateBatch(update("storage.downloadMode", "direct")));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "publicStorageEndpoint", "https://objects.example.test");
+        when(mapper.updateValue("storage.downloadMode", "direct")).thenReturn(1);
+        service.updateBatch(update("storage.downloadMode", "direct"));
+        verify(mapper).updateValue("storage.downloadMode", "direct");
+    }
     private final SiteSettingMapper mapper = mock(SiteSettingMapper.class);
     private final SiteSettingService service = new SiteSettingService(mapper);
 

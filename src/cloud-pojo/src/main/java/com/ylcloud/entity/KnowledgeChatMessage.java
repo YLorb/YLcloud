@@ -19,6 +19,8 @@ public class KnowledgeChatMessage {
     private String errorMessage;
     private String requestKey;
     private String requestJson;
+    private Long meteringApiKeyId;
+    private String meteringRequestId;
     private String contextSnapshotJson;
     private String contextHash;
     private Integer contextVersion;

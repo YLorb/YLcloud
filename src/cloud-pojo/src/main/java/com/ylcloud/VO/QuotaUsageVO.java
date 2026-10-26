@@ -17,6 +17,7 @@ public class QuotaUsageVO {
     private Long apiCalls;
     private Long apiCallLimit;
     private Long modelTokens;
+    private Long modelTokensReserved;
     private Long modelTokenLimit;
     private Long agentTasks;
     private Long agentTaskLimit;

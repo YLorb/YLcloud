@@ -32,6 +32,29 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class DataExportServiceTest {
+    @Test void downloadRejectsOtherUsersAndExpiredJobsBeforeStorage() {
+        Fixture fixture = new Fixture();
+        var job = new com.ylcloud.entity.DataExportJob();
+        job.setId(1L); job.setUserId(2L); job.setStatus("COMPLETED"); job.setStoragePath("exports/private.enc");
+        job.setDownloadExpiresAt(java.time.LocalDateTime.now().plusHours(1));
+        when(fixture.jobs.getById(1L)).thenReturn(job);
+        assertThrows(com.ylcloud.Exception.BaseException.class, () -> fixture.service.downloadExport(3L,1L,new org.springframework.mock.web.MockHttpServletResponse()));
+        job.setDownloadExpiresAt(java.time.LocalDateTime.now().minusSeconds(1));
+        assertThrows(com.ylcloud.Exception.BaseException.class, () -> fixture.service.downloadExport(2L,1L,new org.springframework.mock.web.MockHttpServletResponse()));
+        org.mockito.Mockito.verifyNoInteractions(fixture.minio);
+    }
+
+    @Test void authorizedExportUsesCurrentDownloadModeInsteadOfStoredUrl() throws Exception {
+        Fixture fixture = new Fixture();
+        var job = new com.ylcloud.entity.DataExportJob(); job.setId(1L); job.setUserId(2L);
+        job.setStatus("COMPLETED"); job.setStoragePath("exports/private.enc");
+        job.setDownloadExpiresAt(java.time.LocalDateTime.now().plusHours(1)); job.setDownloadUrl("http://old-storage/private");
+        when(fixture.jobs.getById(1L)).thenReturn(job);
+        var response = new org.springframework.mock.web.MockHttpServletResponse();
+        fixture.service.downloadExport(2L,1L,response);
+        org.mockito.Mockito.verify(fixture.minio).streamDownload("exports/private.enc",null,"export-1.enc",response);
+        org.junit.jupiter.api.Assertions.assertEquals("/api/account/export/1/download",fixture.service.getExport(2L,1L).getDownloadUrl());
+    }
     @Test
     void missingMasterKeyFailsClosed() {
         Fixture fixture = new Fixture();

@@ -1,4 +1,54 @@
 services:
+  gateway-redis:
+    image: redis:7.4.7-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        umask 077
+        printf 'requirepass %s\nappendonly yes\nappendfsync always\nmaxmemory-policy noeviction\n' "$$(cat /run/secrets/redis_password)" > /tmp/redis.conf
+        exec redis-server /tmp/redis.conf
+    secrets:
+      - redis_password
+    volumes:
+      - ${YLCLOUD_GATEWAY_REDIS_DATA_DIR:-../.data/gateway-redis}:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  gateway:
+    build:
+      context: ../src/cloud-gateway
+    image: ylcloud-gateway:local
+    restart: unless-stopped
+    secrets:
+      - redis_password
+      - gateway_forwarding_secret
+      - gateway_identity_secret
+    environment:
+      YLCLOUD_REDIS_HOST: gateway-redis
+      YLCLOUD_SESSION_COOKIE_SECURE: ${YLCLOUD_SESSION_COOKIE_SECURE:-false}
+      YLCLOUD_GATEWAY_SESSION_DB_URL: r2dbc:mysql://mysql:3306/${YLCLOUD_MYSQL_DATABASE:-ylcloud}
+      YLCLOUD_GATEWAY_SESSION_DB_USER: ${YLCLOUD_GATEWAY_SESSION_DB_USER:-${YLCLOUD_MYSQL_USER:-ylcloud}}
+      YLCLOUD_GATEWAY_SESSION_DB_PASSWORD: ${YLCLOUD_GATEWAY_SESSION_DB_PASSWORD:-${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}}
+      YLCLOUD_GATEWAY_UPSTREAM: http://ylcloud-app:8080
+      YLCLOUD_GATEWAY_TRUSTED_PROXIES: ${YLCLOUD_EDGE_FRONTEND_IP:-172.31.241.2}
+    depends_on:
+      gateway-redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    networks:
+      default: {}
+      gateway-edge: {}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8089/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
   rabbitmq:
     image: rabbitmq:4.3.4-management
     container_name: ylcloud-rabbitmq
@@ -42,11 +92,12 @@ services:
       MYSQL_PASSWORD: ${YLCLOUD_MYSQL_PASSWORD:-ylcloud_pwd}
       TZ: Asia/Shanghai
     ports:
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_MYSQL_HOST_PORT:-3306}:3306"
+      - "127.0.0.1:${YLCLOUD_MYSQL_HOST_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      start_period: 300s
       interval: 10s
       timeout: 5s
       retries: 10
@@ -60,8 +111,8 @@ services:
       MINIO_ROOT_USER: ${YLCLOUD_MINIO_ACCESS_KEY:-ylcloud_minio}
       MINIO_ROOT_PASSWORD: ${YLCLOUD_MINIO_SECRET_KEY:-ylcloud_minio_pwd}
     ports:
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_MINIO_API_HOST_PORT:-9000}:9000"
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+      - "127.0.0.1:${YLCLOUD_MINIO_API_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${YLCLOUD_MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -75,8 +126,8 @@ services:
     container_name: ylcloud-qdrant
     restart: unless-stopped
     ports:
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_QDRANT_REST_HOST_PORT:-6333}:6333"
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_QDRANT_GRPC_HOST_PORT:-6334}:6334"
+      - "127.0.0.1:${YLCLOUD_QDRANT_REST_HOST_PORT:-6333}:6333"
+      - "127.0.0.1:${YLCLOUD_QDRANT_GRPC_HOST_PORT:-6334}:6334"
     volumes:
       - qdrant-data:/qdrant/storage
     healthcheck:
@@ -119,7 +170,7 @@ services:
       OPENAI_COMPATIBLE_API_KEY_FILE: /run/managed-secrets/ark_api_key
       LLM_API_STYLE: ${YLCLOUD_LLM_API_STYLE:-responses}
     ports:
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_MODEL_HOST_PORT:-8001}:8001"
+      - "127.0.0.1:${YLCLOUD_MODEL_HOST_PORT:-8001}:8001"
     volumes:
       - model-cache:/models
       - ./secrets:/run/managed-secrets:ro
@@ -149,7 +200,7 @@ services:
       VLM_MODEL: ${YLCLOUD_VLM_MODEL:-${YLCLOUD_ARK_MODEL:-doubao-seed-2-0-pro-260215}}
       VLM_API_STYLE: ${YLCLOUD_VLM_API_STYLE:-responses}
     ports:
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_PARSER_HOST_PORT:-8002}:8002"
+      - "127.0.0.1:${YLCLOUD_PARSER_HOST_PORT:-8002}:8002"
     volumes:
       - ./secrets:/run/managed-secrets:ro
     healthcheck:
@@ -166,6 +217,8 @@ services:
     container_name: ylcloud-app
     restart: unless-stopped
     secrets:
+      - gateway_forwarding_secret
+      - gateway_identity_secret
       - jwt_secret
       - service_jwt_active_secret
       - llm_api_key
@@ -189,6 +242,11 @@ services:
       document-parser-service:
         condition: service_healthy
     environment:
+      YLCLOUD_GATEWAY_FORWARDING_SECRET_FILE: /run/secrets/gateway_forwarding_secret
+      YLCLOUD_GATEWAY_IDENTITY_SECRET_FILE: /run/secrets/gateway_identity_secret
+      YLCLOUD_GATEWAY_AUTH_REQUIRED: "true"
+      YLCLOUD_MINIO_PUBLIC_ENDPOINT: ${YLCLOUD_MINIO_PUBLIC_ENDPOINT:-}
+      YLCLOUD_MINIO_REGION: ${YLCLOUD_MINIO_REGION:-us-east-1}
       SPRING_PROFILES_ACTIVE: ${YLCLOUD_SPRING_PROFILE:-dev}
       YLCLOUD_SESSION_COOKIE_SECURE: ${YLCLOUD_SESSION_COOKIE_SECURE:-false}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${YLCLOUD_MYSQL_DATABASE:-ylcloud}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
@@ -251,7 +309,7 @@ services:
       YLCLOUD_RAG_INDEX_CONCURRENCY: ${YLCLOUD_RAG_INDEX_CONCURRENCY:-5}
       YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES: ${YLCLOUD_RAG_INDEX_TASK_TIMEOUT_MINUTES:-10}
     ports:
-      - "${YLCLOUD_INFRA_BIND_ADDRESS:-127.0.0.1}:${YLCLOUD_BACKEND_HOST_PORT:-8080}:8080"
+      - "127.0.0.1:${YLCLOUD_BACKEND_HOST_PORT:-8080}:8080"
     volumes:
       - ylcloud-deploy-state:/var/lib/ylcloud-deploy
       - ./secrets:/var/lib/ylcloud-secrets
@@ -269,8 +327,11 @@ services:
     container_name: ylcloud-frontend
     restart: unless-stopped
     depends_on:
-      ylcloud-app:
+      gateway:
         condition: service_healthy
+    networks:
+      gateway-edge:
+        ipv4_address: ${YLCLOUD_EDGE_FRONTEND_IP:-172.31.241.2}
     ports:
       - "${YLCLOUD_PUBLIC_BIND_ADDRESS:-0.0.0.0}:${YLCLOUD_FRONTEND_HOST_PORT:-5173}:80"
     healthcheck:
@@ -278,6 +339,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+
+networks:
+  gateway-edge:
+    ipam:
+      config:
+        - subnet: ${YLCLOUD_EDGE_SUBNET:-172.31.241.0/24}
+          ip_range: ${YLCLOUD_EDGE_DYNAMIC_RANGE:-172.31.241.128/25}
 
 volumes:
   mysql-data:
@@ -288,6 +356,12 @@ volumes:
   ylcloud-deploy-state:
 
 secrets:
+  redis_password:
+    file: ./secrets/redis_password
+  gateway_forwarding_secret:
+    file: ./secrets/gateway_forwarding_secret
+  gateway_identity_secret:
+    file: ./secrets/gateway_identity_secret
   rabbitmq_password:
     file: ./secrets/rabbitmq_password
   jwt_secret:

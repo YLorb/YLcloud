@@ -20,6 +20,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class OpenApiKeyInterceptorTest {
+    @Test void verifiedGatewayIdentityUsesNoPlaintextAndClearsBillingContext() throws Exception {
+        UserApiKeyService keys=mock(UserApiKeyService.class);
+        var policy=mock(OpenApiVersionPolicyService.class);
+        when(keys.authenticateGatewayIdentity(7L,3L)).thenReturn(new ApiKeyPrincipal(3L,7L,"prefix","READ",1L,Set.of("DRIVE_READ"),Set.of()));
+        var interceptor=new OpenApiKeyInterceptor(keys,policy,new ObjectMapper());
+        var request=new MockHttpServletRequest("GET","/api/v1/usage");
+        String id=java.util.UUID.randomUUID().toString();
+        request.setAttribute(com.ylcloud.config.GatewayApiKeyIdentityFilter.IDENTITY,new com.ylcloud.security.ApiKeyIdentityCodec.Identity(3,7,id));
+        var response=new MockHttpServletResponse();
+        assertTrue(interceptor.preHandle(request,response,new Object()));
+        assertEquals(id,com.ylcloud.service.metering.ApiUsageContext.current().requestId);
+        org.mockito.Mockito.verify(keys,org.mockito.Mockito.never()).authenticate(org.mockito.ArgumentMatchers.any());
+        interceptor.afterCompletion(request,response,new Object(),null);
+        org.junit.jupiter.api.Assertions.assertNull(com.ylcloud.service.metering.ApiUsageContext.current());
+    }
     @Test
     void authenticatesApiKeyAndMarksUnversionedAlias() throws Exception {
         UserApiKeyService keys = mock(UserApiKeyService.class);

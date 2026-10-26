@@ -87,6 +87,9 @@ public class BrowserSessionService {
     }
 
     public User authenticate(HttpServletRequest request) {
+        if (Boolean.TRUE.equals(request.getAttribute(com.ylcloud.config.GatewayIdentityFilter.RESOLVED))) {
+            return (User) request.getAttribute(USER_ATTRIBUTE);
+        }
         String raw = credential(request);
         if (raw == null) return null;
         List<User> users = jdbc.query("select u.user_id as id,u.username,u.nickname,u.role," +

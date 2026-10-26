@@ -124,3 +124,6 @@ src/sandbox-service/tool-catalog.local.json
 sandbox-docker-validation*.log
 sandbox-service-validation.*.log
 sandbox-docker-validation-result.json
+
+# Gateway local persistence
+/.data/gateway-redis/

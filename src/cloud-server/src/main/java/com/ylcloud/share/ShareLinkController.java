@@ -58,6 +58,7 @@ public class ShareLinkController {
     public void download(@PathVariable String code,@RequestParam(defaultValue="") String credential,HttpServletResponse response) throws Exception {
         response.setHeader("Cache-Control","no-store");
         try(ShareLinkService.Download d=service.approve(code,credential)){
+            if (service.redirectDownload(code,d,response)) return;
             String filename=ShareLinkService.safeName(d.name())+(d.directory()?".zip":"");
             response.setContentType(d.directory()?"application/zip":"application/octet-stream");
             response.setHeader("X-Content-Type-Options","nosniff");

@@ -38,6 +38,8 @@ public class OpenApiKnowledgeChatService {
             return queries.toVO(existing);
         }
         dto.setApiKeyId(agent ? principal.keyId() : null);
+        var usage=com.ylcloud.service.metering.ApiUsageContext.current();
+        if(usage!=null) usage.authorize(dto.getSpaceIds(),agent);
         return queries.submit(sessionId,principal.userId(),dto,key);
     }
 

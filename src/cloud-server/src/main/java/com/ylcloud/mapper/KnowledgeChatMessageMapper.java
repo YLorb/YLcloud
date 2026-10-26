@@ -16,7 +16,7 @@ public interface KnowledgeChatMessageMapper {
             "source_message_id as sourceMessageId, role, content, citations_json as citationsJson, trusted_answer_id as trustedAnswerId, " +
             "task_status as taskStatus, error_message as errorMessage, request_key as requestKey, request_json as requestJson, " +
             "context_snapshot_json as contextSnapshotJson, context_hash as contextHash, context_version as contextVersion, " +
-            "context_token_count as contextTokenCount, retry_count as retryCount, " +
+            "context_token_count as contextTokenCount, retry_count as retryCount, metering_api_key_id as meteringApiKeyId, metering_request_id as meteringRequestId, " +
             "workflow_run_id as workflowRunId, workflow_execution_id as workflowExecutionId, " +
             "workflow_execution_epoch as workflowExecutionEpoch, workflow_status as workflowStatus, " +
             "workflow_degraded as workflowDegraded, workflow_result_hash as workflowResultHash, " +
@@ -26,10 +26,10 @@ public interface KnowledgeChatMessageMapper {
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     @Insert("insert into knowledge_chat_message(session_id, user_id, sequence_no, source_message_id, role, content, citations_json, task_status, " +
             "error_message, request_key, request_json, context_snapshot_json, context_hash, context_version, context_token_count, retry_count, " +
-            "async_task_id, async_version, async_task_type, status, createtime, updatetime) " +
+            "metering_api_key_id, metering_request_id, async_task_id, async_version, async_task_type, status, createtime, updatetime) " +
             "values(#{sessionId}, #{userId}, #{sequenceNo}, #{sourceMessageId}, #{role}, #{content}, #{citationsJson}, #{taskStatus}, " +
             "#{errorMessage}, #{requestKey}, #{requestJson}, #{contextSnapshotJson}, #{contextHash}, #{contextVersion}, #{contextTokenCount}, coalesce(#{retryCount},0), " +
-            "#{asyncTaskId}, coalesce(#{asyncVersion},1), #{asyncTaskType}, #{status}, #{createtime}, " +
+            "#{meteringApiKeyId}, #{meteringRequestId}, #{asyncTaskId}, coalesce(#{asyncVersion},1), #{asyncTaskType}, #{status}, #{createtime}, " +
             "coalesce(#{updatetime},#{createtime}))")
     int insert(KnowledgeChatMessage message);
 

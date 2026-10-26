@@ -17,6 +17,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QueryRewriteServiceTest {
+    @Test void apiKeyExpansionsStayInMeteredScopeAndCannotSwallowQuotaFailure() {
+        var model=org.mockito.Mockito.mock(RagModelClient.class);
+        var service=new QueryRewriteService(new RagProperties(),model,task->{throw new AssertionError("API usage scope lost to pool");});
+        String requestId=java.util.UUID.randomUUID().toString();
+        try(var usage=com.ylcloud.service.metering.ApiUsageContext.open(7,3,requestId,null)) {
+            org.mockito.Mockito.when(model.generate(org.mockito.ArgumentMatchers.any())).thenAnswer(inv->{
+                assertEquals(usage,com.ylcloud.service.metering.ApiUsageContext.current());
+                throw usage.fail(new com.ylcloud.Exception.BaseException(429,"quota exhausted"));
+            });
+            var error=org.junit.jupiter.api.Assertions.assertThrows(com.ylcloud.Exception.BaseException.class,()->service.plan("question"));
+            assertEquals(429,error.getStatusCode());
+        }
+        org.junit.jupiter.api.Assertions.assertNull(com.ylcloud.service.metering.ApiUsageContext.current());
+    }
 
     @Test
     void invokesRewriteHydeStepBackAndMultiQueryPromptsWithHistory() {

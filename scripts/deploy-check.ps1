@@ -76,7 +76,7 @@ if (-not [string]::IsNullOrWhiteSpace($bucket) -and $bucket -notmatch "^[a-z0-9]
 }
 
 $secretDirectory = Join-Path $workspace "config/secrets"
-@("jwt_secret", "llm_api_key", "ark_api_key", "rag_query_api_key", "vlm_api_key") | ForEach-Object {
+@("jwt_secret", "llm_api_key", "ark_api_key", "rag_query_api_key", "vlm_api_key", "redis_password", "gateway_forwarding_secret", "gateway_identity_secret") | ForEach-Object {
     $path = Join-Path $secretDirectory $_
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         $errors.Add("Missing secret file: config/secrets/$_")

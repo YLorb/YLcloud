@@ -219,6 +219,7 @@ public class QuotaService {
         vo.setFileCount(safe(mapper.storageFiles(account.getId()))); vo.setSpaceCount("USER".equals(account.getAccountType()) ? safe(mapper.activeOwnedTeamSpaces(account.getReferenceId())) : 0L);
         vo.setSpaceLimit(safe(policy.getSpaceLimit())); vo.setApiCalls(number(values,"apiCalls")); vo.setApiCallLimit(safe(policy.getMonthlyApiCalls()));
         vo.setModelTokens(number(values,"modelTokens")); vo.setModelTokenLimit(safe(policy.getMonthlyModelTokens()));
+        vo.setModelTokensReserved(number(values,"modelTokensReserved"));
         vo.setAgentTasks(number(values,"agentTasks")); vo.setAgentTaskLimit(safe(policy.getMonthlyAgentTasks()));
         vo.setConcurrentAgentTasks(number(values,"concurrentAgentTasks")); vo.setConcurrentAgentTaskLimit(safe(policy.getConcurrentAgentTasks()));
         return vo;

@@ -29,7 +29,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8080",
+        target: "http://127.0.0.1:8088",
+        xfwd: false,
+        configure(proxy) {
+          proxy.on("proxyReq", (proxyReq, req) => proxyReq.setHeader("X-Real-IP", req.socket.remoteAddress || "127.0.0.1"));
+        },
         changeOrigin: true
       }
     }

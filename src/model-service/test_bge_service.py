@@ -17,6 +17,19 @@ class FakeM3Model:
 
 
 class BgeServiceTest(unittest.TestCase):
+    def test_usage_preserves_real_zero_and_both_provider_contracts(self):
+        self.assertEqual((0, 0, 0), service.usage_tokens({"usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}))
+        self.assertEqual((12, 8, 20), service.usage_tokens({"usage": {"input_tokens": 12, "output_tokens": 8}}))
+        self.assertEqual((12, 8, 20), service.usage_tokens({"usage": {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20}}))
+
+    def test_unknown_or_invalid_usage_is_never_reported_as_zero(self):
+        for usage in (None, {}, [], {"prompt_tokens": 1}, {"prompt_tokens": True, "completion_tokens": 1},
+                      {"prompt_tokens": -1, "completion_tokens": 1}, {"prompt_tokens": "2", "completion_tokens": 1},
+                      {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 0},
+                      {"prompt_tokens": 2147483647, "completion_tokens": 1}):
+            with self.subTest(usage=usage):
+                self.assertEqual((None, None, None), service.usage_tokens({"usage": usage}))
+
     def setUp(self):
         self.model_name = service.EMBEDDING_MODEL_NAME
         self.expected_dimension = service.EXPECTED_EMBEDDING_DIMENSION

@@ -14,6 +14,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class WorkflowRunRequestFactoryTest {
+    @Test void recoveredApiTaskCannotBypassMeteringWhenWorkflowIsEnabledLater() {
+        var mapper=mock(KnowledgeChatMessageMapper.class);
+        var factory=new WorkflowRunRequestFactory(mapper,new ObjectMapper());
+        var assistant=new KnowledgeChatMessage(); assistant.setMeteringApiKeyId(23L);
+        var error=org.junit.jupiter.api.Assertions.assertThrows(com.ylcloud.Exception.BaseException.class,()->factory.create(assistant));
+        assertEquals(503,error.getStatusCode());
+        org.mockito.Mockito.verifyNoInteractions(mapper);
+    }
     @Test
     void buildsDeterministicInputHashWithoutPerformingRetrieval() throws Exception {
         KnowledgeChatMessageMapper mapper = mock(KnowledgeChatMessageMapper.class);

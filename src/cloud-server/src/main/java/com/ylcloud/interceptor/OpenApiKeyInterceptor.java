@@ -34,7 +34,10 @@ public class OpenApiKeyInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request,HttpServletResponse response,Object handler) throws Exception {
-        String traceId = traceId(request.getHeader("X-Trace-Id"));
+        OpenApiContext.clear(); BaseContext.removeCurrentId();
+        com.ylcloud.service.metering.ApiUsageContext.clear();
+        var gatewayIdentity=(com.ylcloud.security.ApiKeyIdentityCodec.Identity) request.getAttribute(com.ylcloud.config.GatewayApiKeyIdentityFilter.IDENTITY);
+        String traceId = gatewayIdentity==null ? traceId(request.getHeader("X-Trace-Id")) : gatewayIdentity.requestId();
         boolean unversioned = request.getRequestURI().startsWith("/api/open/") || "/api/open".equals(request.getRequestURI());
         request.setAttribute(TRACE_ATTRIBUTE,traceId);
         request.setAttribute(VERSION_ATTRIBUTE,"v1");
@@ -47,11 +50,14 @@ public class OpenApiKeyInterceptor implements HandlerInterceptor {
             String authorization = request.getHeader("Authorization");
             String plaintext = authorization != null && authorization.startsWith("Bearer ")
                     ? authorization.substring(7).trim() : null;
-            ApiKeyPrincipal principal = apiKeyService.authenticate(plaintext);
+            ApiKeyPrincipal principal = gatewayIdentity==null ? apiKeyService.authenticate(plaintext)
+                    : apiKeyService.authenticateGatewayIdentity(gatewayIdentity.userId(),gatewayIdentity.keyId());
+            if(!Set.of("GET","HEAD","OPTIONS").contains(request.getMethod())) versionPolicy.requireWriteAllowed("v1");
             if(quotas != null) quotas.consumeApiCall(principal.userId());
             OpenApiContext.set(principal);
             BaseContext.setCurrentId(principal.userId());
-            if(!Set.of("GET","HEAD","OPTIONS").contains(request.getMethod())) versionPolicy.requireWriteAllowed("v1");
+            com.ylcloud.service.metering.ApiUsageContext.open(principal.userId(),principal.keyId(),
+                    gatewayIdentity==null ? UUID.randomUUID().toString() : gatewayIdentity.requestId(),null);
             return true;
         } catch(BaseException exception) {
             int status = exception.getStatusCode();
@@ -71,6 +77,7 @@ public class OpenApiKeyInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request,HttpServletResponse response,Object handler,Exception ex) {
         OpenApiContext.clear();
+        com.ylcloud.service.metering.ApiUsageContext.clear();
         BaseContext.removeCurrentId();
     }
 

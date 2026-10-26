@@ -6,6 +6,7 @@ COPY pom.xml ./
 COPY src/cloud-common/pom.xml src/cloud-common/pom.xml
 COPY src/cloud-pojo/pom.xml src/cloud-pojo/pom.xml
 COPY src/cloud-server/pom.xml src/cloud-server/pom.xml
+COPY src/cloud-gateway/pom.xml src/cloud-gateway/pom.xml
 
 COPY src/cloud-common/src src/cloud-common/src
 COPY src/cloud-pojo/src src/cloud-pojo/src

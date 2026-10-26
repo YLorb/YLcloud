@@ -26,6 +26,34 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class KnowledgeChatQueryServiceTest {
+    @Test void queuedApiTaskRestoresServerAttributionAndRejectsRevocationBeforeModelWork() throws Exception {
+        var task=readyTask(null,3L); task.setMeteringApiKeyId(23L); task.setMeteringRequestId(java.util.UUID.randomUUID().toString());
+        var keys=mock(UserApiKeyService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"executionApiKeys",keys);
+        doThrow(new BaseException(403,"revoked key")).when(keys).requireOwnedActivePrincipal(7L,23L);
+        service.execute(11L);
+        verifyNoInteractions(ragQueryService,contextService);
+        verify(messageMapper).markChatFailedFenced(eq(11L),eq(3L),isNull(),eq("revoked key"),any());
+        assertNull(com.ylcloud.service.metering.ApiUsageContext.current());
+    }
+    @Test void apiTaskUsesActualMeteringAndNeverChargesContextEstimateAgain() throws Exception {
+        var task=readyTask(null,3L); task.setMeteringApiKeyId(23L); task.setMeteringRequestId(java.util.UUID.randomUUID().toString());
+        trustedAnswer(); var keys=mock(UserApiKeyService.class); var quotas=mock(QuotaService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"executionApiKeys",keys);
+        org.springframework.test.util.ReflectionTestUtils.setField(service,"quotaService",quotas);
+        var principal=new com.ylcloud.security.ApiKeyPrincipal(23L,7L,"test","NONE",null,java.util.Set.of("KNOWLEDGE_AGENT"),java.util.Set.of(5L));
+        when(keys.requireOwnedActivePrincipal(7L,23L)).thenReturn(principal);
+        when(ragQueryService.query(any(),eq(7L))).thenAnswer(inv->{
+            var scope=com.ylcloud.service.metering.ApiUsageContext.current();
+            assertEquals(23,scope.keyId); assertEquals(11,scope.messageId); assertTrue(scope.agent());
+            assertEquals(task.getMeteringRequestId(),scope.requestId);
+            var result=new KnowledgeRagQueryVO(); result.setAnswerId("trusted-1"); result.setCitations(List.of()); return result;
+        });
+        service.execute(11L);
+        verify(keys).requireSpace(principal,5L,true);
+        verify(quotas,never()).consumeModelTokens(anyLong(),anyLong());
+        assertNull(com.ylcloud.service.metering.ApiUsageContext.current());
+    }
     private final KnowledgeChatSessionMapper sessionMapper = mock(KnowledgeChatSessionMapper.class);
     private final KnowledgeChatMessageMapper messageMapper = mock(KnowledgeChatMessageMapper.class);
     private final SpacePermissionService permissionService = mock(SpacePermissionService.class);

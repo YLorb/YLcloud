@@ -20,6 +20,9 @@ public class HttpRagModelClient implements RagModelClient {
     private final RagProperties properties;
     private final SiteSettingService siteSettingService;
     private final ServiceJwtIssuer serviceJwtIssuer;
+    private com.ylcloud.service.metering.ApiTokenMeteringService metering;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setMetering(com.ylcloud.service.metering.ApiTokenMeteringService metering) { this.metering=metering; }
 
     /**
      * 初始化 HttpRagModelClient 对象。
@@ -108,24 +111,56 @@ public class HttpRagModelClient implements RagModelClient {
      */
     @Override
     public RagChatResponse chat(RagChatRequest request) {
+        String call=reserve("chat",request.getModel(),request,request.getMaxTokens());
+        if(call!=null && request.getMaxTokens()==null) request.setMaxTokens(1024);
+        try {
         RagChatResponse response = restClient().post()
                 .uri("/chat")
                 .header(HttpHeaders.AUTHORIZATION, bearer("model.chat"))
                 .body(request)
                 .retrieve()
                 .body(RagChatResponse.class);
+        if(call!=null) metering.settle(call,response==null ? null : response.getModel(),response==null ? null : response.getPromptTokens(),response==null ? null : response.getCompletionTokens(),response==null ? null : response.getTotalTokens());
         return response == null ? new RagChatResponse() : response;
+        } catch(RuntimeException error) { throw uncertain(call,error); }
     }
 
     @Override
     public RagGenerateResponse generate(RagGenerateRequest request) {
+        String call=reserve("generate",request.getModel(),request,request.getMaxTokens());
+        if(call!=null && request.getMaxTokens()==null) request.setMaxTokens(1024);
+        try {
         RagGenerateResponse response = restClient().post()
                 .uri("/generate")
                 .header(HttpHeaders.AUTHORIZATION, bearer("model.generate"))
                 .body(request)
                 .retrieve()
                 .body(RagGenerateResponse.class);
+        if(call!=null) metering.settle(call,response==null ? null : response.getModel(),response==null ? null : response.getPromptTokens(),response==null ? null : response.getCompletionTokens(),response==null ? null : response.getTotalTokens());
         return response == null ? new RagGenerateResponse() : response;
+        } catch(RuntimeException error) { throw uncertain(call,error); }
+    }
+
+    private String reserve(String operation,String model,Object request,Integer maxTokens) {
+        var usage=com.ylcloud.service.metering.ApiUsageContext.current();
+        if(usage==null) return null;
+        usage.check();
+        if(metering==null) throw usage.fail(new com.ylcloud.Exception.BaseException(503,"Token 计量服务不可用"));
+        int output=maxTokens==null ? 1024 : maxTokens;
+        if(output<1 || output>32768) throw usage.fail(new com.ylcloud.Exception.BaseException(400,"模型输出上限须为 1-32768"));
+        try {
+            // Admission estimate only. Never persisted as actual usage. Covers JSON framing and model-service prompt wrappers.
+            long input=new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(request).length;
+            return metering.reserve(operation,model,Math.addExact(Math.multiplyExact(input,2),4096L+output));
+        } catch(com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw usage.fail(new com.ylcloud.Exception.BaseException(400,"模型请求无法序列化"));
+        }
+    }
+    private RuntimeException uncertain(String call,RuntimeException error) {
+        if(call==null) return error;
+        metering.unresolved(call,"PROVIDER_OR_SETTLEMENT_FAILURE");
+        var usage=com.ylcloud.service.metering.ApiUsageContext.current();
+        return usage.fail(new com.ylcloud.Exception.BaseException(503,"模型调用未完成，用量已保留待核对"));
     }
 
     private String bearer(String scope) {

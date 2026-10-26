@@ -102,6 +102,8 @@ ylcloud:
     multipart-retention-hours: ${YLCLOUD_UPLOAD_MULTIPART_RETENTION_HOURS:24}
     multipart-cleanup-delay-ms: ${YLCLOUD_UPLOAD_MULTIPART_CLEANUP_DELAY_MS:3600000}
   minio:
+    public-endpoint: ${YLCLOUD_MINIO_PUBLIC_ENDPOINT:}
+    region: ${YLCLOUD_MINIO_REGION:us-east-1}
     endpoint: ${YLCLOUD_MINIO_ENDPOINT:http://127.0.0.1:9000}
     accessKey: ${YLCLOUD_MINIO_ACCESS_KEY:ylcloud_minio}
     secretKey: ${YLCLOUD_MINIO_SECRET_KEY:ylcloud_minio_pwd}

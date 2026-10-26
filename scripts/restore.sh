@@ -16,7 +16,8 @@ RESTORE_DIR="${YLCLOUD_RESTORE_DIR:-/var/lib/ylcloud-restore}"
 LOCK_FILE="${YLCLOUD_RESTORE_LOCK_FILE:-/var/lock/ylcloud-restore.lock}"
 LOG_ROOT="${YLCLOUD_RESTORE_LOG_ROOT:-/var/log/ylcloud-restore}"
 BACKEND_URL="${YLCLOUD_DEPLOY_BACKEND_URL:-http://127.0.0.1:8080}"
-AUTH_TOKEN="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+FRONTEND_URL="${YLCLOUD_DEPLOY_FRONTEND_URL:-http://127.0.0.1:5173}"
+COOKIE_FILE="${YLCLOUD_DEPLOY_COOKIE_FILE:-}"
 MYSQL_VERIFY_IMAGE="${YLCLOUD_RESTORE_MYSQL_IMAGE:-mysql:8.3}"
 MINIO_VERIFY_IMAGE="${YLCLOUD_RESTORE_MINIO_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}"
 QDRANT_VERIFY_IMAGE="${YLCLOUD_RESTORE_QDRANT_IMAGE:-qdrant/qdrant:v1.15.4}"
@@ -283,7 +284,7 @@ verify_business_sample() {
     # Wait for health
     local deadline=$((SECONDS + 180))
     while (( SECONDS < deadline )); do
-        if curl --fail --silent "$BACKEND_URL/actuator/health" | grep -q '"status":"UP"'; then
+        if curl --fail --silent "$BACKEND_URL/api/site/public-settings" | grep -q '"code":200'; then
             log "Application is healthy"
             break
         fi
@@ -322,13 +323,13 @@ cleanup_isolated() {
 
 report_verification() {
     local status="$1" error="${2:-}" key="restore-$BACKUP_ID-$STAMP"
-    [[ -n "$AUTH_TOKEN" && -n "$BACKUP_ID" ]] || die "AUTH token and --backup-id are required to publish restore verification"
+    [[ -s "$COOKIE_FILE" && -n "$BACKUP_ID" ]] || die "Session cookie jar and --backup-id are required to publish restore verification"
     local escaped_error
     escaped_error="$(printf '%s' "$error" | sed 's/\\/\\\\/g; s/"/\\"/g')"
     curl --fail --silent --show-error -X POST \
-        -H "Authorization: Bearer $AUTH_TOKEN" -H "Content-Type: application/json" \
+        --cookie "$COOKIE_FILE" -H "X-YLCloud-Request: 1" -H "Content-Type: application/json" \
         --data "{\"verificationKey\":\"$key\",\"status\":\"$status\",\"restoreEnvironment\":\"ISOLATED_DOCKER\",\"mysqlRestored\":$MYSQL_OK,\"minioRestored\":$MINIO_OK,\"qdrantRestored\":$QDRANT_OK,\"configRestored\":$CONFIG_OK,\"businessSampleCheck\":$SAMPLE_OK,\"errorMessage\":\"$escaped_error\"}" \
-        "$BACKEND_URL/api/admin/backup/$BACKUP_ID/restore-verification"
+        "$FRONTEND_URL/api/admin/backup/$BACKUP_ID/restore-verification"
 }
 
 isolated_failure() {
@@ -349,7 +350,7 @@ wait_mysql() {
 
 isolated_restore_verify() {
     [[ -n "$BACKUP_ID" ]] || die "--backup-id is required with --isolated-verify"
-    [[ -n "$AUTH_TOKEN" ]] || die "YLCLOUD_DEPLOY_AUTH_TOKEN is required with --isolated-verify"
+    [[ -s "$COOKIE_FILE" ]] || die "YLCLOUD_DEPLOY_COOKIE_FILE is required with --isolated-verify"
     ISOLATED_NETWORK="ylcloud-restore-$STAMP"
     ISOLATED_MYSQL="ylcloud-restore-mysql-$STAMP"
     ISOLATED_MINIO="ylcloud-restore-minio-$STAMP"

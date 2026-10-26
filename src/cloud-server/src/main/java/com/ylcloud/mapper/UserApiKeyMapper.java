@@ -47,7 +47,7 @@ public interface UserApiKeyMapper {
     int revoke(@Param("keyId") Long keyId,@Param("now") LocalDateTime now);
 
     @Update("update user_api_key set last_used_at=#{now},updatetime=#{now} " +
-            "where key_id=#{keyId} and key_status='ACTIVE' and (expires_at is null or expires_at>#{now})")
+            "where key_id=#{keyId} and key_status='ACTIVE' and revoked_at is null and (expires_at is null or expires_at>#{now})")
     int touch(@Param("keyId") Long keyId,@Param("now") LocalDateTime now);
 
     @Insert("insert into api_key_scope(key_id,scope_key,createtime) values(#{keyId},#{scope},#{now})")

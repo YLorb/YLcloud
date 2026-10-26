@@ -16,7 +16,8 @@ BACKUP_RETENTION_COUNT="${YLCLOUD_BACKUP_RETENTION_COUNT:-1}"
 LOCK_FILE="${YLCLOUD_BACKUP_LOCK_FILE:-/var/lock/ylcloud-backup.lock}"
 LOG_ROOT="${YLCLOUD_BACKUP_LOG_ROOT:-/var/log/ylcloud-backup}"
 BACKEND_URL="${YLCLOUD_DEPLOY_BACKEND_URL:-http://127.0.0.1:8080}"
-AUTH_TOKEN="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
+FRONTEND_URL="${YLCLOUD_DEPLOY_FRONTEND_URL:-http://127.0.0.1:5173}"
+COOKIE_FILE="${YLCLOUD_DEPLOY_COOKIE_FILE:-}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="$BACKUP_ROOT/$STAMP"
@@ -36,6 +37,7 @@ trap cleanup_staging EXIT
 
 # Preflight checks
 preflight() {
+    [[ -s "$COOKIE_FILE" ]] || die "YLCLOUD_DEPLOY_COOKIE_FILE is required to publish backup state"
     command -v docker >/dev/null || die "docker not found"
     command -v openssl >/dev/null || die "openssl not found"
     command -v sha256sum >/dev/null || die "sha256sum not found"
@@ -311,22 +313,22 @@ rotate_backups() {
 record_backup_to_db() {
     local archive="$1" hash="$2" size="$3" manifest="$4" key_id="$5"
 
-    if [[ -z "$AUTH_TOKEN" ]]; then
-        die "YLCLOUD_DEPLOY_AUTH_TOKEN is required to publish backup state"
+    if [[ ! -s "$COOKIE_FILE" ]]; then
+        die "YLCLOUD_DEPLOY_COOKIE_FILE is required to publish backup state"
     fi
 
     log "Recording backup to database..."
     local http_code response
     response="$(curl --silent --show-error --write-out '\n%{http_code}' \
         -X POST \
-        -H "Authorization: Bearer $AUTH_TOKEN" \
+        --cookie "$COOKIE_FILE" -H "X-YLCloud-Request: 1" \
         -F "runKey=$STAMP" \
         -F "archivePath=$archive" \
         -F "archiveSize=$size" \
         -F "archiveHash=$hash" \
         -F "encryptionKeyId=$key_id" \
         -F "manifestJson=$manifest" \
-        "$BACKEND_URL/api/admin/backup/record" 2>/dev/null || true)"
+        "$FRONTEND_URL/api/admin/backup/record" 2>/dev/null || true)"
     http_code="$(echo "$response" | tail -1)"
 
     if [[ "$http_code" == "200" ]]; then

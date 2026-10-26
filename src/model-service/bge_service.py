@@ -220,9 +220,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     model: str
     answer: str
-    promptTokens: int = 0
-    completionTokens: int = 0
-    totalTokens: int = 0
+    promptTokens: Optional[int] = None
+    completionTokens: Optional[int] = None
+    totalTokens: Optional[int] = None
 
 
 class GenerateRequest(BaseModel):
@@ -236,9 +236,9 @@ class GenerateRequest(BaseModel):
 class GenerateResponse(BaseModel):
     model: str
     text: str
-    promptTokens: int = 0
-    completionTokens: int = 0
-    totalTokens: int = 0
+    promptTokens: Optional[int] = None
+    completionTokens: Optional[int] = None
+    totalTokens: Optional[int] = None
 
 
 INTENT_PLAN_PROMPT_VERSION = "intent-plan-prompt/1.0"
@@ -409,12 +409,19 @@ def raise_upstream_error(response: httpx.Response):
         raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
 
 
-def usage_tokens(data: dict) -> tuple[int, int, int]:
-    usage = data.get("usage") or {}
-    prompt = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
-    completion = usage.get("completion_tokens") or usage.get("output_tokens") or 0
-    total = usage.get("total_tokens") or (prompt + completion)
-    return int(prompt or 0), int(completion or 0), int(total or 0)
+def usage_tokens(data: dict) -> tuple[Optional[int], Optional[int], Optional[int]]:
+    """Unknown/malformed usage is not zero usage. Only provider counters are billable."""
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return None, None, None
+    prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
+    completion = usage.get("completion_tokens", usage.get("output_tokens"))
+    if any(type(value) is not int or value < 0 or value > 2147483647 for value in (prompt, completion)):
+        return None, None, None
+    total = usage.get("total_tokens", prompt + completion)
+    if type(total) is not int or total != prompt + completion or total > 2147483647:
+        return None, None, None
+    return prompt, completion, total
 
 
 def extract_response_text(data: dict) -> str:

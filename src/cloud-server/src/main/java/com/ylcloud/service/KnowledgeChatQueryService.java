@@ -104,6 +104,8 @@ public class KnowledgeChatQueryService {
 
     @Transactional
     public KnowledgeChatMessageVO submit(Long sessionId, Long userId, KnowledgeChatQueryCreateDTO dto, String requestKey) {
+        var apiUsage=com.ylcloud.service.metering.ApiUsageContext.current();
+        if(apiUsage!=null && workflowEnabled()) throw new BaseException(503,"Workflow 尚未接入 API Key Token 计量，暂不接受此执行入口");
         KnowledgeChatSession session = requireSessionForUpdate(sessionId,userId);
         List<Long> spaceIds = normalizeSpaces(dto.getSpaceIds());
         spaceIds.forEach(spaceId -> spacePermissionService.requireMember(spaceId,userId));
@@ -140,6 +142,11 @@ public class KnowledgeChatQueryService {
         assistant.setTaskStatus("QUEUED");
         assistant.setRequestKey(normalizedKey);
         assistant.setRequestJson(writeRequest(dto));
+        if(apiUsage!=null) {
+            if(apiUsage.userId!=userId) throw new BaseException(403,"模型用量归属不匹配");
+            assistant.setMeteringApiKeyId(apiUsage.keyId);
+            assistant.setMeteringRequestId(apiUsage.requestId);
+        }
         assistant.setRetryCount(0);
         assistant.setAsyncVersion(1L);
         assistant.setStatus(StatusConstant.ENABLE);
@@ -162,6 +169,7 @@ public class KnowledgeChatQueryService {
         if(!"FAILED".equals(message.getTaskStatus())) {
             throw new BaseException("只有失败的回答可以重试");
         }
+        if(message.getMeteringApiKeyId()!=null && workflowEnabled()) throw new BaseException(503,"Workflow 尚未接入 API Key Token 计量");
         boolean workflowRetry = workflowLifecycle != null && workflowLifecycle.isEnabled()
                 && message.getWorkflowRunId() != null;
         int updated = workflowRetry ? messageMapper.prepareWorkflowRetry(messageId) : messageMapper.retryFailed(messageId);
@@ -212,8 +220,10 @@ public class KnowledgeChatQueryService {
         long version=currentVersion(message);
         if(messageMapper.claimQueuedFenced(messageId,version)==0) return;
         KnowledgeChatQueryCreateDTO request = null;
+        com.ylcloud.service.metering.ApiUsageContext usage=null;
         try {
             request = objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class);
+            usage=restoreUsage(message,request);
             ConversationContextSnapshot context = contextService.resolve(message);
             KnowledgeRagQueryDTO ragRequest = new KnowledgeRagQueryDTO();
             ragRequest.setQuestion(request.getQuestion());
@@ -221,7 +231,8 @@ public class KnowledgeChatQueryService {
             ragRequest.setRetrievalMode(request.getRetrievalMode());
             ragRequest.setHistory(context.history());
             KnowledgeRagQueryVO result = ragQueryService.query(ragRequest,message.getUserId());
-            if(quotaService != null) quotaService.consumeModelTokens(message.getUserId(),context.totalTokens());
+            if(usage!=null) usage.check();
+            else if(quotaService != null) quotaService.consumeModelTokens(message.getUserId(),context.totalTokens());
             contextService.finalizeRetrieval(message,context,result.getCitations() == null ? List.of() : result.getCitations().stream()
                     .map(citation -> citation.getChunkId()).filter(java.util.Objects::nonNull).distinct().toList());
             RagTrustedAnswer answer=validatedAnswer(message,result);
@@ -234,6 +245,7 @@ public class KnowledgeChatQueryService {
                 emitAgent(message,request,"AGENT_TASK_FAILED");
             }
         } finally {
+            if(usage!=null) usage.close();
             if(quotaService != null) quotaService.releaseAgentTask(message.getUserId());
         }
     }
@@ -245,9 +257,11 @@ public class KnowledgeChatQueryService {
             throw new StaleTaskException("Chat 任务状态已变化");
         }
         KnowledgeChatQueryCreateDTO request=null;
+        com.ylcloud.service.metering.ApiUsageContext usage=null;
         try {
             context.checkpoint();
             request=objectMapper.readValue(message.getRequestJson(),KnowledgeChatQueryCreateDTO.class);
+            usage=restoreUsage(message,request);
             ConversationContextSnapshot snapshot=contextService.resolve(message);
             context.checkpoint();
             KnowledgeRagQueryDTO ragRequest=new KnowledgeRagQueryDTO();
@@ -258,7 +272,8 @@ public class KnowledgeChatQueryService {
             KnowledgeRagQueryVO result=ragQueryService.query(ragRequest,message.getUserId());
             context.checkpoint();
             requireCurrent(messageId,asyncTaskId,version);
-            if(quotaService!=null) quotaService.consumeModelTokens(message.getUserId(),snapshot.totalTokens());
+            if(usage!=null) usage.check();
+            else if(quotaService!=null) quotaService.consumeModelTokens(message.getUserId(),snapshot.totalTokens());
             contextService.finalizeRetrieval(message,snapshot,result.getCitations()==null ? List.of() : result.getCitations().stream()
                     .map(citation -> citation.getChunkId()).filter(java.util.Objects::nonNull).distinct().toList());
             RagTrustedAnswer answer=validatedAnswer(message,result);
@@ -281,8 +296,23 @@ public class KnowledgeChatQueryService {
             }
             throw new RetryableTaskException("Chat 服务暂时不可用");
         } finally {
+            if(usage!=null) usage.close();
             if(quotaService!=null) quotaService.releaseAgentTask(message.getUserId());
         }
+    }
+
+    @Autowired(required=false) private UserApiKeyService executionApiKeys;
+
+    private com.ylcloud.service.metering.ApiUsageContext restoreUsage(KnowledgeChatMessage message,KnowledgeChatQueryCreateDTO request) {
+        if(message.getMeteringApiKeyId()==null) return null;
+        var usage=com.ylcloud.service.metering.ApiUsageContext.open(message.getUserId(),message.getMeteringApiKeyId(),message.getMeteringRequestId(),message.getId());
+        try {
+            usage.authorize(request.getSpaceIds(),request.getApiKeyId()!=null);
+            if(executionApiKeys==null) throw new BaseException(503,"API Key 执行权限服务不可用");
+            var principal=executionApiKeys.requireOwnedActivePrincipal(message.getUserId(),message.getMeteringApiKeyId());
+            usage.spaces().forEach(space->executionApiKeys.requireSpace(principal,space,usage.agent()));
+            return usage;
+        } catch(RuntimeException failure) { usage.close(); throw failure; }
     }
 
     @Autowired(required = false)

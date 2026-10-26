@@ -121,7 +121,7 @@ public interface QuotaMapper {
                    @Param("quota") long quota,@Param("now") LocalDateTime now);
 
     @Update("update quota_usage_period set model_tokens=model_tokens+#{amount},updatetime=#{now} where account_id=#{accountId} " +
-            "and period_start=#{period} and (#{quota}=0 or model_tokens+#{amount}<=#{quota})")
+            "and period_start=#{period} and (#{quota}=0 or model_tokens+model_tokens_reserved+#{amount}<=#{quota})")
     int consumeTokens(@Param("accountId") Long accountId,@Param("period") LocalDate period,@Param("amount") long amount,
                       @Param("quota") long quota,@Param("now") LocalDateTime now);
 
@@ -141,7 +141,7 @@ public interface QuotaMapper {
             "where qu.period_start=#{period} and qa.account_type='USER'")
     int reconcileConcurrentUsage(@Param("period") LocalDate period,@Param("now") LocalDateTime now);
 
-    @Select("select api_calls as apiCalls,model_tokens as modelTokens,agent_tasks as agentTasks," +
+    @Select("select api_calls as apiCalls,model_tokens as modelTokens,model_tokens_reserved as modelTokensReserved,agent_tasks as agentTasks," +
             "concurrent_agent_tasks as concurrentAgentTasks from quota_usage_period where account_id=#{accountId} and period_start=#{period}")
     Map<String,Object> usage(@Param("accountId") Long accountId,@Param("period") LocalDate period);
 

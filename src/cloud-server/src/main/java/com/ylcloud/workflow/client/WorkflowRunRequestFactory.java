@@ -39,6 +39,8 @@ public class WorkflowRunRequestFactory {
     }
 
     public PreparedWorkflowRun create(KnowledgeChatMessage assistant) {
+        if(assistant.getMeteringApiKeyId()!=null)
+            throw new com.ylcloud.Exception.BaseException(503,"Workflow 尚未接入 API Key Token 计量，禁止迁移执行此任务");
         try {
             KnowledgeChatQueryCreateDTO input = objectMapper.readValue(
                     assistant.getRequestJson(), KnowledgeChatQueryCreateDTO.class

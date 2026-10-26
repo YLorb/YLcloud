@@ -50,6 +50,9 @@ public class SiteSettingService {
     @Value("${ylcloud.upload.multipart-threshold-bytes:20971520}")
     private Long multipartUploadThresholdBytes;
 
+    @Value("${ylcloud.minio.public-endpoint:}")
+    private String publicStorageEndpoint;
+
     public List<SiteSettingVO> listForAdmin() {
         return siteSettingMapper.listAll().stream()
                 .filter(setting -> !LEGACY_LLM_API_KEY.equals(setting.getSettingKey()))
@@ -128,6 +131,12 @@ public class SiteSettingService {
         String raw = value == null ? "" : value;
         String normalized = raw.trim();
         String key = setting.getSettingKey();
+        if ("storage.downloadMode".equals(key)) {
+            if (!Set.of("proxy", "direct").contains(normalized)) throw new BaseException("下载方式必须是 proxy 或 direct");
+            if ("direct".equals(normalized) && (publicStorageEndpoint == null || publicStorageEndpoint.isBlank()))
+                throw new BaseException("请先配置存储的外部访问地址，再开启直链下载");
+            return normalized;
+        }
         if(REQUIRED_KEYS.contains(key) && normalized.isEmpty()) {
             throw new BaseException("配置项不能为空：" + key);
         }

@@ -25,6 +25,10 @@ import java.util.Map;
 @RequestMapping("/api/account")
 @RequiredArgsConstructor
 public class AccountLifecycleController {
+    @GetMapping("/export/{jobId}/download")
+    public void downloadExport(@PathVariable Long jobId, jakarta.servlet.http.HttpServletResponse response) throws Exception {
+        exportService.downloadExport(BaseContext.getCurrentId(), jobId, response);
+    }
     private final AccountLifecycleService lifecycleService;
     private final DataExportService exportService;
     private final AdminPermissionService adminPermissionService;

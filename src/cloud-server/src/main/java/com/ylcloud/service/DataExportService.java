@@ -266,6 +266,18 @@ public class DataExportService {
         return vo;
     }
 
+    public void downloadExport(Long userId, Long jobId, jakarta.servlet.http.HttpServletResponse response) throws Exception {
+        DataExportJob job = jobMapper.getById(jobId);
+        if (job == null || !job.getUserId().equals(userId) || !"COMPLETED".equals(job.getStatus())
+                || job.getStoragePath() == null || job.getDownloadExpiresAt() == null)
+            throw new BaseException("导出任务不存在或尚未完成");
+        long ttl = java.time.Duration.between(LocalDateTime.now(), job.getDownloadExpiresAt()).getSeconds();
+        if (ttl < 1) throw new BaseException("导出下载已过期");
+        String filename = "export-" + job.getId() + ".enc";
+        if (!minioUtil.redirectDownload(job.getStoragePath(), null, filename, (int)Math.min(300, ttl), response))
+            minioUtil.streamDownload(job.getStoragePath(), null, filename, response);
+    }
+
     // ─── 数据收集 ───────────────────────────────────────────────
 
     private Map<String, Object> collectExportData(Long userId, String scope) {
@@ -608,7 +620,8 @@ public class DataExportService {
         vo.setStatus(job.getStatus());
         vo.setExportScope(job.getExportScope());
         vo.setFileSizeBytes(job.getFileSizeBytes());
-        vo.setDownloadUrl(job.getDownloadUrl());
+        vo.setDownloadUrl("COMPLETED".equals(job.getStatus()) && job.getDownloadExpiresAt() != null
+                && job.getDownloadExpiresAt().isAfter(LocalDateTime.now()) ? "/api/account/export/" + job.getId() + "/download" : null);
         vo.setDownloadExpiresAt(job.getDownloadExpiresAt());
         vo.setCreatedAt(job.getCreatedAt());
         vo.setFinishedAt(job.getFinishedAt());

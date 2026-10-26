@@ -260,6 +260,17 @@ public class ShareLinkService {
             }
         }
     }
+    public boolean redirectDownload(String code, Download download, jakarta.servlet.http.HttpServletResponse response) throws Exception {
+        if (download.directory()) return false; // ZIPs are generated, not stored as a single MinIO object.
+        Link link = repo.byCode(code);
+        int ttl = link == null ? 0 : link.getExpiresAt() == null ? 300
+                : (int)Math.min(300, java.time.Duration.between(now(), link.getExpiresAt()).getSeconds());
+        if (ttl < 1 || link.getRevokedAt() != null) throw new Expired();
+        try (DataInputStream in = new DataInputStream(Files.newInputStream(download.manifest()))) {
+            String name = in.readUTF(), uuid = in.readUTF(), version = in.readUTF();
+            return storage.redirectDownload(uuid, version, safeName(name), ttl, response);
+        }
+    }
     @Scheduled(cron="0 20 3 * * *",zone="UTC")
     public void cleanup() {
         LocalDateTime cutoff=now().minusDays(30);int removed=0,batch;

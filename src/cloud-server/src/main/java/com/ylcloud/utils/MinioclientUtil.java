@@ -48,6 +48,53 @@ import java.util.ArrayList;
 public class MinioclientUtil {
     private final MinioClient minioClient;
     private final String defaultBucket;
+    private com.ylcloud.service.SiteSettingService downloadSettings;
+    private MinioClient publicDownloadClient;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configureDownloads(com.ylcloud.service.SiteSettingService settings,
+            @Value("${ylcloud.minio.public-endpoint:}") String publicEndpoint,
+            @Value("${ylcloud.minio.accessKey}") String accessKey,
+            @Value("${ylcloud.minio.secretKey}") String secretKey,
+            @Value("${ylcloud.minio.region:us-east-1}") String region) {
+        downloadSettings = settings;
+        if (!publicEndpoint.isBlank()) {
+            java.net.URI uri = java.net.URI.create(publicEndpoint);
+            if (uri.getHost() == null || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null
+                    || !(uri.getPath().isEmpty() || uri.getPath().equals("/"))
+                    || !(uri.getScheme().equals("https") || uri.getScheme().equals("http")))
+                throw new IllegalArgumentException("Public storage endpoint must be an HTTP(S) origin");
+            publicDownloadClient = MinioClient.builder().endpoint(publicEndpoint).credentials(accessKey,secretKey).region(region).build();
+        }
+    }
+
+    /** Called only after the owning service has authorized this object/version. */
+    public boolean redirectDownload(String object, String version, String filename, int maxExpiry,
+                                    HttpServletResponse response) throws Exception {
+        if (downloadSettings == null || !"direct".equals(downloadSettings.getString("storage.downloadMode", "proxy"))) return false;
+        if (publicDownloadClient == null) throw new IllegalStateException("Public storage endpoint is not configured");
+        if (maxExpiry < 1) throw new IllegalArgumentException("Download has expired");
+        var query = new java.util.HashMap<String,String>();
+        if (version != null && !version.isBlank()) query.put("versionId", version);
+        query.put("response-content-type", "application/octet-stream");
+        query.put("response-content-disposition", org.springframework.http.ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8).build().toString());
+        String url = publicDownloadClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                .method(Method.GET).bucket(defaultBucket).object(object).extraQueryParams(query)
+                .expiry(Math.min(300, maxExpiry)).build());
+        response.setHeader("Cache-Control", "no-store");
+        var context = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (context instanceof org.springframework.web.context.request.ServletRequestAttributes servlet
+                && "1".equals(servlet.getRequest().getHeader("X-YLCloud-Download"))) {
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                    java.util.Map.of("downloadUrl", url)));
+        } else {
+            response.setStatus(303); // also converts public-share POST downloads to a signed GET
+            response.setHeader("Location", url);
+        }
+        return true;
+    }
 
     /**
      * 鍒涘缓 MinIO 瀹㈡埛绔€?     *
@@ -312,15 +359,7 @@ public class MinioclientUtil {
      * @param response HTTP 鍝嶅簲
      * @throws Exception 涓嬭浇澶辫触鏃舵姏鍑?     */
     public void getObject(FileDTO fileDTO,HttpServletResponse response) throws Exception {
-        InputStream inputStream = minioClient.getObject(GetObjectArgs.builder()
-                .bucket(defaultBucket)
-                .object(fileDTO.getFileUuid())
-                .build());
-
-        response.setContentType("application/octet-stream");
-        response.setHeader("Content-Disposition","attachment; filename=" + URLEncoder.encode(fileDTO.getName(), StandardCharsets.UTF_8));
-        IOUtils.copy(inputStream,response.getOutputStream());
-        inputStream.close();
+        getObject(fileDTO.getFileUuid(), null, fileDTO.getName(), response);
     }
 
     /**
@@ -392,11 +431,17 @@ public class MinioclientUtil {
     }
 
     public void getObject(String fileUuid, String versionId, String fileName, HttpServletResponse response) throws Exception {
-        InputStream inputStream = getObjectStream(fileUuid,versionId);
+        if (redirectDownload(fileUuid, versionId, fileName, 300, response)) return;
+        streamDownload(fileUuid, versionId, fileName, response);
+    }
+
+    public void streamDownload(String object, String version, String filename, HttpServletResponse response) throws Exception {
         response.setContentType("application/octet-stream");
-        response.setHeader("Content-Disposition","attachment; filename=" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
-        IOUtils.copy(inputStream,response.getOutputStream());
-        inputStream.close();
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.setHeader("Content-Disposition", org.springframework.http.ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8).build().toString());
+        try (InputStream input = getObjectStream(object, version)) { input.transferTo(response.getOutputStream()); }
     }
 
     public String restoreObjectVersion(String fileUuid, String versionId) throws Exception {

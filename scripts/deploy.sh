@@ -9,6 +9,8 @@ ENV_FILE="${YLCLOUD_DEPLOY_ENV_FILE:-config/.env.server}"
 PROJECT="${YLCLOUD_DEPLOY_PROJECT:-ylcloud}"
 APP_SERVICE="${YLCLOUD_DEPLOY_APP_SERVICE:-ylcloud-app}"
 FRONTEND_SERVICE="${YLCLOUD_DEPLOY_FRONTEND_SERVICE:-frontend}"
+GATEWAY_SERVICE="${YLCLOUD_DEPLOY_GATEWAY_SERVICE:-gateway}"
+REDIS_SERVICE="${YLCLOUD_DEPLOY_REDIS_SERVICE:-gateway-redis}"
 WAIT_TIMEOUT="${YLCLOUD_DEPLOY_WAIT_TIMEOUT:-180}"
 LOG_ROOT="${YLCLOUD_DEPLOY_LOG_ROOT:-/var/log/ylcloud-deploy}"
 STATE_ROOT="${YLCLOUD_DEPLOY_STATE_ROOT:-/var/lib/ylcloud-deploy}"
@@ -21,6 +23,9 @@ START_EPOCH="$(date +%s)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 CHANGED_APP=0
 CHANGED_FRONTEND=0
+CHANGED_GATEWAY=0
+CREATED_REDIS=0
+ROLLBACK_NETWORK_FILE=""
 ROLLING_BACK=0
 MAINTENANCE_MODE=0
 READY_BACKUP_ARCHIVE=""
@@ -52,7 +57,9 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || die "another deployment is already running"
 
 compose() {
-  YLCLOUD_IMAGE_TAG="${COMPOSE_TAG_OVERRIDE:-$VERSION}" docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  local extra=()
+  [[ -z "$ROLLBACK_NETWORK_FILE" ]] || extra=(-f "$ROLLBACK_NETWORK_FILE")
+  YLCLOUD_IMAGE_TAG="${COMPOSE_TAG_OVERRIDE:-$VERSION}" docker compose --project-name "$PROJECT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "${extra[@]}" "$@"
 }
 
 container_id() { compose ps -q "$1"; }
@@ -78,6 +85,10 @@ health() {
 OLD_VERSION="$(test -f "$STATE_ROOT/current-version" && sed -n '1p' "$STATE_ROOT/current-version" || true)"
 OLD_APP_CID=""
 OLD_FRONTEND_CID=""
+OLD_GATEWAY_CID=""
+OLD_GATEWAY_IMAGE=""
+OLD_GATEWAY_REF=""
+OLD_GATEWAY_RESTART=0
 OLD_APP_IMAGE=""
 OLD_FRONTEND_IMAGE=""
 OLD_APP_REF=""
@@ -97,6 +108,12 @@ capture_old() {
   [[ -n "$OLD_VERSION" ]] || die "current-version is missing; refusing an unrecoverable release"
   OLD_APP_RESTART="$(restart_count "$APP_SERVICE")"
   OLD_FRONTEND_RESTART="$(restart_count "$FRONTEND_SERVICE")"
+  OLD_GATEWAY_CID="$(container_id "$GATEWAY_SERVICE")"
+  if [[ -n "$OLD_GATEWAY_CID" ]]; then
+    OLD_GATEWAY_IMAGE="$(image_id "$GATEWAY_SERVICE")"
+    OLD_GATEWAY_REF="$(docker inspect --format '{{.Config.Image}}' "$OLD_GATEWAY_CID")"
+    OLD_GATEWAY_RESTART="$(restart_count "$GATEWAY_SERVICE")"
+  fi
   log "old_version=${OLD_VERSION:-unknown} app_health=$(health "$APP_SERVICE") frontend_health=$(health "$FRONTEND_SERVICE")"
 }
 
@@ -109,10 +126,29 @@ http_smoke() {
 admin_api() {
   local method="$1" path="$2"
   shift 2
-  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
-  [[ -n "$token" ]] || die "YLCLOUD_DEPLOY_AUTH_TOKEN is required for admin API calls"
-  curl --silent --show-error --write-out $'\n%{http_code}' \
-    -X "$method" -H "Authorization: Bearer $token" "$@" "$BACKEND_URL$path"
+  [[ -s "${YLCLOUD_DEPLOY_COOKIE_FILE:-}" ]] || die "YLCLOUD_DEPLOY_COOKIE_FILE must contain an authenticated administrator Session cookie jar"
+  local response attempt headers_file delay
+  headers_file="$(mktemp "$STATE_ROOT/.api-headers.XXXXXX")"
+  for attempt in 1 2 3; do
+    response="$(curl --silent --show-error --dump-header "$headers_file" --write-out $'\n%{http_code}' \
+      -X "$method" --cookie "$YLCLOUD_DEPLOY_COOKIE_FILE" -H "X-YLCloud-Request: 1" "$@" "$FRONTEND_URL$path")" || { rm -f "$headers_file"; return 1; }
+    if [[ "$(printf '%s\n' "$response" | tail -1)" == "401" && "$attempt" == "1" ]]; then
+      # Restoring a pre-release backup can invalidate the deployment Session. Reauthenticate from a protected file.
+      curl --fail --silent --show-error -X POST -H 'X-YLCloud-Request: 1' -H 'Content-Type: application/json' \
+        --data-binary "@$YLCLOUD_DEPLOY_LOGIN_FILE" --cookie-jar "$YLCLOUD_DEPLOY_COOKIE_FILE" "$FRONTEND_URL/api/login" >/dev/null \
+        || { rm -f "$headers_file"; return 1; }
+      continue
+    fi
+    if [[ "$(printf '%s\n' "$response" | tail -1)" == "429" ]] && grep -qi '^X-YLCloud-RateLimit: gateway' "$headers_file"; then
+      delay="$(awk 'tolower($1)=="retry-after:" {gsub("\r", "", $2); print $2}' "$headers_file")"
+      [[ "$delay" =~ ^[0-9]+$ && "$delay" -ge 1 && "$delay" -le 60 ]] || delay=60
+      sleep "$delay"
+      continue
+    fi
+    break
+  done
+  rm -f "$headers_file"
+  printf '%s\n' "$response"
 }
 
 require_api_success() {
@@ -131,9 +167,8 @@ require_api_success() {
 check_backup_gate() {
   log "Checking backup gate..."
 
-  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
-  if [[ -z "$token" ]]; then
-    die "YLCLOUD_DEPLOY_AUTH_TOKEN is required for backup gate check"
+  if [[ ! -s "${YLCLOUD_DEPLOY_COOKIE_FILE:-}" ]]; then
+    die "YLCLOUD_DEPLOY_COOKIE_FILE is required for backup gate check"
   fi
 
   # 1. Query READY backups from API
@@ -195,7 +230,7 @@ check_backup_gate() {
     || die "Restore verification API returned an unsuccessful response"
   [[ "$verify_body" == *'"status":"SUCCESS"'* ]] \
     || die "Backup $backup_id has no successful isolated restore verification"
-  [[ "$verify_body" == *'"restoreEnvironment":"ISOLATED"'* ]] \
+  [[ "$verify_body" == *'"restoreEnvironment":"ISOLATED"'* || "$verify_body" == *'"restoreEnvironment":"ISOLATED_DOCKER"'* ]] \
     || die "Backup $backup_id was not verified in an isolated restore environment"
 
   log "Backup gate passed: backup_id=$backup_id hash_verified=yes isolated_restore=yes"
@@ -243,8 +278,8 @@ run_migrations() {
   # as a successful migration.
   [[ "$(health "$APP_SERVICE")" == "healthy" ]] \
     || die "Application did not become healthy after Flyway startup migration"
-  curl --fail --silent --show-error "$BACKEND_URL/actuator/health" \
-    | grep -q '"status":"UP"' \
+  curl --fail --silent --show-error "$BACKEND_URL/api/site/public-settings" \
+    | grep -q '"code":200' \
     || die "Application health endpoint failed after Flyway startup migration"
   log "Startup migration gate passed"
 }
@@ -277,7 +312,17 @@ rollback() {
   fi
 
   if [[ "$CHANGED_APP" -eq 1 ]]; then rollback_service "$APP_SERVICE" "$OLD_APP_IMAGE" "$OLD_APP_REF"; fi
+  if [[ "$CHANGED_GATEWAY" -eq 1 && -n "$OLD_GATEWAY_CID" ]]; then
+    rollback_service "$GATEWAY_SERVICE" "$OLD_GATEWAY_IMAGE" "$OLD_GATEWAY_REF"
+  fi
+  # A pre-gateway frontend resolves the backend directly. Restore that old network topology.
+  if [[ "$CHANGED_FRONTEND" -eq 1 && -z "$OLD_GATEWAY_CID" ]]; then
+    ROLLBACK_NETWORK_FILE="$STATE_ROOT/.rollback-network.${STAMP}.json"
+    printf '{"services":{"%s":{"networks":{"default":{}}}}}\n' "$FRONTEND_SERVICE" > "$ROLLBACK_NETWORK_FILE"
+  fi
   if [[ "$CHANGED_FRONTEND" -eq 1 ]]; then rollback_service "$FRONTEND_SERVICE" "$OLD_FRONTEND_IMAGE" "$OLD_FRONTEND_REF"; fi
+  if [[ "$CHANGED_GATEWAY" -eq 1 && -z "$OLD_GATEWAY_CID" ]]; then compose stop "$GATEWAY_SERVICE"; fi
+  if [[ "$CREATED_REDIS" -eq 1 && -z "$OLD_GATEWAY_CID" ]]; then compose stop "$REDIS_SERVICE"; fi
 
   # Keep writes fenced until the old application is healthy again.
   if [[ "$MAINTENANCE_MODE" -eq 1 ]]; then
@@ -303,6 +348,8 @@ preflight() {
   [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] || die "compose/env file missing"
   [[ -f "$RESTORE_SCRIPT" ]] || die "restore script missing: $RESTORE_SCRIPT"
   [[ -s config/secrets/rabbitmq_password && -s config/secrets/jwt_secret && -s config/secrets/service_jwt_active_secret ]] || die "required secret file missing or empty"
+  [[ -s config/secrets/redis_password && -s config/secrets/gateway_forwarding_secret && -s config/secrets/gateway_identity_secret ]] || die "gateway secrets missing; run scripts/init-gateway-secrets.ps1 or provision equivalent files first"
+  [[ -s "${YLCLOUD_DEPLOY_COOKIE_FILE:-}" && -s "${YLCLOUD_DEPLOY_LOGIN_FILE:-}" ]] || die "deployment Session cookie jar and recovery login JSON file are required"
 
   local free_kb min_kb
   free_kb="$(df -Pk . | awk 'NR==2 {print $4}')"
@@ -336,7 +383,7 @@ verify_platform_health() {
   log "Verifying platform health..."
 
   # Check all critical services
-  local services=("mysql" "minio" "qdrant" "rabbitmq" "$APP_SERVICE" "$FRONTEND_SERVICE")
+  local services=("mysql" "minio" "qdrant" "rabbitmq" "$REDIS_SERVICE" "$GATEWAY_SERVICE" "$APP_SERVICE" "$FRONTEND_SERVICE")
   for service in "${services[@]}"; do
     local cid
     cid="$(container_id "$service" 2>/dev/null || true)"
@@ -352,33 +399,26 @@ verify_platform_health() {
   done
 
   # Check application health endpoint
-  curl --fail --silent --show-error "$BACKEND_URL/actuator/health" | grep -q '"status":"UP"' || die "Application health check failed"
+  curl --fail --silent --show-error "$BACKEND_URL/api/site/public-settings" | grep -q '"code":200' || die "Application health check failed"
 
   # Check RabbitMQ queues
-  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
-  if [[ -n "$token" ]]; then
-    curl --fail --silent --show-error -H "Authorization: Bearer $token" \
-      "$BACKEND_URL/api/async/page?page=1&pageSize=1" >/dev/null || die "Async task API check failed"
-  fi
+  require_api_success "$(admin_api GET '/api/async/page?page=1&pageSize=1')" "Async task API check" >/dev/null
 
   log "Platform health verification passed"
 }
 
 task_smoke() {
-  local token="${YLCLOUD_DEPLOY_AUTH_TOKEN:-}"
-  [[ -n "$token" ]] || die "YLCLOUD_DEPLOY_AUTH_TOKEN is required for task smoke"
-  curl --fail --silent --show-error -H "Authorization: Bearer $token" "$BACKEND_URL/api/async/page?page=1&pageSize=1" >/dev/null
+  require_api_success "$(admin_api GET '/api/async/page?page=1&pageSize=1')" "Task list" >/dev/null
   local response task_id
-  response="$(curl --fail --silent --show-error -X POST -H "Authorization: Bearer $token" \
-    "$BACKEND_URL/api/admin/async/smoke?release=$VERSION")"
+  response="$(require_api_success "$(admin_api POST "/api/admin/async/smoke?release=$VERSION")" "Task smoke")"
   task_id="$(printf '%s' "$response" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p' | head -1)"
   [[ -n "$task_id" ]] || die "smoke task ID missing"
   local deadline=$((SECONDS + WAIT_TIMEOUT)) body
   while (( SECONDS < deadline )); do
-    body="$(curl --fail --silent --show-error -H "Authorization: Bearer $token" "$BACKEND_URL/api/async/unified/$task_id")"
+    body="$(require_api_success "$(admin_api GET "/api/async/unified/$task_id")" "Task status")"
     [[ "$body" == *'"status":"SUCCESS"'* ]] && return 0
     [[ "$body" == *'"status":"FAILED"'* || "$body" == *'"status":"CANCELED"'* ]] && die "smoke task ended unsuccessfully"
-    sleep 2
+    sleep 5
   done
   die "smoke task timed out"
 }
@@ -395,7 +435,14 @@ trap 'rollback 143' TERM
 # TASK-014: Enable maintenance mode before upgrade
 enable_maintenance_mode
 
-compose pull "$APP_SERVICE" "$FRONTEND_SERVICE"
+compose pull "$APP_SERVICE" "$FRONTEND_SERVICE" "$GATEWAY_SERVICE" "$REDIS_SERVICE"
+
+if [[ -z "$(container_id "$REDIS_SERVICE")" ]]; then
+  CREATED_REDIS=1
+  compose up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" "$REDIS_SERVICE"
+else
+  [[ "$(health "$REDIS_SERVICE")" == "healthy" ]] || die "existing gateway Redis is unhealthy"
+fi
 
 if ! container_id rabbitmq >/dev/null 2>&1 || [[ -z "$(container_id rabbitmq)" ]]; then
   docker pull rabbitmq:4.3.4-management
@@ -412,14 +459,24 @@ verify_changed "$APP_SERVICE" "$OLD_APP_CID" "$OLD_APP_IMAGE" "$OLD_APP_RESTART"
 # TASK-014: Run migrations after app startup
 run_migrations
 
-curl --fail --silent --show-error "$BACKEND_URL/actuator/health" | grep -q '"status":"UP"'
-[[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" != "smoke" ]] || die "injected smoke failure"
-task_smoke
+CHANGED_GATEWAY=1
+compose up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" "$GATEWAY_SERVICE"
+[[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" != "gateway" ]] || die "injected gateway failure"
+verify_changed "$GATEWAY_SERVICE" "$OLD_GATEWAY_CID" "$OLD_GATEWAY_IMAGE" "$OLD_GATEWAY_RESTART"
 
 CHANGED_FRONTEND=1
 compose up -d --no-deps --wait --wait-timeout "$WAIT_TIMEOUT" "$FRONTEND_SERVICE"
 [[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" != "frontend" ]] || die "injected frontend failure"
 verify_changed "$FRONTEND_SERVICE" "$OLD_FRONTEND_CID" "$OLD_FRONTEND_IMAGE" "$OLD_FRONTEND_RESTART"
+
+# An empty admission database deliberately rejects its first 60 seconds. Wait through it before authenticated smoke.
+deadline=$((SECONDS + WAIT_TIMEOUT))
+until curl --fail --silent --show-error "$FRONTEND_URL/api/site/public-settings" >/dev/null; do
+  (( SECONDS < deadline )) || die "Gateway API readiness timed out"
+  sleep 5
+done
+[[ "${YLCLOUD_DEPLOY_INJECT_FAILURE:-}" != "smoke" ]] || die "injected smoke failure"
+task_smoke
 
 # TASK-014: Enhanced platform health verification
 verify_platform_health

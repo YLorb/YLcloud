@@ -72,7 +72,22 @@ export function clearSession() {
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) { super(message); }
+  constructor(message: string, public readonly status: number, public readonly retryAfterSeconds = 0) { super(message); }
+}
+
+let gatewayRetryAt = 0;
+function checkGatewayCooldown() {
+  if (Date.now() < gatewayRetryAt) throw new ApiError("请求过于频繁，请稍后重试", 429, Math.ceil((gatewayRetryAt - Date.now()) / 1000));
+}
+function checkGatewayResponse(response: Response) {
+  if (response.status !== 429) return;
+  const raw = response.headers.get("Retry-After");
+  const seconds = raw && /^\d+$/.test(raw) ? Number(raw) : raw ? Math.ceil((Date.parse(raw) - Date.now()) / 1000) : 60;
+  const retry = Number.isFinite(seconds) ? Math.max(1, seconds) : 60;
+  if (response.headers.get("X-YLCloud-RateLimit") === "gateway") {
+    gatewayRetryAt = Math.max(gatewayRetryAt, Date.now() + retry * 1000);
+  }
+  throw new ApiError(`请求过于频繁，请在 ${retry} 秒后重试`, 429, retry);
 }
 
 export function handleAuthenticationStatus(status: number) {
@@ -80,6 +95,7 @@ export function handleAuthenticationStatus(status: number) {
 }
 
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  checkGatewayCooldown();
   const headers = new Headers(init.headers);
   if (!["GET", "HEAD", "OPTIONS"].includes((init.method || "GET").toUpperCase())) {
     headers.set("X-YLCloud-Request", "1");
@@ -97,6 +113,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     }
     throw new Error("无法连接服务器，请检查网络或服务状态");
   }
+  checkGatewayResponse(response);
   if (path !== "/api/login" && !path.startsWith("/api/public/")) handleAuthenticationStatus(response.status);
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
@@ -112,7 +129,9 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 }
 
 async function download(path: string, filename: string) {
+  checkGatewayCooldown();
   const headers = new Headers();
+  headers.set("X-YLCloud-Download", "1");
 
   let response: Response;
   try {
@@ -120,6 +139,7 @@ async function download(path: string, filename: string) {
   } catch {
     throw new Error("无法连接服务器，请检查网络或服务状态");
   }
+  checkGatewayResponse(response);
   handleAuthenticationStatus(response.status);
   if (!response.ok) {
     const contentType = response.headers.get("content-type") || "";
@@ -130,6 +150,17 @@ async function download(path: string, filename: string) {
     throw new Error(`下载失败：${response.status}`);
   }
 
+  if (response.headers.get("content-type")?.includes("application/json")) {
+    const result = await response.json() as { downloadUrl?: string; message?: string };
+    if (!result.downloadUrl || !/^https?:\/\//i.test(result.downloadUrl)) throw new Error(result.message || "下载地址无效");
+    const anchor = document.createElement("a");
+    anchor.href = result.downloadUrl;
+    anchor.rel = "noreferrer";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
