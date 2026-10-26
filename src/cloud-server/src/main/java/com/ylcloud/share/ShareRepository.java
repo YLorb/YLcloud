@@ -103,7 +103,7 @@ public class ShareRepository {
         List<Object> args=new ArrayList<>();if(id!=null)args.add(id);
         long total=db.queryForObject("SELECT COUNT(*) FROM share_link_visit v"+filter,Long.class,args.toArray());
         args.add(size);args.add((page-1)*size);
-        var rows=db.queryForList("SELECT v.id,v.link_id linkId,v.requested_code shortCode,v.user_id userId,u.username,v.ip,v.city,v.visited_at visitedAt,v.outcome FROM share_link_visit v LEFT JOIN users u ON u.user_id=v.user_id"+filter+" ORDER BY v.id DESC LIMIT ? OFFSET ?",args.toArray());
+        var rows=db.queryForList("SELECT v.id,v.link_id linkId,v.requested_code shortCode,v.user_id userId,u.username,v.ip,'-' city,v.visited_at visitedAt,v.outcome,v.log_type logType,v.access_address accessAddress,v.access_info accessInfo FROM share_link_visit v LEFT JOIN users u ON u.user_id=v.user_id"+filter+" ORDER BY v.id DESC LIMIT ? OFFSET ?",args.toArray());
         return new Page<>(rows,total,page,size);
     }
     public int cleanup(LocalDateTime cutoff) {

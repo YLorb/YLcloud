@@ -215,6 +215,7 @@ services:
     container_name: ylcloud-app
     restart: unless-stopped
     secrets:
+      - redis_password
       - gateway_forwarding_secret
       - gateway_identity_secret
       - jwt_secret
@@ -226,6 +227,8 @@ services:
       - rabbitmq_password
       - export_master_key
     depends_on:
+      gateway-redis:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
       mysql:
@@ -239,6 +242,12 @@ services:
       document-parser-service:
         condition: service_healthy
     environment:
+      YLCLOUD_SHORT_LINK_NODE_ID: ${YLCLOUD_SHORT_LINK_NODE_ID:-0}
+      YLCLOUD_SHORT_LINK_MISS_THRESHOLD: ${YLCLOUD_SHORT_LINK_MISS_THRESHOLD:-10}
+      YLCLOUD_SHORT_LINK_MISS_WINDOW_SECONDS: ${YLCLOUD_SHORT_LINK_MISS_WINDOW_SECONDS:-60}
+      YLCLOUD_SHORT_LINK_BAN_SECONDS: ${YLCLOUD_SHORT_LINK_BAN_SECONDS:-900}
+      YLCLOUD_REDIS_HOST: gateway-redis
+      YLCLOUD_REDIS_PASSWORD_FILE: /run/secrets/redis_password
       YLCLOUD_GATEWAY_FORWARDING_SECRET_FILE: /run/secrets/gateway_forwarding_secret
       YLCLOUD_GATEWAY_IDENTITY_SECRET_FILE: /run/secrets/gateway_identity_secret
       YLCLOUD_GATEWAY_AUTH_REQUIRED: "true"

@@ -50,9 +50,9 @@ public class ShareLinkController {
         return Result.success(service.open(legacy ? "legacy:"+code : code,optionalUser(request),request.getRemoteAddr()));
     }
     @PostMapping("/api/public/share-links/{code}/verify")
-    public Result<Open> verify(@PathVariable String code,@RequestBody Verify body,HttpServletResponse response){
+    public Result<Open> verify(@PathVariable String code,@RequestBody Verify body,HttpServletRequest request,HttpServletResponse response){
         response.setHeader("Cache-Control","no-store");
-        try{return Result.success(service.verify(code,body));}catch(Expired ex){return Result.success(ShareLinkService.expired());}
+        try{return Result.success(service.verify(code,body,optionalUser(request),request.getRemoteAddr()));}catch(Expired ex){return Result.success(ShareLinkService.expired());}
     }
     @PostMapping("/api/public/share-links/{code}/download")
     public void download(@PathVariable String code,@RequestParam(defaultValue="") String credential,HttpServletResponse response) throws Exception {
@@ -64,7 +64,8 @@ public class ShareLinkController {
             response.setHeader("X-Content-Type-Options","nosniff");
             response.setHeader("Content-Disposition",ContentDisposition.attachment().filename(filename,StandardCharsets.UTF_8).build().toString());
             service.transfer(d,response.getOutputStream());
-        }catch(Expired e){expiredHtml(response);}
+        }catch(com.ylcloud.service.ShortLinkAbuseGuard.Missing missing){throw missing;}
+        catch(Expired e){expiredHtml(response);}
         catch(Exception e){
             if(response.isCommitted())throw e;
             response.reset();response.setStatus(500);response.setContentType("text/html;charset=UTF-8");

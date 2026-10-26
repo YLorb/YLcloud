@@ -3,6 +3,7 @@ package com.ylcloud.utils;
 import java.time.Clock;
 import java.util.Objects;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 
 /**
  * 雪花 ID + Base62 短码生成器，不负责 URL 拼接或访问控制。
@@ -17,9 +18,12 @@ public final class ShortLinkUtil {
     private static final int MAX_SEQUENCE = 4095;
     private static final int MAX_ATTEMPTS = 10;
     private static final long WAIT_NANOS = 100_000_000L;
+    private static final long MAX_ROLLBACK_MILLIS = 15 * 60 * 1000L;
 
     private final long nodeId;
     private final Clock clock;
+    private final Runnable requireNode;
+    private final Consumer<String> events;
     private long lastTimestamp = -1;
     private int sequence;
 
@@ -27,12 +31,22 @@ public final class ShortLinkUtil {
         this(nodeId, Clock.systemUTC());
     }
 
+    public ShortLinkUtil(long nodeId, Runnable requireNode, Consumer<String> events) {
+        this(nodeId, Clock.systemUTC(), requireNode, events);
+    }
+
     ShortLinkUtil(long nodeId, Clock clock) {
+        this(nodeId, clock, () -> {}, event -> {});
+    }
+
+    ShortLinkUtil(long nodeId, Clock clock, Runnable requireNode, Consumer<String> events) {
         if (nodeId < 0 || nodeId > 1023) {
             throw new IllegalArgumentException("nodeId must be between 0 and 1023");
         }
         this.nodeId = nodeId;
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.requireNode = Objects.requireNonNull(requireNode, "requireNode");
+        this.events = Objects.requireNonNull(events, "events");
     }
 
     /**
@@ -43,13 +57,26 @@ public final class ShortLinkUtil {
      */
     public String generate(ShortCodeReservation reservation) {
         Objects.requireNonNull(reservation, "reservation");
-        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            String code = toBase62(nextId());
-            if (reservation.tryReserve(code)) {
-                return code;
+        events.accept("request");
+        try {
+            for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+                requireNode.run();
+                String code = toBase62(nextId());
+                if (reservation.tryReserve(code)) {
+                    events.accept("success");
+                    return code;
+                }
+                events.accept("collision");
             }
+            events.accept("exhausted");
+            throw new IllegalStateException("Unable to reserve a unique short code after " + MAX_ATTEMPTS + " attempts");
+        } catch (ExistingCode reused) {
+            events.accept("reused");
+            return reused.code;
+        } catch (RuntimeException failure) {
+            events.accept("failure");
+            throw failure;
         }
-        throw new IllegalStateException("Unable to reserve a unique short code after " + MAX_ATTEMPTS + " attempts");
     }
 
     /** 将非负 ID 编码为 Base62，不截断、不补位。 */
@@ -93,7 +120,10 @@ public final class ShortLinkUtil {
         }
         long timestamp = now - EPOCH_MILLIS;
         if (timestamp < lastTimestamp) {
-            throw new IllegalStateException("Clock moved backwards; refusing to generate a Snowflake ID");
+            long rollback = lastTimestamp - timestamp;
+            events.accept(rollback <= MAX_ROLLBACK_MILLIS ? "clock_wait" : "clock_error");
+            // Keep the high-water mark. Calls fail fast until wall time catches up, without parking HTTP threads.
+            throw new ClockRollbackException(rollback, rollback > MAX_ROLLBACK_MILLIS);
         }
         return timestamp;
     }
@@ -102,5 +132,27 @@ public final class ShortLinkUtil {
     public interface ShortCodeReservation {
         /** 原子占用：成功返回 true，仅短码已占用返回 false；其他错误应抛出异常。 */
         boolean tryReserve(String shortCode);
+    }
+
+    /** A reservation may discover an already committed mapping for the same target. */
+    public static final class ExistingCode extends RuntimeException {
+        private final String code;
+        public ExistingCode(String code) {
+            super(null, null, false, false);
+            if (code == null || !code.matches("[A-Za-z0-9]{1,11}")) throw new IllegalArgumentException("Invalid existing short code");
+            this.code = code;
+        }
+    }
+
+    public static final class ClockRollbackException extends IllegalStateException {
+        private final long rollbackMillis;
+        private final boolean excessive;
+        public ClockRollbackException(long rollbackMillis, boolean excessive) {
+            super(excessive ? "Clock rollback exceeds 15 minutes" : "Waiting for clock recovery");
+            this.rollbackMillis = rollbackMillis;
+            this.excessive = excessive;
+        }
+        public long rollbackMillis() { return rollbackMillis; }
+        public boolean excessive() { return excessive; }
     }
 }

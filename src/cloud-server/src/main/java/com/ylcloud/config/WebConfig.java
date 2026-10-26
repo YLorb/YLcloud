@@ -23,9 +23,13 @@ public class WebConfig implements WebMvcConfigurer {
     private OpenApiKeyInterceptor openApiKeyInterceptor;
     @Autowired
     private MaintenanceInterceptor maintenanceInterceptor;
+    @Autowired
+    private com.ylcloud.interceptor.ShortLinkAbuseInterceptor shortLinkAbuseInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(shortLinkAbuseInterceptor)
+                .addPathPatterns("/api/preview-links/**", "/api/public/share-links/**");
         registry.addInterceptor(browserCsrfInterceptor).addPathPatterns("/api/**")
                 .excludePathPatterns("/api/v1/**", "/api/open/**", "/api/public/share-links/**", "/api/share/**");
         // 维护模式拦截器：需在所有授权之前执行，覆盖所有 /api/** 路径

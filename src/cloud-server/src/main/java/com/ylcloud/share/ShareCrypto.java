@@ -49,6 +49,12 @@ public class ShareCrypto {
         finally { spec.clearPassword(); }
     }
     public String token(String code, long visit, long version, String purpose) {
+        return signedToken(code, visit, version, purpose);
+    }
+    public String token(String code, String visit, long version, String purpose) {
+        return signedToken(code, visit, version, purpose);
+    }
+    private String signedToken(String code, Object visit, long version, String purpose) {
         return Jwts.builder().setAudience("share-link").setSubject(code)
                 .claim("visit",visit).claim("version",version).claim("purpose",purpose)
                 .setExpiration(new Date(System.currentTimeMillis()+900_000))

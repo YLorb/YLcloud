@@ -32,6 +32,13 @@ spring:
         acknowledge-mode: manual
         prefetch: ${YLCLOUD_ASYNC_MQ_PREFETCH:1}
         default-requeue-rejected: false
+  data:
+    redis:
+      host: ${YLCLOUD_REDIS_HOST:127.0.0.1}
+      port: ${YLCLOUD_REDIS_PORT:6379}
+      password: ${redis_password:${YLCLOUD_REDIS_PASSWORD:}}
+      connect-timeout: 200ms
+      timeout: 200ms
 
 mybatis:
   configuration:
@@ -41,6 +48,10 @@ ylcloud:
   short-link:
     # Each application instance should use a distinct value in 0..1023.
     node-id: ${YLCLOUD_SHORT_LINK_NODE_ID:0}
+    abuse:
+      threshold: ${YLCLOUD_SHORT_LINK_MISS_THRESHOLD:10}
+      window-seconds: ${YLCLOUD_SHORT_LINK_MISS_WINDOW_SECONDS:60}
+      ban-seconds: ${YLCLOUD_SHORT_LINK_BAN_SECONDS:900}
   session:
     cookie-secure: ${YLCLOUD_SESSION_COOKIE_SECURE:true}
   knowledge:

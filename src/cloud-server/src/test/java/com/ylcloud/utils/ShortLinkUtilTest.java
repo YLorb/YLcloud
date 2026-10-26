@@ -113,4 +113,29 @@ class ShortLinkUtilTest {
             assertThrows(IllegalStateException.class, () -> invalid.generate(code -> true));
         }
     }
+
+    @Test
+    void rollbackPausesWithoutBlockingAndAutomaticallyRecovers() {
+        Clock clock = mock(Clock.class);
+        var events = new java.util.ArrayList<String>();
+        when(clock.millis()).thenReturn(NOW, NOW - 900_000, NOW - 900_001, NOW);
+        ShortLinkUtil generator = new ShortLinkUtil(1, clock, () -> {}, events::add);
+        String original = generator.generate(code -> true);
+        var shortRollback = assertThrows(ShortLinkUtil.ClockRollbackException.class, () -> generator.generate(code -> true));
+        assertFalse(shortRollback.excessive());
+        assertEquals(900_000, shortRollback.rollbackMillis());
+        var longRollback = assertThrows(ShortLinkUtil.ClockRollbackException.class, () -> generator.generate(code -> true));
+        assertTrue(longRollback.excessive());
+        assertNotEquals(original, generator.generate(code -> true));
+        assertTrue(events.containsAll(java.util.List.of("clock_wait", "clock_error", "failure", "success")));
+    }
+
+    @Test
+    void existingTargetIsReuseNotGenerationFailure() {
+        var events = new java.util.ArrayList<String>();
+        ShortLinkUtil generator = new ShortLinkUtil(1, Clock.systemUTC(), () -> {}, events::add);
+        assertEquals("abc", generator.generate(code -> { throw new ShortLinkUtil.ExistingCode("abc"); }));
+        assertTrue(events.contains("reused"));
+        assertFalse(events.contains("failure"));
+    }
 }

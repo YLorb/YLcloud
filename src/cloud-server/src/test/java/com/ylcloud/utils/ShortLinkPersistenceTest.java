@@ -82,7 +82,7 @@ class ShortLinkPersistenceTest {
         when(users.getById(1L)).thenReturn(user);
         var service = new ShareLinkService(repository, new ShareCrypto("test-only-secret-with-at-least-32-bytes"), tx,
                 mock(AuthorizationService.class), mock(SpaceFileAccessService.class), users,
-                mock(AccessControlService.class), mock(MinioclientUtil.class), db, generator());
+                mock(AccessControlService.class), mock(MinioclientUtil.class), db, generator(), mock(com.ylcloud.service.ShortLinkAccessLog.class));
         String collision = generator().generate(code -> true);
         db.update("INSERT INTO share_link(creator_id,source_type,source_id,short_code,created_at,updated_at) VALUES(2,'PERSONAL',102,?,UTC_TIMESTAMP(),UTC_TIMESTAMP())", collision);
         Conditions conditions = new Conditions("PERMANENT", null, null, null, false, null, false, null);
@@ -106,9 +106,9 @@ class ShortLinkPersistenceTest {
         assertNotEquals(first, second);
         assertEquals(second, previews.shorten(target));
         assertEquals(target, restarted.resolve(second.substring(3)));
-        assertThrows(NotFoundException.class, () -> restarted.resolve("unknown"));
-        assertThrows(NotFoundException.class, () -> restarted.resolve("../file"));
-        var mvc = MockMvcBuilders.standaloneSetup(new PreviewLinkController(restarted)).build();
+        assertThrows(com.ylcloud.service.ShortLinkAbuseGuard.Missing.class, () -> restarted.resolve("unknown"));
+        assertThrows(com.ylcloud.service.ShortLinkAbuseGuard.Missing.class, () -> restarted.resolve("../file"));
+        var mvc = MockMvcBuilders.standaloneSetup(new PreviewLinkController(restarted, mock(com.ylcloud.service.ShortLinkAccessLog.class))).build();
         mvc.perform(get("/api/preview-links/" + second.substring(3)))
                 .andExpect(status().isFound()).andExpect(header().string("Location", target))
                 .andExpect(header().string("Cache-Control", "private, no-store"));
@@ -135,5 +135,22 @@ class ShortLinkPersistenceTest {
                 "/api/space/1/files/2/download", "/api/space/1/files/2/preview\r\nLocation: https://evil.invalid"}) {
             assertThrows(IllegalArgumentException.class, () -> previews.shorten(target));
         }
+    }
+
+    @Test
+    void nodeLeaseRejectsDuplicateAndFencesExpiredOwner() {
+        var first = new com.ylcloud.service.ShortLinkNodeLease(db, new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), 19);
+        var second = new com.ylcloud.service.ShortLinkNodeLease(db, new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), 19);
+        first.acquire();
+        try {
+            assertThrows(IllegalStateException.class, second::acquire);
+            db.update("UPDATE short_link_node SET lease_until=TIMESTAMPADD(SECOND,-1,UTC_TIMESTAMP(6)) WHERE node_id=19");
+            second.acquire();
+            first.renew();
+            assertThrows(com.ylcloud.Exception.BaseException.class, first::requireActive);
+            assertDoesNotThrow(second::requireActive);
+            first.release(); // A stale owner must not delete its successor's lease.
+            assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM short_link_node WHERE node_id=19", Integer.class));
+        } finally { first.release(); second.release(); }
     }
 }

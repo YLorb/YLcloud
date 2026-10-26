@@ -27,6 +27,7 @@ import static org.mockito.Mockito.*;
 class ShareLinkIntegrationTest {
     JdbcTemplate db;ShareRepository repo;ShareLinkService service;MinioclientUtil minio;
     LoginMapper users;AuthorizationService auth;SpaceFileAccessService space;
+    ShortLinkAccessLog accessLog;
     @BeforeAll void schema() throws Exception {
         String url=System.getenv("SHARE_TEST_DB");
         if(!url.contains("/share_test"))throw new IllegalArgumentException("Only disposable share_test database allowed");
@@ -36,10 +37,12 @@ class ShareLinkIntegrationTest {
         users=mock(LoginMapper.class);auth=mock(AuthorizationService.class);space=mock(SpaceFileAccessService.class);
         minio=new MinioclientUtil("http://127.0.0.1:19090","sharetest","share-test-local","share-test");
         minio.ensureDefaultBucketReady(true);
+        accessLog=new ShortLinkAccessLog(db,new com.fasterxml.jackson.databind.ObjectMapper(),new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         service=new ShareLinkService(repo,new ShareCrypto("test-only-secret-with-at-least-32-bytes"),
-            new TransactionTemplate(new DataSourceTransactionManager(ds)),auth,space,users,mock(AccessControlService.class),minio,db,new com.ylcloud.utils.ShortLinkUtil(0));
+            new TransactionTemplate(new DataSourceTransactionManager(ds)),auth,space,users,mock(AccessControlService.class),minio,db,new com.ylcloud.utils.ShortLinkUtil(0),accessLog);
     }
     @BeforeEach void seed() throws Exception {
+        accessLog.flush();
         db.update("DELETE FROM share_link_visit");db.update("DELETE FROM share_link");
         db.update("DELETE FROM user_file");db.update("DELETE FROM space_file");db.update("DELETE FROM file_version");db.update("DELETE FROM file_info");
         reset(users,auth,space);
@@ -111,8 +114,10 @@ class ShareLinkIntegrationTest {
     }
     @Test void logsIncludeUnknownCodesAndRetentionDoesNotResetCounts() throws Exception {
         View l=create(101,null);
-        service.open("unknown",null,"::1");
+        assertThrows(ShortLinkAbuseGuard.Missing.class,()->service.open("unknown",null,"::1"));
+        accessLog.record("SHORT_LINK_MISSING",null,"::1","/s/unknown","unknown",null,"MISSING");
         var opened=service.open(l.shortCode(),1L,"ip");
+        accessLog.flush();
         assertEquals(2,repo.visits(null,1,20).total());
         try(var d=service.approve(l.shortCode(),opened.downloadToken())){}
         db.update("UPDATE share_link_visit SET visited_at=? WHERE requested_code='unknown'",LocalDateTime.now(ZoneOffset.UTC).minusDays(31));

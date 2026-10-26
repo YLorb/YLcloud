@@ -37,6 +37,7 @@ public class ShareLinkService {
     private final MinioclientUtil storage;
     private final JdbcTemplate db;
     private final ShortLinkUtil shortLinks;
+    private final com.ylcloud.service.ShortLinkAccessLog accessLog;
     static LocalDateTime now() { return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS); }
 
     public View create(long user, Create request) {
@@ -162,27 +163,33 @@ public class ShareLinkService {
     public Open open(String rawCode,Long user,String ip) {
         String code=rawCode.replaceAll("[^a-zA-Z0-9]","");if(code.length()>64)code=code.substring(0,64);
         Link l=rawCode.matches("[a-zA-Z0-9]{1,11}")?repo.byCode(rawCode):null;
+        if (l == null && !rawCode.startsWith("legacy:")) throw new com.ylcloud.service.ShortLinkAbuseGuard.Missing();
         Node n=l==null?null:repo.node(l.getSourceType(),l.getSourceId());
         boolean active=valid(l,n);
         String state=!active?"EXPIRED":l.isPasswordEnabled()?"PASSWORD_REQUIRED":"READY";
-        long visit=repo.visit(l,code,user,ip,state,now());
+        String visit=UUID.randomUUID().toString();
+        accessLog.record("SHARE_OPEN", user, ip, "/s/" + code, code, l == null ? null : l.getId(), state);
         if(!active)return expired();
         String visitToken=crypto.token(code,visit,l.getVersion(),"visit");
         if(l.isPasswordEnabled())return new Open(state,null,null,false,null,false,visitToken,null);
         return ready(l,n,visit,visitToken);
     }
     public Open verify(String code,Verify request) {
+        return verify(code,request,null,"unknown");
+    }
+    public Open verify(String code,Verify request,Long user,String ip) {
         Link l=repo.byCode(code);Node n=l==null?null:repo.node(l.getSourceType(),l.getSourceId());
+        if (l == null) throw new com.ylcloud.service.ShortLinkAbuseGuard.Missing();
         if(!valid(l,n))return expired();
-        long visit=((Number)crypto.verify(request.visitToken(),code,l.getVersion(),"visit").get("visit")).longValue();
+        String visit=String.valueOf(crypto.verify(request.visitToken(),code,l.getVersion(),"visit").get("visit"));
         if(!crypto.matches(request.password(),l.getPasswordHash())) {
-            repo.visitOutcome(visit,"PASSWORD_FAILED");
+            accessLog.record("SHARE_VERIFY", user, ip, "/s/" + code, code, l.getId(), "PASSWORD_FAILED");
             return new Open("PASSWORD_REQUIRED","密码错误",null,false,null,false,request.visitToken(),null);
         }
-        repo.visitOutcome(visit,"VERIFIED");
+        accessLog.record("SHARE_VERIFY", user, ip, "/s/" + code, code, l.getId(), "VERIFIED");
         return ready(l,n,visit,request.visitToken());
     }
-    private Open ready(Link l,Node n,long visit,String token) {
+    private Open ready(Link l,Node n,String visit,String token) {
         return new Open("READY",null,n.getName(),n.getDir()==1,n.getSize(),l.isForceDownload(),token,
                 crypto.token(l.getShortCode(),visit,l.getVersion(),"download"));
     }
@@ -195,7 +202,7 @@ public class ShareLinkService {
         Path manifest=Files.createTempFile("ylcloud-share-", ".manifest");
         try {
             return tx.execute(status -> {
-                Link first=repo.byCode(code);if(first==null)throw new Expired();
+                Link first=repo.byCode(code);if(first==null)throw new com.ylcloud.service.ShortLinkAbuseGuard.Missing();
                 repo.lockNode(first.getSourceType(),first.getSourceId());
                 Link l=repo.byId(first.getId(),true);
                 Node n=repo.node(l.getSourceType(),l.getSourceId());
