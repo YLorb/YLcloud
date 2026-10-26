@@ -1,5 +1,7 @@
 package com.ylcloud.service.space;
 
+import com.ylcloud.service.PreviewLinkService;
+
 import com.ylcloud.service.KnowledgePipelineExecutorService;
 import com.ylcloud.service.KnowledgePipelineService;
 import com.ylcloud.service.RagIndexConsistencyService;
@@ -92,6 +94,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @Service
 public class SpaceRagService {
+    @Autowired
+    private PreviewLinkService previewLinks;
+
     private com.ylcloud.service.rag.RagEvidenceService evidenceService;
     private com.ylcloud.service.KnowledgeRevisionService revisionService;
 
@@ -1505,7 +1510,7 @@ public class SpaceRagService {
                 citation.setSpaceFileId(document.getSpaceFileId());
                 citation.setFileName(document.getFileName());
                 String base = "/api/space/" + spaceId + "/files/" + document.getSpaceFileId();
-                citation.setPreviewUrl(base + "/preview");
+                citation.setPreviewUrl(previewLinks.shorten(base + "/preview"));
                 citation.setDownloadUrl(base + "/download");
             }
             citations.add(citation);
@@ -1846,7 +1851,7 @@ public class SpaceRagService {
      */
     private void fillDocumentLinks(Long spaceId, SpaceDocumentSearchVO vo) {
         String base = "/api/space/" + spaceId + "/files/" + vo.getSpaceFileId();
-        vo.setPreviewUrl(base + "/preview");
+        vo.setPreviewUrl(previewLinks.shorten(base + "/preview"));
         vo.setStreamUrl(base + "/preview/stream");
         vo.setDownloadUrl(base + "/download");
     }

@@ -32,6 +32,12 @@ class RagEvidenceServiceTest {
     RagAnswerEvidence evidence;
 
     @BeforeEach void prepare() {
+        var previewLinks = mock(com.ylcloud.service.PreviewLinkService.class);
+        when(previewLinks.shorten(anyString())).thenAnswer(invocation -> {
+            assertTrue(((String) invocation.getArgument(0)).endsWith("#page=2"));
+            return "/p/evidence1";
+        });
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "previewLinks", previewLinks);
         revision=new KnowledgeRevision(); revision.setId(40L); revision.setSpaceId(1L); revision.setSpaceFileId(2L);
         revision.setFileUuid("object-v1"); revision.setFileHash("h1"); revision.setFileVersionId(4L); revision.setMinioVersionId("immutable-v1");
         when(revisions.revisionForChunk(1L,3L,true)).thenReturn(revision);
@@ -48,7 +54,7 @@ class RagEvidenceServiceTest {
         List<SpaceRagCitationVO> result=service.createCitations(1L,7L,List.of(chunk),List.of(evidence));
         SpaceRagCitationVO citation=result.get(0);
         assertEquals(40L,citation.getRevisionId()); assertEquals(4L,citation.getFileVersionId());
-        assertEquals(2,citation.getPageStart()); assertTrue(citation.getPreviewUrl().endsWith("#page=2"));
+        assertEquals(2,citation.getPageStart()); assertEquals("/p/evidence1", citation.getPreviewUrl());
         assertNotEquals(evidence.getEvidenceId(),citation.getEvidenceId());
         ArgumentCaptor<RagEvidenceRecord> stored=ArgumentCaptor.forClass(RagEvidenceRecord.class);
         verify(mapper).insertEvidence(stored.capture());

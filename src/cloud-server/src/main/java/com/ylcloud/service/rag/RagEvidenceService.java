@@ -1,5 +1,8 @@
 package com.ylcloud.service.rag;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import com.ylcloud.service.PreviewLinkService;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +27,9 @@ import java.util.*;
 /** Server-owned evidence snapshots. Every read rechecks current authorization and revision policy. */
 @Service
 public class RagEvidenceService {
+    @Autowired
+    private PreviewLinkService previewLinks;
+
     private final RagEvidenceMapper mapper;
     private final KnowledgeRevisionService revisions;
     private final SpaceFileAccessService access;
@@ -75,7 +81,7 @@ public class RagEvidenceService {
             citation.setStale(revision.getSupersededAt()!=null);
             applyLocator(citation,chunk.getMetadata());
             String base="/api/space/"+spaceId+"/rag/evidence/"+id;
-            citation.setPreviewUrl(base+"/preview"+(citation.getPageStart()==null ? "" : "#page="+citation.getPageStart()));
+            citation.setPreviewUrl(previewLinks.shorten(base+"/preview"+(citation.getPageStart()==null ? "" : "#page="+citation.getPageStart())));
             citation.setDownloadUrl(base+"/download");
             RagEvidenceRecord record=new RagEvidenceRecord();
             record.setId(id); record.setUserId(userId); record.setSpaceId(spaceId);

@@ -38,6 +38,9 @@ mybatis:
     map-underscore-to-camel-case: true
 
 ylcloud:
+  short-link:
+    # Each application instance should use a distinct value in 0..1023.
+    node-id: ${YLCLOUD_SHORT_LINK_NODE_ID:0}
   session:
     cookie-secure: ${YLCLOUD_SESSION_COOKIE_SECURE:true}
   knowledge:

@@ -28,6 +28,15 @@ export default defineConfig({
     open: true,
     port: 5173,
     proxy: {
+      "/p/": {
+        target: "http://127.0.0.1:8088",
+        rewrite: (path) => path.replace(/^\/p\//, "/api/preview-links/"),
+        xfwd: false,
+        configure(proxy) {
+          proxy.on("proxyReq", (proxyReq, req) => proxyReq.setHeader("X-Real-IP", req.socket.remoteAddress || "127.0.0.1"));
+        },
+        changeOrigin: true
+      },
       "/api": {
         target: "http://127.0.0.1:8088",
         xfwd: false,

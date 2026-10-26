@@ -1,5 +1,8 @@
 package com.ylcloud.service.admin;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import com.ylcloud.service.PreviewLinkService;
+
 import com.ylcloud.DTO.AdminFullTextSearchDTO;
 import com.ylcloud.VO.AdminFullTextSearchResultVO;
 import com.ylcloud.config.RagProperties;
@@ -40,6 +43,9 @@ import java.util.stream.Collectors;
  */
 @Service
 public class AdminFullTextSearchService {
+    @Autowired
+    private PreviewLinkService previewLinks;
+
 
     private static final Logger log = LoggerFactory.getLogger(AdminFullTextSearchService.class);
     private static final int MAX_RESULTS = 50;
@@ -316,7 +322,7 @@ public class AdminFullTextSearchService {
                 file.setDownloadUrl(downloadUrl);
                 String previewUrl = "/api/space/" + file.getSpaceId()
                         + "/files/" + file.getSpaceFileId() + "/preview";
-                file.setPreviewUrl(previewUrl);
+                file.setPreviewUrl(previewLinks.shorten(previewUrl));
             } catch (Exception ex) {
                 log.warn("Failed to fill links for documentId={}", file.getDocumentId(), ex);
             }

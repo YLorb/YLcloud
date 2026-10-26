@@ -1,5 +1,7 @@
 package com.ylcloud.service.space;
 
+import com.ylcloud.service.PreviewLinkService;
+
 import com.ylcloud.service.CrossStoreFileWriteService;
 import com.ylcloud.service.CrossStoreOperationService;
 import com.ylcloud.service.FilePreviewTypes;
@@ -76,6 +78,9 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Service
 public class SpaceFileService {
+    @Autowired
+    private PreviewLinkService previewLinks;
+
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
     private static final Pattern TITLE_PATTERN = Pattern.compile("(?is)<title[^>]*>(.*?)</title>");
 
@@ -623,11 +628,11 @@ public class SpaceFileService {
             return vo;
         }
         if("office".equals(previewType)) {
-            vo.setPreviewUrl("/api/space/" + spaceId + "/files/" + fileId + "/preview/stream");
+            vo.setPreviewUrl(previewLinks.shorten("/api/space/" + spaceId + "/files/" + fileId + "/preview/stream"));
             return vo;
         }
         if(isStreamPreviewType(previewType)) {
-            vo.setPreviewUrl("/api/space/" + spaceId + "/files/" + fileId + "/preview/stream");
+            vo.setPreviewUrl(previewLinks.shorten("/api/space/" + spaceId + "/files/" + fileId + "/preview/stream"));
             return vo;
         }
         throw new BaseException("当前文件类型不支持预览");

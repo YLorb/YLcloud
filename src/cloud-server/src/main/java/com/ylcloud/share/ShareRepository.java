@@ -66,6 +66,15 @@ public class ShareRepository {
                 l.getShortCode(),l.getExpiresAt(),l.getMaxDownloads(),l.isPasswordEnabled(),l.getPasswordHash(),l.isForceDownload(),
                 l.getRevokedAt(),l.getUpdatedAt(),l.getVersion(),l.getId());
     }
+    public boolean reserveShortCode(long id, String code) {
+        try {
+            int updated = db.update("UPDATE share_link SET short_code=?,algorithm_version=2 WHERE id=? AND short_code IS NULL", code, id);
+            if (updated != 1) throw new IllegalStateException("Share link cannot reserve a short code");
+            return true;
+        } catch (org.springframework.dao.DuplicateKeyException duplicate) {
+            return false;
+        }
+    }
     public boolean approve(long id,LocalDateTime now) {
         return db.update("UPDATE share_link SET download_count=download_count+1 WHERE id=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?) AND (max_downloads IS NULL OR download_count<max_downloads) AND download_count<9223372036854775807",id,now)==1;
     }

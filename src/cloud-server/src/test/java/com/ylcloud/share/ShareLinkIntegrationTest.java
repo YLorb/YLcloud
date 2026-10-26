@@ -37,7 +37,7 @@ class ShareLinkIntegrationTest {
         minio=new MinioclientUtil("http://127.0.0.1:19090","sharetest","share-test-local","share-test");
         minio.ensureDefaultBucketReady(true);
         service=new ShareLinkService(repo,new ShareCrypto("test-only-secret-with-at-least-32-bytes"),
-            new TransactionTemplate(new DataSourceTransactionManager(ds)),auth,space,users,mock(AccessControlService.class),minio,db);
+            new TransactionTemplate(new DataSourceTransactionManager(ds)),auth,space,users,mock(AccessControlService.class),minio,db,new com.ylcloud.utils.ShortLinkUtil(0));
     }
     @BeforeEach void seed() throws Exception {
         db.update("DELETE FROM share_link_visit");db.update("DELETE FROM share_link");

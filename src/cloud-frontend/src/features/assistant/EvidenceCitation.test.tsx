@@ -7,6 +7,13 @@ vi.mock("../../api", () => ({ api: { ragEvidence: vi.fn() } }));
 describe("EvidenceCitation", () => {
   afterEach(cleanup);
   beforeEach(() => vi.clearAllMocks());
+  it("opens a short preview link from the authorized evidence response", async () => {
+    const citation = { spaceId: 1, evidenceId: "e-1", previewUrl: "/p/aZ123456789" };
+    vi.mocked(api.ragEvidence).mockResolvedValue({ citation, content: "verified" });
+    render(<EvidenceCitation citation={citation} index={0} />);
+    fireEvent.click(screen.getByRole("button", { name: "核验原文" }));
+    expect(await screen.findByRole("link", { name: "打开对应版本" })).toHaveAttribute("href", citation.previewUrl);
+  });
   it("resolves authorized evidence and does not follow arbitrary source URLs", async () => {
     const citation = { spaceId: 1, evidenceId: "e-1", revisionId: 1, pageStart: 3, fileName: "退款政策.pdf", previewUrl: "https://example.invalid/file" };
     vi.mocked(api.ragEvidence).mockResolvedValue({ citation, content: "仅适用于未使用的商品。" });

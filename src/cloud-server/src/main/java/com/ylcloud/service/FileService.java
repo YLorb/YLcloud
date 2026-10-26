@@ -25,7 +25,6 @@ import com.ylcloud.mapper.LoginMapper;
 import com.ylcloud.utils.HashUtil;
 import com.ylcloud.utils.Md5Util;
 import com.ylcloud.utils.MinioclientUtil;
-import com.ylcloud.utils.ShareCodeUtil;
 import com.ylcloud.utils.UuidUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +53,9 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 @Slf4j
 public class FileService {
+    @Autowired
+    private PreviewLinkService previewLinks;
+
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
     private static final Set<String> IMAGE_TYPES = Set.of("jpg","jpeg","png","gif","webp","bmp","svg","heic");
     private static final Set<String> VIDEO_TYPES = Set.of("mp4","mov","mkv","webm","avi","flv","m4v");
@@ -683,11 +685,11 @@ public class FileService {
             return filePreviewVO;
         }
         if("office".equals(previewType)) {
-            filePreviewVO.setPreviewUrl("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId);
+            filePreviewVO.setPreviewUrl(previewLinks.shorten("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId));
             return filePreviewVO;
         }
         if("image".equals(previewType) || "pdf".equals(previewType) || "video".equals(previewType) || "audio".equals(previewType)) {
-            filePreviewVO.setPreviewUrl("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId);
+            filePreviewVO.setPreviewUrl(previewLinks.shorten("/api/file/preview/" + fileUuid + "/stream?parentId=" + parentId));
             return filePreviewVO;
         }
         throw new BaseException("当前文件类型不支持预览");
@@ -796,20 +798,6 @@ public class FileService {
     public String shareFile(String fileUuid, Long parentId) {
         requireFileByUuid(fileUuid,parentId,FilePermission.MODIFY);
         throw new BaseException("旧分享功能已停用，请创建新的分享链接");
-    }
-
-    /**
-     * 执行 generateUniqueShareCode 函数的业务处理。
-     * @return 处理结果
-     */
-    private String generateUniqueShareCode() {
-        for(int i = 0; i < 10; i++) {
-            String shareCode = ShareCodeUtil.generate();
-            if(!fileShareMapper.existsByShareCode(shareCode)) {
-                return shareCode;
-            }
-        }
-        throw new BaseException("生成分享码失败，请重试");
     }
 
     /**

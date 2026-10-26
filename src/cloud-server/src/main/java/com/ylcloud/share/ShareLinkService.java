@@ -9,6 +9,7 @@ import com.ylcloud.service.AccessControlService;
 import com.ylcloud.constant.UserPermissionKeys;
 import com.ylcloud.service.space.SpaceFileAccessService;
 import com.ylcloud.utils.MinioclientUtil;
+import com.ylcloud.utils.ShortLinkUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class ShareLinkService {
     private final AccessControlService access;
     private final MinioclientUtil storage;
     private final JdbcTemplate db;
+    private final ShortLinkUtil shortLinks;
     static LocalDateTime now() { return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS); }
 
     public View create(long user, Create request) {
@@ -53,7 +55,9 @@ public class ShareLinkService {
                     link.setSourceType(request.sourceType());link.setSpaceId(node.getSpaceId());
                     link.setFileUuid(node.getUuid());link.setContentRevision(node.getRevision());
                     link.setCreatedAt(now());link.setVersion(0L);link.setDownloadCount(0L);
-                    link.setId(repo.insert(link));link.setShortCode(ShareCrypto.code(link.getId(),user));
+                    link.setId(repo.insert(link));
+                    long linkId = link.getId();
+                    link.setShortCode(shortLinks.generate(code -> repo.reserveShortCode(linkId, code)));
                 } else link=repo.byId(link.getId(),true);
                 apply(link,request.conditions());
                 repo.save(link);return view(link,node);
@@ -157,7 +161,7 @@ public class ShareLinkService {
     }
     public Open open(String rawCode,Long user,String ip) {
         String code=rawCode.replaceAll("[^a-zA-Z0-9]","");if(code.length()>64)code=code.substring(0,64);
-        Link l=rawCode.matches("[a-zA-Z0-9]{8}")?repo.byCode(rawCode):null;
+        Link l=rawCode.matches("[a-zA-Z0-9]{1,11}")?repo.byCode(rawCode):null;
         Node n=l==null?null:repo.node(l.getSourceType(),l.getSourceId());
         boolean active=valid(l,n);
         String state=!active?"EXPIRED":l.isPasswordEnabled()?"PASSWORD_REQUIRED":"READY";

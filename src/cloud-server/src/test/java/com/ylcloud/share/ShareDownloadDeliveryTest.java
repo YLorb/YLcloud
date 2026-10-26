@@ -14,7 +14,7 @@ class ShareDownloadDeliveryTest {
     @TempDir Path directory;
     private final ShareRepository repository = mock(ShareRepository.class);
     private final MinioclientUtil storage = mock(MinioclientUtil.class);
-    private final ShareLinkService service = new ShareLinkService(repository,null,null,null,null,null,null,storage,null);
+    private final ShareLinkService service = new ShareLinkService(repository,null,null,null,null,null,null,storage,null,new com.ylcloud.utils.ShortLinkUtil(0));
     @Test void directShareUsesApprovedImmutableManifestAndCapsLifetime() throws Exception {
         var link = new ShareModels.Link(); link.setExpiresAt(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(45));
         when(repository.byCode("code")).thenReturn(link);

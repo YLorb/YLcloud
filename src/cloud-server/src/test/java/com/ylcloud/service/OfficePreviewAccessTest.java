@@ -25,6 +25,7 @@ class OfficePreviewAccessTest {
     private final FileInfoMapper files = mock(FileInfoMapper.class);
     private final AuthorizationService authorization = mock(AuthorizationService.class);
     private final SpaceFileAccessService spaceAccess = mock(SpaceFileAccessService.class);
+    private final PreviewLinkService previewLinks = mock(PreviewLinkService.class);
 
     @AfterEach
     void clearContext() { BaseContext.removeCurrentId(); }
@@ -32,6 +33,8 @@ class OfficePreviewAccessTest {
     private FileService personal() {
         BaseContext.setCurrentId(7L);
         FileService service = new FileService();
+        ReflectionTestUtils.setField(service, "previewLinks", previewLinks);
+        when(previewLinks.shorten("/api/file/preview/office-id/stream?parentId=9")).thenReturn("/p/personalCode");
         ReflectionTestUtils.setField(service, "fileInfoMapper", files);
         ReflectionTestUtils.setField(service, "authorizationService", authorization);
         ReflectionTestUtils.setField(service, "officePreviewService", converter);
@@ -46,6 +49,8 @@ class OfficePreviewAccessTest {
 
     private SpaceFileService space() {
         SpaceFileService service = mock(SpaceFileService.class, CALLS_REAL_METHODS);
+        ReflectionTestUtils.setField(service, "previewLinks", previewLinks);
+        when(previewLinks.shorten("/api/space/2/files/3/preview/stream")).thenReturn("/p/spaceCode");
         ReflectionTestUtils.setField(service, "spaceFileAccessService", spaceAccess);
         ReflectionTestUtils.setField(service, "fileInfoMapper", files);
         ReflectionTestUtils.setField(service, "officePreviewService", converter);
@@ -64,7 +69,9 @@ class OfficePreviewAccessTest {
     @Test
     void personalPreviewUsesAuthorizedStream() {
         FileService service = personal();
-        assertEquals("office", service.previewFile("office-id", 9L).getPreviewType());
+        var preview = service.previewFile("office-id", 9L);
+        assertEquals("office", preview.getPreviewType());
+        assertEquals("/p/personalCode", preview.getPreviewUrl());
         MockHttpServletResponse response = new MockHttpServletResponse();
         service.previewFileStream("office-id", 9L, response);
         verify(converter).writePdf("office-id", "report.docx", 123L, response);
@@ -84,7 +91,7 @@ class OfficePreviewAccessTest {
     @Test
     void spacePreviewUsesAuthorizedStream() {
         SpaceFileService service = space();
-        assertEquals("/api/space/2/files/3/preview/stream", service.previewFile(2L, 3L, 7L).getPreviewUrl());
+        assertEquals("/p/spaceCode", service.previewFile(2L, 3L, 7L).getPreviewUrl());
         MockHttpServletResponse response = new MockHttpServletResponse();
         service.previewFileStream(2L, 3L, 7L, response);
         verify(converter).writePdf("office-id", "report.docx", 123L, response);

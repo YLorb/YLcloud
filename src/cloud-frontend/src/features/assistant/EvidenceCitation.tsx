@@ -27,6 +27,8 @@ export function EvidenceCitation({ citation, index }: { citation: RagCitation; i
   // Only server evidence routes may be followed; legacy arbitrary citation URLs are not trusted.
   function protectedLink(url?: string) {
     if (!url || !citation.evidenceId || !citation.spaceId) return undefined;
+    // Only used with the freshly authorized evidence response, never a model-provided URL.
+    if (/^\/p\/[A-Za-z0-9]{1,11}$/.test(url)) return url;
     const expected = `/api/space/${citation.spaceId}/rag/evidence/${encodeURIComponent(citation.evidenceId)}/`;
     if (!url.startsWith(expected)) return undefined;
     const action = url.slice(expected.length);

@@ -44,6 +44,9 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 @Service
 public class FileVersionService {
+    @Autowired
+    private PreviewLinkService previewLinks;
+
     private static final Logger log = LoggerFactory.getLogger(FileVersionService.class);
     private static final long MAX_TEXT_PREVIEW_SIZE = 1024 * 1024;
 
@@ -235,7 +238,7 @@ public class FileVersionService {
             return vo;
         }
         if(isStreamPreviewType(previewType)) {
-            vo.setPreviewUrl("/api/space/" + spaceId + "/files/" + spaceFileId + "/versions/" + versionRecordId + "/preview/stream");
+            vo.setPreviewUrl(previewLinks.shorten("/api/space/" + spaceId + "/files/" + spaceFileId + "/versions/" + versionRecordId + "/preview/stream"));
             return vo;
         }
         throw new BaseException("当前文件类型不支持预览");
@@ -696,7 +699,7 @@ public class FileVersionService {
         vo.setCurrent(version.getCurrent());
         vo.setCreatetime(version.getCreatetime());
         String base = "/api/space/" + spaceId + "/files/" + spaceFileId + "/versions/" + version.getId();
-        vo.setPreviewUrl(base + "/preview");
+        vo.setPreviewUrl(previewLinks.shorten(base + "/preview"));
         vo.setStreamUrl(base + "/preview/stream");
         vo.setDownloadUrl(base + "/download");
         return vo;
